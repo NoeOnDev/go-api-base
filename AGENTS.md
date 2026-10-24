@@ -33,6 +33,7 @@ verificación de email opcional y 2FA con TOTP; ver `docs/auth.md`), envío de c
 | `make migrate-new name=create_x` | Crear una migración nueva |
 | `make migrate-up` / `migrate-down` / `migrate-status` | Manejar migraciones en desarrollo |
 | `make create-admin email=… name=…` | Crear un administrador (contraseña por `ADMIN_PASSWORD` o por la terminal) |
+| `make key` / `make rotate-keys` | Generar una `ENCRYPTION_KEY` / terminar una rotación (ver `docs/encryption.md`) |
 | `make build` | Binario estático en `bin/api` |
 
 `make` carga `.env` automáticamente. Las herramientas (sqlc, goose, govulncheck) se ejecutan con `go run paquete@versión`,
@@ -50,7 +51,7 @@ internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/R
                       recuperación y verificación; plantillas de correo en emails/*.txt
 internal/mail/        envío de correos: LogSender, SMTPSender, Queue (en segundo plano) y Recorder (tests)
 internal/totp/        códigos TOTP del 2FA (RFC 6238), solo librería estándar
-internal/secretbox/   cifrado AES-256-GCM y HMAC con claves derivadas de ENCRYPTION_KEY
+internal/secretbox/   llavero: cifrado AES-256-GCM y HMAC con la clave actual y las anteriores (rotación)
 internal/db/          pool de pgx, migraciones, errores de PostgreSQL y consultas SQL (queries/*.sql)
 internal/store/       GENERADO por sqlc: no editar a mano
 internal/validate/    reglas de validación compartidas (obligatorio, longitud, slug, no negativo)
@@ -89,7 +90,9 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 
 **Datos sensibles**
 - Todo dato secreto que haya que guardar y después leer (como el secreto del 2FA o un token de una API externa) se
-  cifra con `secretbox.Box.Encrypt`. Lo que solo se compara (como los códigos de recuperación) se guarda con `Box.MAC`.
+  cifra con `secretbox.Box.Encrypt`. Lo que solo se compara (como los códigos de recuperación) se guarda con `Box.MAC`
+  y se verifica con `Box.MACs` (todas las claves), guardando también `Box.KeyID()`.
+- Si agregás un dato cifrado nuevo, sumalo a `auth.RotateKeys` (o a su equivalente) para que la rotación lo incluya.
 - Nunca guardar secretos en texto plano ni registrarlos en el log.
 
 **Correos**

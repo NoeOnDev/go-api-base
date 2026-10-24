@@ -48,7 +48,7 @@ Incluye:
 
    ```bash
    cp .env.example .env
-   sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
+   sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=$(make -s key)|" .env
    ```
 
 3. **(Opcional) Correos en desarrollo.** Levantá Mailpit, que muestra los correos en `http://localhost:8025`, y configurá `MAIL_DRIVER=smtp`, `SMTP_HOST=localhost` y `SMTP_PORT=1025`:
@@ -142,7 +142,8 @@ Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene
 | `MAIL_FROM` | `no-reply@localhost` | Remitente |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | — / `587` | Datos del servidor SMTP |
 | `APP_NAME` | `Mi App` | Nombre que muestra la app de autenticación del 2FA |
-| `ENCRYPTION_KEY` | (obligatoria) | Clave para cifrar el secreto del 2FA. Generala con `openssl rand -base64 32` |
+| `ENCRYPTION_KEY` | (obligatoria) | Clave para cifrar el secreto del 2FA. Generala con `make key` (ver [docs/encryption.md](docs/encryption.md)) |
+| `ENCRYPTION_PREVIOUS_KEYS` | | Claves anteriores, solo durante una rotación |
 
 Los valores con espacios van entre comillas: `APP_NAME="Mi App"`.
 
@@ -157,6 +158,8 @@ Ejecutá `make` para ver la lista completa. Los principales:
 | `make sqlc` | Regenera el código de la base después de cambiar migraciones o consultas |
 | `make migrate-new name=create_x` | Crea una migración |
 | `make create-admin email=…` | Crea un administrador |
+| `make key` | Genera una clave para `ENCRYPTION_KEY` |
+| `make rotate-keys` | Termina una rotación de `ENCRYPTION_KEY` (ver [docs/encryption.md](docs/encryption.md)) |
 | `make build` | Binario estático en `bin/api` |
 
 ## Estructura
@@ -169,7 +172,7 @@ internal/server/     servidor, rutas y protección CSRF
 internal/auth/       usuarios, sesiones, roles, perfil, recuperación y verificación (y sus plantillas de correo)
 internal/mail/       envío de correos (log, SMTP, en segundo plano)
 internal/totp/       códigos TOTP del 2FA (RFC 6238)
-internal/secretbox/  cifrado (AES-256-GCM) y HMAC con claves derivadas de ENCRYPTION_KEY
+internal/secretbox/  cifrado (AES-256-GCM) y HMAC con un llavero de claves rotables
 internal/db/         conexión, migraciones, errores de PostgreSQL y consultas SQL
 internal/store/      código generado por sqlc (no editar)
 internal/validate/   reglas de validación compartidas
@@ -209,6 +212,7 @@ Después:
 ## Documentación
 
 - [Autenticación](docs/auth.md): cómo funciona y cómo usarla desde React.
+- [Cifrado y `ENCRYPTION_KEY`](docs/encryption.md): qué protege, cómo guardarla y cómo rotarla.
 - [Cómo agregar un recurso](docs/adding-a-resource.md)
 - [Decisiones de diseño](docs/decisions.md)
 - [AGENTS.md](AGENTS.md): convenciones para agentes de código (Claude Code, Codex, Copilot).

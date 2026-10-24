@@ -5,6 +5,33 @@ usá esta lista para saber de qué versión salió un proyecto y qué mejoras po
 
 Formato: una sección por versión, con lo **agregado**, **cambiado** y **corregido**.
 
+## [v0.3.1] - 2026-10-24
+
+Rotación de `ENCRYPTION_KEY` sin afectar a los usuarios, y mejor manejo de errores.
+
+### Agregado
+
+- **`ENCRYPTION_PREVIOUS_KEYS`:** claves anteriores que se siguen aceptando para leer lo cifrado antes de una rotación.
+- **Identificador de clave:** cada dato cifrado lo lleva (`52bf1807:…`), así se sabe con qué clave descifrarlo y si hay que volver a cifrarlo.
+- **Recifrado gradual:** al usar el 2FA, un secreto cifrado con una clave vieja pasa a la actual.
+- **`make rotate-keys` (`./api rotate-keys`):** vuelve a cifrar todo lo que falte y reporta:
+  - los secretos que no se pueden descifrar;
+  - los usuarios con códigos de recuperación de claves viejas;
+  - las claves que ya se pueden quitar.
+
+  Termina con error si la rotación no está completa.
+- **`make key` (`./api generate-key`):** genera una clave nueva, sin `openssl`.
+- **`docs/encryption.md`:** qué protege la clave, cómo guardarla, la rotación paso a paso, qué hacer si se pierde y la comparación con el `APP_KEY` de Laravel.
+
+### Cambiado
+
+- Los códigos de recuperación guardan el `key_id` de su HMAC y se verifican con todas las claves del llavero.
+- `secretbox.New` recibe la clave actual y las anteriores. Hay errores tipados: `ErrUnknownKey` y `ErrDecrypt`.
+
+### Corregido
+
+- Un secreto del 2FA que no se puede descifrar ya no responde `500`: responde `503 two_factor_unavailable` con un mensaje claro, y el log registra la causa y la clave.
+
 ## [v0.3.0] - 2026-10-24
 
 2FA voluntario con app de autenticación, comparable a lo que Laravel Fortify suma sobre Breeze.

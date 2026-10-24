@@ -98,6 +98,17 @@ Activada, bloquea las rutas protegidas con un `403 email_not_verified` en lugar 
 - **El login en dos pasos usa un desafío** en `user_tokens` y una cookie `HttpOnly`, no un token en el cuerpo de la respuesta. El frontend no maneja secretos, y el desafío vence en 5 minutos.
 - **El 2FA es voluntario.** Obligarlo para ciertos roles es fácil de agregar en un proyecto (un control en `RequireAdmin`), pero cada proyecto lo decide.
 
+## Claves rotables con identificador
+
+`secretbox` es un llavero: una clave actual y las anteriores (`ENCRYPTION_PREVIOUS_KEYS`).
+
+- **Cada dato cifrado lleva el identificador de su clave** (una huella derivada con HKDF), así la API sabe con cuál descifrar sin probarlas todas. Laravel, con `APP_PREVIOUS_KEYS`, sí prueba una tras otra.
+- **La rotación es gradual:** cada secreto se vuelve a cifrar cuando su usuario usa el 2FA, y `rotate-keys` termina el resto.
+- **El reporte indica cuándo se puede quitar una clave vieja**, para no hacerlo a ciegas.
+- **Los códigos de recuperación guardan el `key_id` de su HMAC**, porque sin el código original no se puede saber con qué clave se calcularon.
+
+Se descartó un servicio de claves externo (AWS KMS, Vault): en un VPS chico agrega costo y complejidad que no se justifican.
+
 ## argon2id para las contraseñas
 
 Es el algoritmo recomendado por OWASP. Los parámetros (19 MiB, 2 iteraciones, 1 hilo) son los mínimos que recomiendan, elegidos porque el destino es un VPS de 1 vCPU.

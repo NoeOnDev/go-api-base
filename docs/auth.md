@@ -41,7 +41,7 @@ La cookie tiene estos atributos:
 | `POST` | `/auth/password/reset` | público | `{token, password}` | `204`; `422` si el enlace no es válido o venció |
 | `POST` | `/auth/email/verify` | público | `{token}` | `204`; `422` si el enlace no es válido o venció |
 | `POST` | `/auth/email/resend` | sesión | | `202`; `204` si el email ya estaba verificado |
-| `POST` | `/auth/two-factor/challenge` | cookie del desafío | `{code}` o `{recovery_code}` | `200` con el usuario y la cookie de sesión; `422` si el código es incorrecto; `401` si el desafío venció |
+| `POST` | `/auth/two-factor/challenge` | cookie del desafío | `{code}` o `{recovery_code}` | `200` con el usuario y la cookie de sesión; `422` si el código es incorrecto; `401` si el desafío venció; `503` si el secreto no se puede descifrar |
 | `POST` | `/auth/two-factor/setup` | usuario | | `200 {secret, otpauth_url}`; `409` si ya está activo |
 | `POST` | `/auth/two-factor/enable` | usuario | `{code}` | `200 {recovery_codes}`; `422` si el código es incorrecto |
 | `POST` | `/auth/two-factor/disable` | usuario | `{password}` | `204` |
@@ -130,7 +130,7 @@ Un código incorrecto responde `422` y deja reintentar, con el límite de intent
   UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL WHERE email = '…';
   ```
 
-**Cuidado con `ENCRYPTION_KEY`:** es obligatoria y hay que guardarla como cualquier secreto de producción. Si se pierde o se cambia, los secretos guardados no se pueden descifrar y los usuarios con 2FA tendrán que volver a configurarlo.
+**Cuidado con `ENCRYPTION_KEY`:** es obligatoria y hay que guardarla como cualquier secreto de producción. Se puede rotar sin afectar a nadie, y si se pierde, el segundo paso del login responde `503 two_factor_unavailable` con un mensaje claro. Todo esto está en [docs/encryption.md](encryption.md).
 
 ## Correos
 

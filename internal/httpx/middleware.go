@@ -66,6 +66,12 @@ func LoggerFrom(ctx context.Context) *slog.Logger {
 	return slog.Default()
 }
 
+// WithLogger devuelve un contexto con otro logger para la petición, por ejemplo
+// el mismo logger con el user_id agregado una vez que se sabe quién es el usuario.
+func WithLogger(ctx context.Context, logger *slog.Logger) context.Context {
+	return context.WithValue(ctx, loggerKey, logger)
+}
+
 func newRequestID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b) // crypto/rand.Read no falla en los sistemas soportados

@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/notes"
 	"github.com/NoeOnDev/go-api-base/internal/store"
@@ -17,6 +19,7 @@ import (
 type Deps struct {
 	Logger *slog.Logger
 	DB     *pgxpool.Pool
+	Config config.Config
 }
 
 // NewHandler registra todas las rutas y les aplica los middlewares comunes.
@@ -25,8 +28,15 @@ func NewHandler(d Deps) http.Handler {
 
 	mux.Handle("GET /healthz", health(d.DB))
 
-	// Recursos de la API. Cada recurso nuevo se registra acá.
 	queries := store.New(d.DB)
+
+	authService := auth.NewService(queries, auth.Options{
+		SessionTTL:   d.Config.SessionTTL,
+		CookieSecure: d.Config.CookieSecure,
+	})
+	auth.Register(mux, authService)
+
+	// Recursos de la API. Cada recurso nuevo se registra acá.
 	notes.Register(mux, notes.NewHandler(queries))
 
 	// Cualquier ruta no registrada responde 404 con el formato de error de la API.

@@ -17,7 +17,20 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	var err error
+
+	// Sin argumentos se levanta el servidor. Los subcomandos son tareas de administración
+	// que usan la misma configuración y el mismo binario.
+	switch {
+	case len(os.Args) < 2:
+		err = run()
+	case os.Args[1] == "create-admin":
+		err = runCreateAdmin(os.Args[2:])
+	default:
+		err = fmt.Errorf("comando desconocido %q (disponibles: create-admin)", os.Args[1])
+	}
+
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -51,6 +64,7 @@ func run() error {
 	srv := server.New(cfg.HTTPAddr, server.NewHandler(server.Deps{
 		Logger: logger,
 		DB:     pool,
+		Config: cfg,
 	}), logger)
 
 	// El servidor corre en otra goroutine para que esta pueda esperar la señal de apagado.

@@ -88,6 +88,7 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 
 **Tests**
 - Tests de integración con `testutil.NewDB(t)` (vacía todas las tablas) y `testutil.Login(t, pool, email, rol)` para la sesión.
+  Usan solo `TEST_DATABASE_URL`, que debe terminar en `_test` y ser distinta de `DATABASE_URL`. **No quitar esa protección.**
 - Peticiones con `testutil.NewAPI`, `testutil.Do` y `testutil.Decode`, como en `internal/products/handlers_test.go`.
 - Los tests que usan la base no llevan `t.Parallel()`, y los paquetes corren en serie (`-p 1`, ya incluido en `make test`).
 - Cubrir siempre: el caso feliz, validación (422), no encontrado (404), sin sesión (401) y, si aplica, sin permiso (403) o pertenencia.

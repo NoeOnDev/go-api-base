@@ -24,6 +24,9 @@ import (
 // Si TEST_DATABASE_URL no está definida, el test se saltea en lugar de fallar:
 // así los tests unitarios siguen corriendo en una máquina sin base de datos.
 //
+// Como vacía todas las tablas, se niega a usar una base cuyo nombre no termine en "_test"
+// o que sea la misma de DATABASE_URL (ver checkTestDatabase).
+//
 // Los paquetes comparten la base de pruebas, así que deben correr de a uno:
 // go test -p 1 ./... (es lo que hace make test). Dentro de un paquete, los tests
 // que usan la base no deben llevar t.Parallel().
@@ -33,6 +36,9 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("TEST_DATABASE_URL no está definida: se saltea el test de integración")
+	}
+	if err := checkTestDatabase(url, os.Getenv("DATABASE_URL")); err != nil {
+		t.Fatal(err)
 	}
 
 	ctx := t.Context()
@@ -99,4 +105,31 @@ func Login(t *testing.T, pool *pgxpool.Pool, email, role string) (auth.User, *ht
 	}
 	t.Fatal("no se generó la cookie de sesión")
 	return auth.User{}, nil
+}
+
+// checkTestDatabase evita que los tests borren datos reales por un error de configuración
+// (por ejemplo, copiar DATABASE_URL en TEST_DATABASE_URL). Exige que la base de pruebas
+// se llame "<algo>_test" y que no sea la misma base que usa la aplicación.
+func checkTestDatabase(testURL, appURL string) error {
+	testCfg, err := pgx.ParseConfig(testURL)
+	if err != nil {
+		return fmt.Errorf("TEST_DATABASE_URL inválida: %w", err)
+	}
+
+	if !strings.HasSuffix(testCfg.Database, "_test") {
+		return fmt.Errorf("TEST_DATABASE_URL apunta a la base %q: por seguridad, la base de pruebas debe terminar en \"_test\" "+
+			"(los tests vacían todas sus tablas)", testCfg.Database)
+	}
+
+	if appURL == "" {
+		return nil
+	}
+	appCfg, err := pgx.ParseConfig(appURL)
+	if err != nil {
+		return nil // la URL de la app no es asunto de los tests; config.Load la valida
+	}
+	if testCfg.Host == appCfg.Host && testCfg.Port == appCfg.Port && testCfg.Database == appCfg.Database {
+		return fmt.Errorf("TEST_DATABASE_URL y DATABASE_URL apuntan a la misma base (%s): los tests la vaciarían", testCfg.Database)
+	}
+	return nil
 }

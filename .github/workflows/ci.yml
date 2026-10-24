@@ -31,7 +31,7 @@ jobs:
 
     env:
       # Base descartable del contenedor de CI; las credenciales no son secretas.
-      DATABASE_URL: postgres://go_api_base:go_api_base@localhost:5432/go_api_base_test?sslmode=disable
+      # Solo hace falta TEST_DATABASE_URL: los tests no usan DATABASE_URL.
       TEST_DATABASE_URL: postgres://go_api_base:go_api_base@localhost:5432/go_api_base_test?sslmode=disable
 
     steps:

@@ -91,6 +91,12 @@ Un recurso ajeno responde **404 y no 403**, para no revelar que existe.
 
 `price_cents bigint` en lugar de `float` (tiene errores de redondeo) o `numeric` (se mapea a un tipo incómodo en Go). El frontend divide por 100 para mostrarlo.
 
+## Base de pruebas separada y protegida
+
+Los tests usan **solo** `TEST_DATABASE_URL`, una base distinta de la de desarrollo (`DATABASE_URL`), así que nunca tocan los datos que usás para probar a mano o mostrar demos.
+
+Como cada test vacía todas las tablas, `testutil.NewDB` se niega a correr si la base de pruebas no termina en `_test` o si es la misma que `DATABASE_URL`. Así, un error al copiar variables no puede borrar la base de desarrollo, ni mucho menos la de producción. Es la misma convención que usan Rails y Django.
+
 ## Tests de integración en serie
 
 Los paquetes comparten la base de pruebas y cada test la vacía al empezar. Por eso `make test` usa `go test -p 1`. Con la escala actual, todos los tests tardan alrededor de un segundo y medio.

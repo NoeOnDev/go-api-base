@@ -53,7 +53,7 @@ func runRotateKeys() error {
 	}
 
 	fmt.Printf("Clave actual: %s\n", report.CurrentKeyID)
-	fmt.Printf("Secretos del 2FA: %d vueltos a cifrar, %d ya estaban con la clave actual.\n",
+	fmt.Printf("Secretos del 2FA vueltos a cifrar: %d. Ya con la clave actual: %d.\n",
 		report.Reencrypted, report.AlreadyCurrent)
 
 	if len(report.Undecryptable) > 0 {
@@ -67,7 +67,7 @@ func runRotateKeys() error {
 	if len(report.OldRecoveryCodes) > 0 {
 		fmt.Println("\nCódigos de recuperación calculados con claves anteriores:")
 		for _, k := range report.OldRecoveryCodes {
-			fmt.Printf("  - clave %s: %d usuarios\n", k.KeyID, k.Users)
+			fmt.Printf("  - clave %s: %s\n", k.KeyID, users(k.Users))
 		}
 		fmt.Println("  No se pueden recalcular: esos usuarios tienen que regenerarlos desde su perfil.")
 		fmt.Println("  Si quitás la clave, sus códigos actuales dejan de servir (su app de autenticación sí sigue funcionando).")
@@ -82,4 +82,11 @@ func runRotateKeys() error {
 	}
 	fmt.Println("\nListo: nada depende de claves anteriores.")
 	return nil
+}
+
+func users(n int64) string {
+	if n == 1 {
+		return "1 usuario"
+	}
+	return fmt.Sprintf("%d usuarios", n)
 }

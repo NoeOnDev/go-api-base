@@ -17,7 +17,7 @@ const frontend = "https://app.ejemplo.com"
 
 func newAPI(t *testing.T) http.Handler {
 	t.Helper()
-	pool := testutil.NewDB(t, "users")
+	pool := testutil.NewDB(t)
 	return server.NewHandler(server.Deps{
 		Logger: slog.New(slog.DiscardHandler),
 		DB:     pool,

@@ -28,7 +28,7 @@ type apiError struct {
 
 func newAPI(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	t.Helper()
-	pool := testutil.NewDB(t, "users")
+	pool := testutil.NewDB(t)
 	api := server.NewHandler(server.Deps{
 		Logger: slog.New(slog.DiscardHandler),
 		DB:     pool,
@@ -207,7 +207,7 @@ func TestSessionTokenIsStoredHashed(t *testing.T) {
 }
 
 func TestRequireAdmin(t *testing.T) {
-	pool := testutil.NewDB(t, "users")
+	pool := testutil.NewDB(t)
 	service := auth.NewService(store.New(pool), auth.Options{})
 
 	mux := http.NewServeMux()

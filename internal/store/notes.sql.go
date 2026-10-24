@@ -11,31 +11,34 @@ import (
 
 const countNotes = `-- name: CountNotes :one
 SELECT count(*) FROM notes
+WHERE user_id = $1
 `
 
-func (q *Queries) CountNotes(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countNotes)
+func (q *Queries) CountNotes(ctx context.Context, userID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countNotes, userID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const createNote = `-- name: CreateNote :one
-INSERT INTO notes (title, body)
-VALUES ($1, $2)
-RETURNING id, title, body, created_at, updated_at
+INSERT INTO notes (user_id, title, body)
+VALUES ($1, $2, $3)
+RETURNING id, user_id, title, body, created_at, updated_at
 `
 
 type CreateNoteParams struct {
-	Title string
-	Body  string
+	UserID int64
+	Title  string
+	Body   string
 }
 
 func (q *Queries) CreateNote(ctx context.Context, arg CreateNoteParams) (Note, error) {
-	row := q.db.QueryRow(ctx, createNote, arg.Title, arg.Body)
+	row := q.db.QueryRow(ctx, createNote, arg.UserID, arg.Title, arg.Body)
 	var i Note
 	err := row.Scan(
 		&i.ID,
+		&i.UserID,
 		&i.Title,
 		&i.Body,
 		&i.CreatedAt,
@@ -46,11 +49,16 @@ func (q *Queries) CreateNote(ctx context.Context, arg CreateNoteParams) (Note, e
 
 const deleteNote = `-- name: DeleteNote :execrows
 DELETE FROM notes
-WHERE id = $1
+WHERE id = $1 AND user_id = $2
 `
 
-func (q *Queries) DeleteNote(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteNote, id)
+type DeleteNoteParams struct {
+	ID     int64
+	UserID int64
+}
+
+func (q *Queries) DeleteNote(ctx context.Context, arg DeleteNoteParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteNote, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -58,16 +66,22 @@ func (q *Queries) DeleteNote(ctx context.Context, id int64) (int64, error) {
 }
 
 const getNote = `-- name: GetNote :one
-SELECT id, title, body, created_at, updated_at
+SELECT id, user_id, title, body, created_at, updated_at
 FROM notes
-WHERE id = $1
+WHERE id = $1 AND user_id = $2
 `
 
-func (q *Queries) GetNote(ctx context.Context, id int64) (Note, error) {
-	row := q.db.QueryRow(ctx, getNote, id)
+type GetNoteParams struct {
+	ID     int64
+	UserID int64
+}
+
+func (q *Queries) GetNote(ctx context.Context, arg GetNoteParams) (Note, error) {
+	row := q.db.QueryRow(ctx, getNote, arg.ID, arg.UserID)
 	var i Note
 	err := row.Scan(
 		&i.ID,
+		&i.UserID,
 		&i.Title,
 		&i.Body,
 		&i.CreatedAt,
@@ -77,19 +91,21 @@ func (q *Queries) GetNote(ctx context.Context, id int64) (Note, error) {
 }
 
 const listNotes = `-- name: ListNotes :many
-SELECT id, title, body, created_at, updated_at
+SELECT id, user_id, title, body, created_at, updated_at
 FROM notes
+WHERE user_id = $1
 ORDER BY id DESC
-LIMIT $2 OFFSET $1
+LIMIT $3 OFFSET $2
 `
 
 type ListNotesParams struct {
+	UserID int64
 	Offset int32
 	Limit  int32
 }
 
 func (q *Queries) ListNotes(ctx context.Context, arg ListNotesParams) ([]Note, error) {
-	rows, err := q.db.Query(ctx, listNotes, arg.Offset, arg.Limit)
+	rows, err := q.db.Query(ctx, listNotes, arg.UserID, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +115,7 @@ func (q *Queries) ListNotes(ctx context.Context, arg ListNotesParams) ([]Note, e
 		var i Note
 		if err := rows.Scan(
 			&i.ID,
+			&i.UserID,
 			&i.Title,
 			&i.Body,
 			&i.CreatedAt,
@@ -116,22 +133,29 @@ func (q *Queries) ListNotes(ctx context.Context, arg ListNotesParams) ([]Note, e
 
 const updateNote = `-- name: UpdateNote :one
 UPDATE notes
-SET title = $2, body = $3, updated_at = now()
-WHERE id = $1
-RETURNING id, title, body, created_at, updated_at
+SET title = $3, body = $4, updated_at = now()
+WHERE id = $1 AND user_id = $2
+RETURNING id, user_id, title, body, created_at, updated_at
 `
 
 type UpdateNoteParams struct {
-	ID    int64
-	Title string
-	Body  string
+	ID     int64
+	UserID int64
+	Title  string
+	Body   string
 }
 
 func (q *Queries) UpdateNote(ctx context.Context, arg UpdateNoteParams) (Note, error) {
-	row := q.db.QueryRow(ctx, updateNote, arg.ID, arg.Title, arg.Body)
+	row := q.db.QueryRow(ctx, updateNote,
+		arg.ID,
+		arg.UserID,
+		arg.Title,
+		arg.Body,
+	)
 	var i Note
 	err := row.Scan(
 		&i.ID,
+		&i.UserID,
 		&i.Title,
 		&i.Body,
 		&i.CreatedAt,

@@ -39,7 +39,7 @@ func NewHandler(d Deps) http.Handler {
 	auth.Register(mux, authService, attempts.Middleware)
 
 	// Recursos de la API. Cada recurso nuevo se registra acá.
-	notes.Register(mux, notes.NewHandler(queries))
+	notes.Register(mux, notes.NewHandler(queries), authService)
 
 	// Cualquier ruta no registrada responde 404 con el formato de error de la API.
 	mux.Handle("/", httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {

@@ -9,13 +9,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
 // Estos tests usan la base de pruebas real (TEST_DATABASE_URL) y recorren la API completa,
 // con rutas y middlewares, igual que una petición de verdad.
-// No usan t.Parallel porque cada test vacía la tabla notes al empezar.
+// No usan t.Parallel porque cada test vacía la base al empezar.
 
 type note struct {
 	ID    int64  `json:"id"`
@@ -39,22 +42,41 @@ type noteList struct {
 	} `json:"meta"`
 }
 
-func newAPI(t *testing.T) http.Handler {
-	t.Helper()
-	pool := testutil.NewDB(t, "notes")
-	return server.NewHandler(server.Deps{
-		Logger: slog.New(slog.DiscardHandler),
-		DB:     pool,
-	})
+// testAPI es la API de prueba con una sesión de usuario ya iniciada.
+type testAPI struct {
+	t       *testing.T
+	handler http.Handler
+	pool    *pgxpool.Pool
+	cookie  *http.Cookie
 }
 
-// do envía una petición a la API y devuelve la respuesta grabada.
-func do(t *testing.T, api http.Handler, method, path, body string) *httptest.ResponseRecorder {
+func newAPI(t *testing.T) *testAPI {
 	t.Helper()
+	pool := testutil.NewDB(t)
+	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	return &testAPI{
+		t:       t,
+		pool:    pool,
+		cookie:  cookie,
+		handler: server.NewHandler(server.Deps{Logger: slog.New(slog.DiscardHandler), DB: pool}),
+	}
+}
+
+// do envía una petición con la sesión del usuario y devuelve la respuesta grabada.
+func (a *testAPI) do(method, path, body string) *httptest.ResponseRecorder {
+	return a.doWith(a.cookie, method, path, body)
+}
+
+// doWith envía una petición con otra cookie (o sin sesión, con nil).
+func (a *testAPI) doWith(cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
+	a.t.Helper()
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
+	if cookie != nil {
+		r.AddCookie(cookie)
+	}
 	w := httptest.NewRecorder()
-	api.ServeHTTP(w, r)
+	a.handler.ServeHTTP(w, r)
 	return w
 }
 
@@ -71,17 +93,17 @@ func decode[T any](t *testing.T, w *httptest.ResponseRecorder, wantStatus int) T
 	return v
 }
 
-func createNote(t *testing.T, api http.Handler, title string) note {
+func createNote(t *testing.T, api *testAPI, title string) note {
 	t.Helper()
 	body := fmt.Sprintf(`{"title":%q,"body":"contenido"}`, title)
-	return decode[note](t, do(t, api, http.MethodPost, "/notes", body), http.StatusCreated)
+	return decode[note](t, api.do(http.MethodPost, "/notes", body), http.StatusCreated)
 }
 
 func TestNotesCRUD(t *testing.T) {
 	api := newAPI(t)
 
 	// Crear: el título se guarda sin espacios sobrantes.
-	w := do(t, api, http.MethodPost, "/notes", `{"title":"  Mi nota  ","body":"hola"}`)
+	w := api.do(http.MethodPost, "/notes", `{"title":"  Mi nota  ","body":"hola"}`)
 	created := decode[note](t, w, http.StatusCreated)
 	if created.ID == 0 || created.Title != "Mi nota" || created.Body != "hola" {
 		t.Fatalf("nota creada inesperada: %+v", created)
@@ -93,22 +115,22 @@ func TestNotesCRUD(t *testing.T) {
 	path := fmt.Sprintf("/notes/%d", created.ID)
 
 	// Ver.
-	got := decode[note](t, do(t, api, http.MethodGet, path, ""), http.StatusOK)
+	got := decode[note](t, api.do(http.MethodGet, path, ""), http.StatusOK)
 	if got != created {
 		t.Errorf("GET = %+v, se esperaba %+v", got, created)
 	}
 
 	// Editar.
-	updated := decode[note](t, do(t, api, http.MethodPut, path, `{"title":"Editada","body":"nuevo"}`), http.StatusOK)
+	updated := decode[note](t, api.do(http.MethodPut, path, `{"title":"Editada","body":"nuevo"}`), http.StatusOK)
 	if updated.Title != "Editada" || updated.Body != "nuevo" {
 		t.Errorf("nota editada inesperada: %+v", updated)
 	}
 
 	// Borrar y comprobar que ya no existe.
-	if w := do(t, api, http.MethodDelete, path, ""); w.Code != http.StatusNoContent {
+	if w := api.do(http.MethodDelete, path, ""); w.Code != http.StatusNoContent {
 		t.Fatalf("DELETE status = %d", w.Code)
 	}
-	if w := do(t, api, http.MethodGet, path, ""); w.Code != http.StatusNotFound {
+	if w := api.do(http.MethodGet, path, ""); w.Code != http.StatusNotFound {
 		t.Errorf("GET después de borrar: status = %d", w.Code)
 	}
 }
@@ -129,7 +151,7 @@ func TestNotesValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := decode[apiError](t, do(t, api, http.MethodPost, "/notes", tt.body), http.StatusUnprocessableEntity)
+			resp := decode[apiError](t, api.do(http.MethodPost, "/notes", tt.body), http.StatusUnprocessableEntity)
 			if resp.Error.Code != "validation_failed" || resp.Error.Fields[tt.field] == "" {
 				t.Errorf("error inesperado: %+v", resp.Error)
 			}
@@ -138,7 +160,7 @@ func TestNotesValidation(t *testing.T) {
 
 	t.Run("acepta exactamente 200 caracteres con acentos", func(t *testing.T) {
 		body := fmt.Sprintf(`{"title":%q}`, strings.Repeat("á", 200))
-		decode[note](t, do(t, api, http.MethodPost, "/notes", body), http.StatusCreated)
+		decode[note](t, api.do(http.MethodPost, "/notes", body), http.StatusCreated)
 	})
 }
 
@@ -160,7 +182,7 @@ func TestNotesBadRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			decode[apiError](t, do(t, api, tt.method, tt.path, tt.body), tt.wantStatus)
+			decode[apiError](t, api.do(tt.method, tt.path, tt.body), tt.wantStatus)
 		})
 	}
 }
@@ -173,7 +195,7 @@ func TestNotesPagination(t *testing.T) {
 	}
 
 	// Las más nuevas primero.
-	first := decode[noteList](t, do(t, api, http.MethodGet, "/notes?limit=2", ""), http.StatusOK)
+	first := decode[noteList](t, api.do(http.MethodGet, "/notes?limit=2", ""), http.StatusOK)
 	if len(first.Data) != 2 || first.Meta.Total != 3 || first.Meta.Limit != 2 {
 		t.Fatalf("primera página inesperada: %+v", first)
 	}
@@ -181,19 +203,62 @@ func TestNotesPagination(t *testing.T) {
 		t.Errorf("primer elemento = %q, se esperaba la nota más nueva", first.Data[0].Title)
 	}
 
-	second := decode[noteList](t, do(t, api, http.MethodGet, "/notes?limit=2&offset=2", ""), http.StatusOK)
+	second := decode[noteList](t, api.do(http.MethodGet, "/notes?limit=2&offset=2", ""), http.StatusOK)
 	if len(second.Data) != 1 || second.Data[0].Title != "nota 1" {
 		t.Errorf("segunda página inesperada: %+v", second)
 	}
 
 	// Una página fuera de rango devuelve una lista vacía, no null.
-	w := do(t, api, http.MethodGet, "/notes?offset=100", "")
+	w := api.do(http.MethodGet, "/notes?offset=100", "")
 	if !strings.Contains(w.Body.String(), `"data":[]`) {
 		t.Errorf("se esperaba data vacía: %s", w.Body)
 	}
 
-	resp := decode[apiError](t, do(t, api, http.MethodGet, "/notes?limit=0", ""), http.StatusUnprocessableEntity)
+	resp := decode[apiError](t, api.do(http.MethodGet, "/notes?limit=0", ""), http.StatusUnprocessableEntity)
 	if resp.Error.Fields["limit"] == "" {
 		t.Errorf("se esperaba error en limit: %+v", resp.Error)
+	}
+}
+
+func TestNotesRequireSession(t *testing.T) {
+	api := newAPI(t)
+
+	for _, tt := range []struct{ method, path string }{
+		{http.MethodGet, "/notes"},
+		{http.MethodPost, "/notes"},
+		{http.MethodGet, "/notes/1"},
+		{http.MethodPut, "/notes/1"},
+		{http.MethodDelete, "/notes/1"},
+	} {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			decode[apiError](t, api.doWith(nil, tt.method, tt.path, `{"title":"x"}`), http.StatusUnauthorized)
+		})
+	}
+}
+
+func TestNotesBelongToTheirOwner(t *testing.T) {
+	api := newAPI(t)
+	ana := createNote(t, api, "nota de Ana")
+	path := fmt.Sprintf("/notes/%d", ana.ID)
+
+	_, luis := testutil.Login(t, api.pool, "luis@ejemplo.com", auth.RoleUser)
+
+	// Luis no ve la nota de Ana en su listado…
+	list := decode[noteList](t, api.doWith(luis, http.MethodGet, "/notes", ""), http.StatusOK)
+	if len(list.Data) != 0 || list.Meta.Total != 0 {
+		t.Errorf("Luis ve notas ajenas: %+v", list)
+	}
+
+	// …ni puede leerla, editarla o borrarla: responde 404, como si no existiera.
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			decode[apiError](t, api.doWith(luis, method, path, `{"title":"hackeada"}`), http.StatusNotFound)
+		})
+	}
+
+	// La nota de Ana sigue intacta.
+	got := decode[note](t, api.do(http.MethodGet, path, ""), http.StatusOK)
+	if got.Title != "nota de Ana" {
+		t.Errorf("la nota cambió: %+v", got)
 	}
 }

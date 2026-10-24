@@ -1,6 +1,10 @@
 // Package notes es el recurso de ejemplo de la plantilla: un CRUD completo que muestra
 // el patrón a seguir (consultas con sqlc, validación, errores y tests).
 // Para crear un recurso nuevo, copiá este paquete y adaptalo (ver docs/adding-a-resource.md).
+//
+// También muestra la pertenencia: cada nota es de un usuario, y todas las consultas filtran
+// por el usuario de la sesión. Si alguien pide la nota de otro usuario, la consulta no la
+// encuentra y la API responde 404 (no 403), para no revelar que esa nota existe.
 package notes
 
 import (
@@ -11,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
@@ -54,12 +59,14 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	notes, err := h.q.ListNotes(r.Context(), store.ListNotesParams{Limit: page.Limit, Offset: page.Offset})
+	user := auth.MustUser(r.Context())
+
+	notes, err := h.q.ListNotes(r.Context(), store.ListNotesParams{UserID: user.ID, Limit: page.Limit, Offset: page.Offset})
 	if err != nil {
 		return fmt.Errorf("listar notas: %w", err)
 	}
 
-	total, err := h.q.CountNotes(r.Context())
+	total, err := h.q.CountNotes(r.Context(), user.ID)
 	if err != nil {
 		return fmt.Errorf("contar notas: %w", err)
 	}
@@ -83,7 +90,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	note, err := h.q.GetNote(r.Context(), id)
+	note, err := h.q.GetNote(r.Context(), store.GetNoteParams{ID: id, UserID: auth.MustUser(r.Context()).ID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNotFound
 	}
@@ -106,7 +113,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	note, err := h.q.CreateNote(r.Context(), store.CreateNoteParams{Title: in.Title, Body: in.Body})
+	note, err := h.q.CreateNote(r.Context(), store.CreateNoteParams{
+		UserID: auth.MustUser(r.Context()).ID,
+		Title:  in.Title,
+		Body:   in.Body,
+	})
 	if err != nil {
 		return fmt.Errorf("crear nota: %w", err)
 	}
@@ -132,7 +143,12 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	note, err := h.q.UpdateNote(r.Context(), store.UpdateNoteParams{ID: id, Title: in.Title, Body: in.Body})
+	note, err := h.q.UpdateNote(r.Context(), store.UpdateNoteParams{
+		ID:     id,
+		UserID: auth.MustUser(r.Context()).ID,
+		Title:  in.Title,
+		Body:   in.Body,
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNotFound
 	}
@@ -151,7 +167,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	rows, err := h.q.DeleteNote(r.Context(), id)
+	rows, err := h.q.DeleteNote(r.Context(), store.DeleteNoteParams{ID: id, UserID: auth.MustUser(r.Context()).ID})
 	if err != nil {
 		return fmt.Errorf("borrar nota %d: %w", id, err)
 	}

@@ -175,3 +175,18 @@ func TestLoadUnquotesValues(t *testing.T) {
 		t.Errorf("valores con comillas: AppName=%q, From=%q, DatabaseURL=%q", cfg.AppName, cfg.Mail.From, cfg.DatabaseURL)
 	}
 }
+
+func TestLoadPreviousKeys(t *testing.T) {
+	const prev1 = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
+	const prev2 = "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM="
+	cfg, err := load(envFrom(map[string]string{
+		"DATABASE_URL":             "x",
+		"ENCRYPTION_PREVIOUS_KEYS": " " + prev1 + " , " + prev2 + ",",
+	}))
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if len(cfg.EncryptionPreviousKeys) != 2 {
+		t.Errorf("se esperaban 2 claves anteriores, hay %d", len(cfg.EncryptionPreviousKeys))
+	}
+}

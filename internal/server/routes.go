@@ -42,7 +42,7 @@ func NewHandler(d Deps) http.Handler {
 	// En la aplicación real config.Load exige la clave, así que siempre está.
 	var box *secretbox.Box
 	if len(d.Config.EncryptionKey) > 0 {
-		b, err := secretbox.New(d.Config.EncryptionKey)
+		b, err := secretbox.New(d.Config.EncryptionKey, d.Config.EncryptionPreviousKeys...)
 		if err != nil {
 			panic(fmt.Sprintf("ENCRYPTION_KEY inválida: %v", err)) // config.Load ya la validó
 		}

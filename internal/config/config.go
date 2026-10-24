@@ -54,6 +54,9 @@ type Config struct {
 	// EncryptionKey (32 bytes) cifra los datos sensibles guardados en la base, como el secreto del 2FA.
 	// Si se pierde, esos datos no se pueden recuperar.
 	EncryptionKey []byte
+	// EncryptionPreviousKeys son claves anteriores que se siguen aceptando para leer lo cifrado
+	// antes de una rotación (ver docs/encryption.md).
+	EncryptionPreviousKeys [][]byte
 }
 
 // Drivers de correo soportados.
@@ -144,9 +147,28 @@ func load(rawGetenv func(string) string) (Config, error) {
 	cfg.AppName = valueOr(getenv("APP_NAME"), "Mi App")
 
 	if v := strings.TrimSpace(getenv("ENCRYPTION_KEY")); v == "" {
-		errs = append(errs, errors.New("ENCRYPTION_KEY es obligatoria (generala con: openssl rand -base64 32)"))
+		errs = append(errs, errors.New("ENCRYPTION_KEY es obligatoria (generala con: make key)"))
 	} else if cfg.EncryptionKey, err = secretbox.ParseKey(v); err != nil {
 		errs = append(errs, fmt.Errorf("ENCRYPTION_KEY: %w", err))
+	}
+
+	for i, v := range strings.Split(getenv("ENCRYPTION_PREVIOUS_KEYS"), ",") {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		k, err := secretbox.ParseKey(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("ENCRYPTION_PREVIOUS_KEYS (clave %d): %w", i+1, err))
+			continue
+		}
+		cfg.EncryptionPreviousKeys = append(cfg.EncryptionPreviousKeys, k)
+	}
+
+	// Comprueba que el llavero se pueda armar (por ejemplo, que no haya claves repetidas).
+	if len(cfg.EncryptionKey) > 0 {
+		if _, err := secretbox.New(cfg.EncryptionKey, cfg.EncryptionPreviousKeys...); err != nil {
+			errs = append(errs, fmt.Errorf("ENCRYPTION_PREVIOUS_KEYS: %w", err))
+		}
 	}
 
 	return cfg, errors.Join(errs...)

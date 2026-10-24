@@ -37,6 +37,10 @@ run: ## Levanta la API (aplica las migraciones al arrancar)
 build: ## Compila un binario estático y liviano en bin/api
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/api ./cmd/api
 
+.PHONY: key
+key: ## Genera una clave nueva para ENCRYPTION_KEY (ver docs/encryption.md)
+	@go run ./cmd/api generate-key
+
 .PHONY: create-admin
 create-admin: ## Crea un administrador: make create-admin email=admin@ejemplo.com name="Admin"
 	@test -n "$(email)" || { echo "Falta el email: make create-admin email=admin@ejemplo.com"; exit 1; }

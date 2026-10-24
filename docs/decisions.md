@@ -7,7 +7,13 @@ Por qué la plantilla está armada así. Si cambiás alguna decisión, actualiz�
 `net/http` (con las rutas por método y parámetro de Go 1.22), `encoding/json`, `log/slog` y `testing` cubren lo necesario para una API.
 Menos dependencias significa menos actualizaciones, menos vulnerabilidades posibles y un código que se entiende sin conocer un framework.
 
-**Dependencias del binario:** solo `pgx` (driver de PostgreSQL) y `goose` (migraciones).
+**Dependencias del binario:**
+- `pgx`: driver de PostgreSQL.
+- `goose`: migraciones.
+- Tres paquetes del equipo de Go:
+  - `golang.org/x/crypto`: argon2id;
+  - `golang.org/x/time`: límite de peticiones;
+  - `golang.org/x/term`: leer la contraseña en `create-admin` sin mostrarla.
 
 ## pgx + sqlc en lugar de un ORM
 
@@ -43,6 +49,52 @@ El frontend maneja todos los errores igual. Los errores 500 no exponen detalles;
 
 Cada recurso define su struct de respuesta. Agregar una columna a la tabla no cambia la API sin que lo decidas, y nunca se expone un campo por accidente (por ejemplo, un hash de contraseña).
 
+## Sesiones con cookie en lugar de JWT
+
+- **Más seguras para un frontend web:** la cookie `HttpOnly` no se puede leer desde JavaScript, a diferencia de un JWT guardado en `localStorage`.
+- **Se pueden revocar al instante** (logout, cambio de contraseña, bloquear un usuario): basta con borrar la fila. Un JWT sigue siendo válido hasta que vence.
+- **El costo es una consulta por petición** (`GetSessionUser`, por clave primaria). Es despreciable a esta escala.
+- **En la base se guarda el SHA-256 del token**, no el token: si alguien lee la tabla, no puede usar las sesiones.
+
+JWT conviene cuando varios servicios validan sesiones sin acceso a la base, o para APIs de terceros. Ninguno de los dos es el caso de esta plantilla.
+
+## argon2id para las contraseñas
+
+Es el algoritmo recomendado por OWASP. Los parámetros (19 MiB, 2 iteraciones, 1 hilo) son los mínimos que recomiendan, elegidos porque el destino es un VPS de 1 vCPU.
+
+Van guardados dentro de cada hash (formato PHC), así que se pueden subir más adelante sin invalidar las contraseñas existentes.
+
+## Protección CSRF con la librería estándar
+
+`http.CrossOriginProtection` (Go 1.25) rechaza las peticiones que modifican datos cuando el navegador indica que vienen de otro sitio (`Sec-Fetch-Site`, `Origin`). Junto con la cookie `SameSite=Lax`, reemplaza a los tokens CSRF clásicos sin que el frontend tenga que hacer nada.
+
+Los orígenes de `CORS_ALLOWED_ORIGINS` se consideran confiables.
+
+## Límite de peticiones en memoria
+
+Un token bucket por IP (`golang.org/x/time/rate`) en `/auth/login` y `/auth/register`. Al estar en memoria, alcanza para una instancia. Con varias instancias, el límite habría que moverlo a la base, a Redis o al proxy.
+
+La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, para que nadie pueda falsearla si la API está expuesta directamente.
+
+## Ejemplos de recursos
+
+Cada ejemplo muestra algo distinto, y entre los tres cubren los casos más comunes:
+- `notes`: pertenencia por usuario.
+- `categories`: escritura de admin, valor único y no borrar si está en uso.
+- `products`: JOIN, filtros, búsqueda y FK inválida.
+
+En un proyecto real se conservan los que sirvan y se borran los demás.
+
+Un recurso ajeno responde **404 y no 403**, para no revelar que existe.
+
+## Dinero en centavos
+
+`price_cents bigint` en lugar de `float` (tiene errores de redondeo) o `numeric` (se mapea a un tipo incómodo en Go). El frontend divide por 100 para mostrarlo.
+
+## Tests de integración en serie
+
+Los paquetes comparten la base de pruebas y cada test la vacía al empezar. Por eso `make test` usa `go test -p 1`. Con la escala actual, todos los tests tardan alrededor de un segundo y medio.
+
 ## IDs bigint
 
 `bigint GENERATED ALWAYS AS IDENTITY` funciona en cualquier versión de PostgreSQL y es eficiente.
@@ -69,5 +121,9 @@ Con `GOTOOLCHAIN=auto` (el valor por defecto), una versión anterior de Go desca
 
 ## Qué no incluye (todavía)
 
-Autenticación (sesiones con cookie), CORS, límite de peticiones y guía de despliegue (systemd + Caddy).
+- Recuperar la contraseña y verificar el email (necesitan un servicio de correo).
+- OAuth.
+- Permisos más finos que `user`/`admin`.
+- Guía de despliegue (systemd + Caddy).
+
 Se agregan cuando un proyecto los necesita.

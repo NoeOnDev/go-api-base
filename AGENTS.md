@@ -5,8 +5,16 @@ Instrucciones para agentes de código (Claude Code, Codex, Copilot) que trabajen
 ## Qué es
 
 `go-api-base` es una plantilla de API REST en Go para proyectos chicos y medianos que corren en un VPS.
-Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migraciones (goose) y consultas tipadas (sqlc).
-`internal/notes` es el **recurso de ejemplo**: un CRUD completo que sirve de modelo para crear los demás.
+Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migraciones (goose), consultas tipadas (sqlc)
+y paquetes del equipo de Go (`golang.org/x/crypto`, `x/time`, `x/term`).
+
+Trae autenticación (sesiones con cookie, roles `user`/`admin`) y tres **recursos de ejemplo** que sirven de modelo:
+
+| Recurso | Qué muestra |
+|---|---|
+| `internal/notes` | CRUD protegido con **pertenencia**: cada usuario ve solo lo suyo |
+| `internal/categories` | Lectura pública, escritura solo admin, valor único (409), no borrar si está en uso (409) |
+| `internal/products` | Relación con otra tabla (JOIN), filtros y búsqueda, FK inexistente (422) |
 
 ## Comandos
 
@@ -14,10 +22,11 @@ Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migra
 |---|---|
 | `make run` | Levanta la API (aplica las migraciones al arrancar) |
 | `make check` | **Correr siempre antes de commitear**: gofmt, sqlc diff, go vet, go test y govulncheck |
-| `make test` | Tests (los de base de datos usan `TEST_DATABASE_URL`; sin ella se saltean) |
+| `make test` | Tests (`go test -p 1`; los de base de datos usan `TEST_DATABASE_URL`, sin ella se saltean) |
 | `make sqlc` | Regenerar `internal/store` después de cambiar migraciones o consultas |
 | `make migrate-new name=create_x` | Crear una migración nueva |
 | `make migrate-up` / `migrate-down` / `migrate-status` | Manejar migraciones en desarrollo |
+| `make create-admin email=… name=…` | Crear un administrador (contraseña por `ADMIN_PASSWORD` o por la terminal) |
 | `make build` | Binario estático en `bin/api` |
 
 `make` carga `.env` automáticamente. Las herramientas (sqlc, goose, govulncheck) se ejecutan con
@@ -26,17 +35,19 @@ Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migra
 ## Estructura
 
 ```
-cmd/api/              arranque: config, logger, DB, migraciones, servidor, apagado limpio
+cmd/api/              arranque (main.go) y subcomando create-admin (admin.go)
 internal/config/      configuración desde variables de entorno
-internal/httpx/       JSON, formato de errores, paginación, middlewares (compartido por todos los recursos)
-internal/server/      http.Server con timeouts y registro de rutas (routes.go)
-internal/db/          pool de pgx, migraciones y consultas SQL (queries/*.sql)
+internal/httpx/       JSON, errores, paginación, middlewares, CORS, límite de peticiones, IP del cliente
+internal/server/      http.Server con timeouts, rutas, CSRF y orden de middlewares (routes.go)
+internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/RequireAdmin
+internal/db/          pool de pgx, migraciones, errores de PostgreSQL y consultas SQL (queries/*.sql)
 internal/store/       GENERADO por sqlc: no editar a mano
+internal/validate/    reglas de validación compartidas (obligatorio, longitud, slug, no negativo)
 internal/<recurso>/   un paquete por recurso: handlers.go, validation.go, routes.go, handlers_test.go
-internal/testutil/    ayuda para tests de integración
+internal/testutil/    ayudas para tests de integración (NewDB, Login, NewAPI, Do, Decode)
 migrations/           migraciones SQL de goose, embebidas en el binario
 tools/                módulo aparte con las herramientas de desarrollo
-docs/                 guías y decisiones de diseño
+docs/                 guías (recursos, autenticación) y decisiones de diseño
 ```
 
 ## Convenciones
@@ -50,28 +61,41 @@ docs/                 guías y decisiones de diseño
 **HTTP**
 - Los handlers tienen la firma `func(w, r) error` y se registran con `httpx.Handle`. Ante un error, solo `return err`.
 - Leer JSON con `httpx.Decode` y responder con `httpx.Write`. Nunca escribir JSON a mano.
-- Errores para el cliente: `httpx.BadRequest`, `httpx.NotFound`, `httpx.Validation(fields)`. Cualquier otro error se responde como 500 sin exponer detalles.
-- Paginación con `httpx.ParsePage` y respuesta `httpx.List[T]` (`{data, meta}`).
-- IDs de la ruta con `httpx.PathID(r, "id")`.
+- Errores para el cliente: `httpx.BadRequest`, `NotFound`, `Unauthorized`, `Forbidden`, `Conflict`, `Validation(fields)`.
+  Cualquier otro error se responde como 500 sin exponer detalles.
+- Paginación con `httpx.ParsePage` y respuesta `httpx.List[T]` (`{data, meta}`). IDs de la ruta con `httpx.PathID(r, "id")`.
 - Cada recurso define su propio struct de respuesta; no devolver directamente los structs de `internal/store`.
-- Logs con `httpx.LoggerFrom(r.Context())` (ya incluye `request_id`), en formato clave-valor. No registrar contraseñas ni tokens.
+- Logs con `httpx.LoggerFrom(r.Context())` (ya incluye `request_id` y, con sesión, `user_id`). No registrar contraseñas ni tokens.
+
+**Autenticación y permisos**
+- Proteger rutas en `routes.go` del recurso: `authn.RequireUser(...)` (cualquier usuario) o `authn.RequireAdmin(...)`.
+- En un handler protegido, el usuario es `auth.MustUser(r.Context())`.
+- **Pertenencia:** si los datos son de cada usuario, la tabla lleva `user_id` y **todas** las consultas filtran por él
+  (`WHERE id = $1 AND user_id = $2`). Un recurso ajeno responde 404, no 403. Ver `internal/notes`.
+- No tocar la protección CSRF ni CORS de `internal/server/routes.go` sin consultarlo.
 
 **Base de datos**
 - Todo el SQL vive en `internal/db/queries/*.sql`. Después de cambiarlo, correr `make sqlc`.
 - **Nunca editar `internal/store`**: se regenera.
-- **Nunca modificar una migración ya aplicada**: crear una nueva con `make migrate-new`.
+- **Nunca modificar una migración ya aplicada en un entorno compartido**: crear una nueva con `make migrate-new`.
 - Cada migración debe tener su sección `-- +goose Down`.
 - Una fila inexistente llega como `pgx.ErrNoRows` (`:one`) o 0 filas afectadas (`:execrows`): responder `httpx.NotFound`.
+- Valor único repetido: `db.IsUniqueViolation(err)` → `httpx.Conflict`. FK inexistente o en uso:
+  `db.IsForeignKeyViolation(err)` → `httpx.Validation` (al crear/editar) o `httpx.Conflict` (al borrar).
+- Filtros opcionales en sqlc: `sqlc.narg('x')::tipo IS NULL OR columna = sqlc.narg('x')`. Escapar `%` y `_` en búsquedas `ILIKE`.
+- Dinero en centavos (`bigint`), nunca `float`.
 
 **Tests**
-- Tests de integración con `testutil.NewDB(t, "tabla")`, que vacía solo las tablas indicadas.
-- Los tests que usan la base no llevan `t.Parallel()`.
-- Probar a través de `server.NewHandler` con `httptest`, como en `internal/notes/handlers_test.go`.
+- Tests de integración con `testutil.NewDB(t)` (vacía todas las tablas) y `testutil.Login(t, pool, email, rol)` para la sesión.
+- Peticiones con `testutil.NewAPI`, `testutil.Do` y `testutil.Decode`, como en `internal/products/handlers_test.go`.
+- Los tests que usan la base no llevan `t.Parallel()`, y los paquetes corren en serie (`-p 1`, ya incluido en `make test`).
+- Cubrir siempre: el caso feliz, validación (422), no encontrado (404), sin sesión (401) y, si aplica, sin permiso (403) o pertenencia.
 
 ## Agregar un recurso
 
-Seguir `docs/adding-a-resource.md`, usando `internal/notes` como modelo: migración → consultas → `make sqlc` →
-paquete del recurso (handlers, validación, rutas, tests) → registrar en `internal/server/routes.go` → `make check`.
+Seguir `docs/adding-a-resource.md`: migración → consultas → `make sqlc` → paquete del recurso
+(handlers, validación, rutas, tests) → registrar en `internal/server/routes.go` → `make check`.
+Usar `internal/notes` como modelo si los datos son de cada usuario, o `internal/categories`/`products` si son compartidos.
 
 ## Notas para el MCP de gopls
 

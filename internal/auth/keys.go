@@ -71,7 +71,7 @@ func (s *Service) RotateKeys(ctx context.Context) (KeyReport, error) {
 			continue
 		}
 
-		secret, err := box.Decrypt(old)
+		secret, err := box.Decrypt(old, totpAAD(u.ID))
 		if err != nil {
 			reason := "dato dañado o de una clave distinta"
 			if errors.Is(err, secretbox.ErrUnknownKey) {
@@ -83,7 +83,7 @@ func (s *Service) RotateKeys(ctx context.Context) (KeyReport, error) {
 			continue
 		}
 
-		encrypted, err := box.Encrypt(secret)
+		encrypted, err := box.Encrypt(secret, totpAAD(u.ID))
 		if err != nil {
 			return report, err
 		}

@@ -10,6 +10,10 @@
 // De cada clave maestra de 32 bytes se derivan con HKDF una clave para cifrar (AES-256-GCM),
 // otra para el HMAC y el identificador. Solo usa la librería estándar.
 //
+// Encrypt y Decrypt reciben datos asociados (aad): un contexto que no se cifra pero queda atado
+// al dato, por ejemplo "users.totp_secret:42". Descifrar con otro contexto falla, así que un dato
+// copiado a la fila de otro usuario no sirve.
+//
 // Si se pierde una clave, lo cifrado con ella no se puede recuperar. Ver docs/encryption.md.
 package secretbox
 
@@ -34,7 +38,8 @@ var (
 	// ErrUnknownKey indica que el dato se cifró con una clave que no está en el llavero
 	// (por ejemplo, se quitó de ENCRYPTION_PREVIOUS_KEYS antes de terminar la rotación).
 	ErrUnknownKey = errors.New("secretbox: el dato se cifró con una clave que no está configurada")
-	// ErrDecrypt indica que el dato está alterado o no corresponde a ninguna clave.
+	// ErrDecrypt indica que el dato está alterado, no corresponde a su clave o se descifró
+	// con otro contexto (aad).
 	ErrDecrypt = errors.New("secretbox: no se pudo descifrar (dato alterado o clave distinta)")
 )
 
@@ -130,52 +135,45 @@ func (b *Box) KeyIDs() []string {
 	return ids
 }
 
-// Encrypt cifra con la clave actual y devuelve "<identificador>:<base64>".
+// Encrypt cifra con la clave actual y devuelve "<identificador>:<base64>". aad es el contexto
+// del dato (ver el comentario del paquete); hay que pasar el mismo a Decrypt.
 // Cifrar dos veces lo mismo da resultados distintos (nonce aleatorio).
-func (b *Box) Encrypt(plaintext []byte) (string, error) {
+func (b *Box) Encrypt(plaintext, aad []byte) (string, error) {
 	k := b.current
 	nonce := make([]byte, k.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("secretbox: generar nonce: %w", err)
 	}
-	sealed := k.aead.Seal(nonce, nonce, plaintext, nil)
+	sealed := k.aead.Seal(nonce, nonce, plaintext, aad)
 	return k.id + ":" + base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-// Decrypt descifra lo que devolvió Encrypt, con la clave que indica su identificador.
-// Los datos sin identificador (formato anterior a v0.3.1) se prueban con todas las claves.
-func (b *Box) Decrypt(data string) ([]byte, error) {
-	id, encoded, hasID := strings.Cut(data, ":")
-	if !hasID {
-		for _, k := range b.all {
-			if plaintext, err := open(k, data); err == nil {
-				return plaintext, nil
-			}
-		}
+// Decrypt descifra lo que devolvió Encrypt, con la clave que indica su identificador y el
+// mismo contexto (aad). Devuelve ErrUnknownKey si la clave no está en el llavero, y ErrDecrypt
+// si el dato está alterado o el contexto no coincide.
+func (b *Box) Decrypt(data string, aad []byte) ([]byte, error) {
+	id, encoded, ok := strings.Cut(data, ":")
+	if !ok {
 		return nil, ErrDecrypt
 	}
-
 	k, ok := b.byID[id]
 	if !ok {
 		return nil, ErrUnknownKey
 	}
-	return open(k, encoded)
-}
 
-func open(k *key, encoded string) ([]byte, error) {
 	sealed, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil || len(sealed) < k.aead.NonceSize() {
 		return nil, ErrDecrypt
 	}
 	nonce, ciphertext := sealed[:k.aead.NonceSize()], sealed[k.aead.NonceSize():]
-	plaintext, err := k.aead.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := k.aead.Open(nil, nonce, ciphertext, aad)
 	if err != nil {
 		return nil, ErrDecrypt
 	}
 	return plaintext, nil
 }
 
-// KeyIDOf devuelve el identificador de clave de un dato cifrado, o "" si no tiene (formato anterior).
+// KeyIDOf devuelve el identificador de clave de un dato cifrado, o "" si no tiene.
 func KeyIDOf(data string) string {
 	id, _, ok := strings.Cut(data, ":")
 	if !ok {

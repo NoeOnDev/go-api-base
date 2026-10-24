@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
@@ -12,6 +13,12 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/totp"
 )
+
+// totpAAD es el contexto con el que se cifra el secreto del 2FA: lo ata al usuario, así un
+// secreto copiado a la fila de otro usuario no se puede descifrar.
+func totpAAD(userID int64) []byte {
+	return []byte("users.totp_secret:" + strconv.FormatInt(userID, 10))
+}
 
 // errNoBox indica que falta ENCRYPTION_KEY: sin ella no se puede guardar el secreto del 2FA.
 var errNoBox = errors.New("2FA no disponible: falta configurar ENCRYPTION_KEY")
@@ -56,7 +63,7 @@ func (s *Service) setupTwoFactor(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	encrypted, err := box.Encrypt([]byte(secret))
+	encrypted, err := box.Encrypt([]byte(secret), totpAAD(user.ID))
 	if err != nil {
 		return fmt.Errorf("cifrar secreto del 2FA: %w", err)
 	}
@@ -201,7 +208,7 @@ func (s *Service) checkTOTP(ctx context.Context, u store.User, code string) (ste
 		return 0, false, err
 	}
 
-	secret, err := box.Decrypt(*u.TOTPSecret)
+	secret, err := box.Decrypt(*u.TOTPSecret, totpAAD(u.ID))
 	if err != nil {
 		return 0, false, twoFactorUnavailable(u, err)
 	}
@@ -233,7 +240,7 @@ func twoFactorUnavailable(u store.User, cause error) error {
 // reencryptSecret vuelve a cifrar el secreto con la clave actual. Si falla, solo se registra:
 // el login ya fue válido, y el secreto se volverá a intentar en el próximo uso o con rotate-keys.
 func (s *Service) reencryptSecret(ctx context.Context, box *secretbox.Box, u store.User, secret []byte) {
-	encrypted, err := box.Encrypt(secret)
+	encrypted, err := box.Encrypt(secret, totpAAD(u.ID))
 	if err == nil {
 		_, err = s.q.UpdateTOTPSecret(ctx, store.UpdateTOTPSecretParams{ID: u.ID, OldSecret: u.TOTPSecret, NewSecret: &encrypted})
 	}

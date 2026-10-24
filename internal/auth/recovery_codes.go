@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/NoeOnDev/go-api-base/internal/store"
@@ -41,6 +42,13 @@ func normalizeRecoveryCode(code string) string {
 	return strings.NewReplacer("-", "", " ", "").Replace(code)
 }
 
+// recoveryCodeMACInput es lo que se protege con HMAC: el código normalizado, atado al usuario.
+// Así dos usuarios con el mismo código guardan valores distintos, y un hash copiado a otro
+// usuario no le sirve.
+func recoveryCodeMACInput(userID int64, code string) []byte {
+	return []byte("recovery_code:" + strconv.FormatInt(userID, 10) + ":" + normalizeRecoveryCode(code))
+}
+
 // replaceRecoveryCodes genera códigos nuevos, guarda su HMAC (reemplazando los anteriores)
 // y los devuelve en texto para mostrárselos al usuario una sola vez.
 func (s *Service) replaceRecoveryCodes(ctx context.Context, userID int64) ([]string, error) {
@@ -55,7 +63,7 @@ func (s *Service) replaceRecoveryCodes(ctx context.Context, userID int64) ([]str
 		if codes[i], err = newRecoveryCode(); err != nil {
 			return nil, err
 		}
-		hashes[i] = box.MAC([]byte(normalizeRecoveryCode(codes[i])))
+		hashes[i] = box.MAC(recoveryCodeMACInput(userID, codes[i]))
 	}
 
 	if err := s.q.ReplaceRecoveryCodes(ctx, store.ReplaceRecoveryCodesParams{
@@ -79,7 +87,7 @@ func (s *Service) useRecoveryCode(ctx context.Context, userID int64, code string
 
 	rows, err := s.q.ConsumeRecoveryCode(ctx, store.ConsumeRecoveryCodeParams{
 		UserID:     userID,
-		CodeHashes: box.MACs([]byte(normalizeRecoveryCode(code))),
+		CodeHashes: box.MACs(recoveryCodeMACInput(userID, code)),
 	})
 	if err != nil {
 		return false, fmt.Errorf("usar código de recuperación: %w", err)

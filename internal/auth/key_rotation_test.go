@@ -102,3 +102,40 @@ func TestTwoFactorWithMissingKey(t *testing.T) {
 	body := fmt.Sprintf(`{"recovery_code":%q}`, tf.RecoveryCodes[0])
 	testutil.Decode[testutil.APIError](t, challenge(t, api, loginAs(t, api, "ana@ejemplo.com"), body), http.StatusUnprocessableEntity)
 }
+
+func TestTwoFactorDataIsBoundToUser(t *testing.T) {
+	pool := testutil.NewDB(t)
+	setup := testutil.NewAPI(pool)
+	_, ana := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	luis, luisSession := testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
+	tfAna := testutil.EnableTwoFactor(t, setup, ana)
+	testutil.EnableTwoFactor(t, setup, luisSession)
+
+	// Alguien con acceso de escritura a la base copia el secreto de Ana a Luis
+	// y le pasa los códigos de recuperación de Ana.
+	for _, q := range []string{
+		"UPDATE users SET totp_secret = (SELECT totp_secret FROM users WHERE email = 'ana@ejemplo.com') WHERE email = 'luis@ejemplo.com'",
+		"DELETE FROM user_recovery_codes WHERE user_id = $1",
+		"UPDATE user_recovery_codes SET user_id = $1",
+	} {
+		args := []any{luis.ID}
+		if !strings.Contains(q, "$1") {
+			args = nil
+		}
+		if _, err := pool.Exec(t.Context(), q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Con la app de Ana no puede entrar como Luis: el secreto no se descifra fuera de su usuario.
+	api := testutil.NewAPI(pool)
+	resp := testutil.Decode[testutil.APIError](t,
+		challenge(t, api, loginAs(t, api, "luis@ejemplo.com"), codeBody(tfAna.Code(t))), http.StatusServiceUnavailable)
+	if resp.Error.Code != "two_factor_unavailable" {
+		t.Errorf("error inesperado: %+v", resp.Error)
+	}
+
+	// Los códigos de recuperación de Ana tampoco le sirven a Luis.
+	body := fmt.Sprintf(`{"recovery_code":%q}`, tfAna.RecoveryCodes[0])
+	testutil.Decode[testutil.APIError](t, challenge(t, api, loginAs(t, api, "luis@ejemplo.com"), body), http.StatusUnprocessableEntity)
+}

@@ -6,8 +6,12 @@ Instrucciones para agentes de código (Claude Code, Codex, Copilot) que trabajen
 
 > **Este repositorio es una plantilla**, no una dependencia: `gonew` copia el código y los proyectos creados no quedan
 > conectados a ella. Por eso acá se puede reorganizar libremente (incluidas las migraciones, que son el esquema inicial).
-> En los **proyectos derivados** sí aplican las reglas de abajo: nunca modificar una migración ya aplicada.
-> Cada cambio de la plantilla se anota en `CHANGELOG.md`.
+> Cada cambio de la plantilla se anota en `CHANGELOG.md`, con el SQL para llevar los cambios de esquema a un proyecto
+> ya desplegado.
+>
+> **Migraciones en un proyecto creado con la plantilla:** hasta el primer despliegue, un campo nuevo o eliminado se
+> cambia **en la migración original** (y se recrea la base local). Después del primer despliegue, siempre con una
+> migración nueva.
 
 `go-api-base` es una plantilla de API REST en Go para proyectos chicos y medianos que corren en un VPS.
 Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migraciones (goose), consultas tipadas (sqlc)
@@ -90,8 +94,10 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 
 **Datos sensibles**
 - Todo dato secreto que haya que guardar y después leer (como el secreto del 2FA o un token de una API externa) se
-  cifra con `secretbox.Box.Encrypt`. Lo que solo se compara (como los códigos de recuperación) se guarda con `Box.MAC`
-  y se verifica con `Box.MACs` (todas las claves), guardando también `Box.KeyID()`.
+  cifra con `secretbox.Box.Encrypt(dato, aad)`. `aad` ata el dato a su fila, por ejemplo `"users.totp_secret:<id>"`
+  (ver `totpAAD` en `internal/auth/two_factor.go`); `Decrypt` necesita el mismo. Lo que solo se compara (como los
+  códigos de recuperación) se guarda con `Box.MAC` sobre el valor y el id de su dueño, se verifica con `Box.MACs`
+  (todas las claves) y se guarda también `Box.KeyID()`.
 - Si agregás un dato cifrado nuevo, sumalo a `auth.RotateKeys` (o a su equivalente) para que la rotación lo incluya.
 - Nunca guardar secretos en texto plano ni registrarlos en el log.
 
@@ -104,7 +110,8 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 **Base de datos**
 - Todo el SQL vive en `internal/db/queries/*.sql`. Después de cambiarlo, correr `make sqlc`.
 - **Nunca editar `internal/store`**: se regenera.
-- **Nunca modificar una migración ya aplicada en un entorno compartido**: crear una nueva con `make migrate-new`.
+- **Antes del primer despliegue**, cambiar las migraciones originales en lugar de sumar `ALTER TABLE` (y recrear la base local).
+  **Después**, nunca modificar una migración ya aplicada: crear una nueva con `make migrate-new`.
 - Cada migración debe tener su sección `-- +goose Down`.
 - Una fila inexistente llega como `pgx.ErrNoRows` (`:one`) o 0 filas afectadas (`:execrows`): responder `httpx.NotFound`.
 - Valor único repetido: `db.IsUniqueViolation(err)` → `httpx.Conflict`. FK inexistente o en uso:
@@ -118,7 +125,8 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - Peticiones con `testutil.NewAPI`, `testutil.Do` y `testutil.Decode`, como en `internal/products/handlers_test.go`.
   Para leer los correos enviados: `testutil.WithMailer(&mail.Recorder{})` y `testutil.TokenFromEmail`. Para cambiar la
   configuración: `testutil.WithConfig(func(c *config.Config){ … })`. Para el 2FA: `testutil.EnableTwoFactor` y `TwoFactor.Code`.
-- Las rutas de auth comparten el límite de 5 intentos por IP: un test no debería hacer más de 5 peticiones a ellas.
+- Las rutas de auth comparten el límite de 5 intentos por IP: un test no debería hacer más de 5 peticiones a ellas
+  con `testutil.Do`. Para más, o para simular varias IPs, usar `testutil.DoFromIP`.
 - Los tests que usan la base no llevan `t.Parallel()`, y los paquetes corren en serie (`-p 1`, ya incluido en `make test`).
 - Cubrir siempre: el caso feliz, validación (422), no encontrado (404), sin sesión (401) y, si aplica, sin permiso (403) o pertenencia.
 

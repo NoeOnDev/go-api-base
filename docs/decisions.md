@@ -92,8 +92,8 @@ Activada, bloquea las rutas protegidas con un `403 email_not_verified` en lugar 
 
 - **TOTP (RFC 6238) implementado con la librería estándar** (unas 100 líneas en `internal/totp`, probadas con los vectores oficiales del RFC), en lugar de sumar una dependencia.
 - **El QR lo dibuja el frontend** a partir de `otpauth_url`, porque generar la imagen en Go necesitaría otra librería.
-- **El secreto se cifra con `secretbox`:** AES-256-GCM con una clave derivada de `ENCRYPTION_KEY` mediante HKDF. Así, un respaldo de la base filtrado no alcanza para generar códigos.
-- **Los códigos de recuperación se guardan como HMAC** con otra clave derivada. Son aleatorios de unos 50 bits, así que un hash rápido alcanza si va con clave: sin `ENCRYPTION_KEY` no se pueden probar por fuerza bruta.
+- **El secreto se cifra con `secretbox`:** AES-256-GCM con una clave derivada de `ENCRYPTION_KEY` mediante HKDF. Así, un respaldo de la base filtrado no alcanza para generar códigos. El id del usuario va como dato asociado: un secreto copiado a otra fila no se puede descifrar.
+- **Los códigos de recuperación se guardan como HMAC** con otra clave derivada, sobre el código y el id del usuario. Son aleatorios de unos 50 bits, así que un hash rápido alcanza si va con clave: sin `ENCRYPTION_KEY` no se pueden probar por fuerza bruta.
 - **Se rechaza el reuso de un código** guardando el último paso usado, con un `UPDATE … WHERE totp_last_step < $2` atómico.
 - **El login en dos pasos usa un desafío** en `user_tokens` y una cookie `HttpOnly`, no un token en el cuerpo de la respuesta. El frontend no maneja secretos, y el desafío vence en 5 minutos.
 - **El 2FA es voluntario.** Obligarlo para ciertos roles es fácil de agregar en un proyecto (un control en `RequireAdmin`), pero cada proyecto lo decide.
@@ -123,7 +123,15 @@ Los orígenes de `CORS_ALLOWED_ORIGINS` se consideran confiables.
 
 ## Límite de peticiones en memoria
 
-Un token bucket por IP (`golang.org/x/time/rate`) en `/auth/login` y `/auth/register`. Al estar en memoria, alcanza para una instancia. Con varias instancias, el límite habría que moverlo a la base, a Redis o al proxy.
+Un token bucket (`golang.org/x/time/rate`) con tres usos:
+
+- **Por IP**, en las rutas de auth: intentos (login, registro, contraseñas, 2FA) y correos.
+- **Por usuario, en el código del 2FA:** quien llega a ese paso ya tiene la contraseña y puede repartir sus intentos entre muchas IPs. Además, cada desafío admite 5 intentos (contados en la base, con un `UPDATE` atómico); después hay que volver a poner la contraseña, y se le avisa al usuario por correo.
+- **Por destinatario, en los correos:** desde muchas IPs tampoco se le pueden mandar decenas de correos a una persona. En "olvidé mi contraseña" el límite es silencioso, para no revelar qué emails existen, y no invalida el último enlace enviado.
+
+Al estar en memoria, alcanza para una instancia, y se reinicia con la API. Con varias instancias, los límites habría que moverlos a la base, a Redis o al proxy. Una clave inactiva se olvida recién cuando su límite ya se habría recargado.
+
+No hay un bloqueo de cuenta por contraseñas incorrectas: le permitiría a cualquiera dejar afuera a otro usuario, y argon2id ya encarece cada intento.
 
 La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, para que nadie pueda falsearla si la API está expuesta directamente.
 
@@ -133,7 +141,9 @@ Las IPv6 se agrupan por bloque `/64`: un proveedor le asigna a cada cliente un `
 
 `gonew` copia el código, y los proyectos creados no quedan conectados a la plantilla: mejorarla no rompe nada en ellos. Por eso en este repositorio se puede reorganizar libremente, incluidas las migraciones, que representan el esquema inicial.
 
-Para saber de qué versión salió cada proyecto, la plantilla se versiona con tags (`v0.1.0`, …) y un `CHANGELOG.md`. Llevar una mejora a un proyecto existente se hace a mano, mirando el cambio en el historial.
+Para saber de qué versión salió cada proyecto, la plantilla se versiona con tags (`v0.1.0`, …) y un `CHANGELOG.md`. Llevar una mejora a un proyecto existente se hace a mano, mirando el cambio en el historial. Cuando una versión cambia el esquema, el CHANGELOG trae el SQL para la migración nueva del proyecto.
+
+**La misma regla vale en cada proyecto:** mientras no esté desplegado, las migraciones originales se editan (sumar `ALTER TABLE` por cada campo solo ensucia el historial). Después del primer despliegue, cada cambio va en una migración nueva, porque la base de producción ya aplicó las anteriores.
 
 ## Ejemplos de recursos
 

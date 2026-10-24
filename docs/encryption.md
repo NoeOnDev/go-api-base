@@ -9,6 +9,8 @@
 | Secreto del 2FA | Cifrado con AES-256-GCM | La API necesita leerlo para comprobar los códigos |
 | Códigos de recuperación del 2FA | HMAC-SHA256 | Solo se comparan; sin la clave, no se pueden probar por fuerza bruta |
 
+Los dos están **atados a su usuario**: el secreto se cifra con el id del usuario como dato asociado (`users.totp_secret:<id>`), y el HMAC se calcula sobre el código y el id. Si alguien con acceso de escritura a la base copia su propio secreto o sus códigos a la fila de otro usuario, no le sirven para entrar como él.
+
 Lo demás **no depende de esta clave**, a propósito:
 
 | Dato | Cómo se guarda | Por qué no necesita clave |

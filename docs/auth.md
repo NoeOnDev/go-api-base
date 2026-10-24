@@ -111,7 +111,10 @@ Hasta que se confirma con `enable`, el 2FA no está activo, así que un QR mal e
    - `{"recovery_code": "xxxxx-xxxxx"}`, un código de recuperación (se acepta en mayúsculas o sin guion).
 3. Si es correcto, responde `200` con el usuario y crea la sesión, como un login normal.
 
-Un código incorrecto responde `422` y deja reintentar, con el límite de intentos. Si el desafío venció, responde `401` y hay que volver a ingresar la contraseña.
+Un código incorrecto responde `422` y deja reintentar. Cada desafío admite **5 intentos**:
+- Al quinto código incorrecto responde **`401 two_factor_locked`**, borra el desafío y le envía al usuario un **correo de aviso** con la fecha y la IP: quien llegó a ese paso conoce su contraseña.
+- Si el desafío venció o ya no existe, responde `401` y hay que volver a ingresar la contraseña.
+- Además, cada usuario tiene **10 intentos seguidos y luego uno cada 6 minutos**, vengan de la IP que vengan. Al superarlos responde `429` con `Retry-After`.
 
 ### Desactivar y regenerar códigos
 
@@ -122,7 +125,8 @@ Un código incorrecto responde `422` y deja reintentar, con el límite de intent
 
 - **Códigos TOTP estándar** (RFC 6238): 6 dígitos, cambian cada 30 segundos y se tolera ±30 segundos de desfase del reloj.
 - **Un código ya usado se rechaza** aunque siga vigente, así que un código interceptado no sirve para otro login.
-- **El secreto se guarda cifrado** con AES-256-GCM y la clave `ENCRYPTION_KEY`. Los códigos de recuperación se guardan como HMAC, nunca en texto plano, y cada uno sirve una vez.
+- **El secreto se guarda cifrado** con AES-256-GCM y la clave `ENCRYPTION_KEY`, atado al usuario. Los códigos de recuperación se guardan como HMAC, nunca en texto plano, y cada uno sirve una vez.
+- **Fuerza bruta del código:** 5 intentos por desafío y un límite por usuario, independiente de la IP (ver arriba). Con eso, adivinar un código queda cerca de un 0,07 % por día.
 - **Recuperar la contraseña no saltea el 2FA:** el siguiente login vuelve a pedir el código.
 - **Si un usuario pierde el teléfono y los códigos**, un admin puede desactivarle el 2FA desde la base:
 
@@ -184,6 +188,10 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 - **Límites por IP** (las IPv6 se cuentan por bloque `/64`). Al superarlos se responde `429` con `Retry-After`:
   - **Intentos:** login, registro, cambio de contraseña, reset, verificación y las rutas del 2FA. 5 seguidos y luego uno cada 12 segundos.
   - **Correos:** `forgot` y `resend`. 3 seguidos y luego uno cada 5 minutos.
+- **Límites por usuario**, aunque los pedidos lleguen de muchas IPs:
+  - **Código del 2FA:** 10 intentos seguidos y luego uno cada 6 minutos.
+  - **Correos a una misma persona:** 3 seguidos de cada tipo (recuperación, verificación, aviso) y luego uno cada 20 minutos. En `forgot`, al superarlo no se envía nada y la respuesta es la misma de siempre, para no revelar si el email existe; el último enlace enviado sigue sirviendo. `resend` responde `429`.
+- Los límites están en memoria: alcanzan para una instancia de la API, y se reinician con ella.
 - **2FA** opcional para cada usuario (ver la sección [2FA](#2fa-verificación-en-dos-pasos)).
 - **Protección CSRF** (`http.CrossOriginProtection` de Go): rechaza con `403` los `POST`/`PUT`/`DELETE` que el navegador envía desde otro sitio. Las peticiones sin encabezados de navegador (`curl`, apps móviles) no se ven afectadas.
 - **Limpieza:** las sesiones y los tokens vencidos se borran al crear nuevos.
@@ -197,7 +205,7 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 - `/reset-password`, la del enlace del correo;
 - `/verify-email`, la del enlace del correo, solo con la verificación activa;
 - un aviso de "confirmá tu email" cuando una respuesta trae `email_not_verified`;
-- el segundo paso del login (el código del 2FA) cuando el login responde `202`;
+- el segundo paso del login (el código del 2FA) cuando el login responde `202`. Si ese paso responde `401` (por ejemplo, `two_factor_locked`), volver a la pantalla de login;
 - en el perfil, activar el 2FA (QR, código y códigos de recuperación) y desactivarlo.
 
 ### Mismo dominio (recomendado)

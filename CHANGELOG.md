@@ -5,6 +5,51 @@ usá esta lista para saber de qué versión salió un proyecto y qué mejoras po
 
 Formato: una sección por versión, con lo **agregado**, **cambiado** y **corregido**.
 
+La plantilla edita sus migraciones originales, porque representan el esquema inicial. Si tu proyecto ya está
+desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
+el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
+
+## [v0.3.2] - 2026-10-24
+
+Correcciones de seguridad a partir de una revisión del 2FA, del envío de correos y del cifrado.
+
+### Agregado
+
+- **Máximo de 5 intentos por desafío del 2FA:** al agotarlos, el desafío se borra y responde `401 two_factor_locked`; hay que volver a ingresar la contraseña.
+- **Límite de intentos del 2FA por usuario:** 10 seguidos y luego uno cada 6 minutos, sin importar desde cuántas IPs lleguen (`429` con `Retry-After`).
+- **Aviso por correo** cuando se bloquea un desafío: quien llegó a ese paso conoce la contraseña. Incluye la fecha y la IP. Plantilla en `internal/auth/emails/two_factor_locked.txt`.
+- **Límite de correos por destinatario:** "Olvidé mi contraseña", el reenvío de la verificación y el aviso admiten 3 correos seguidos por usuario y luego uno cada 20 minutos.
+  - `forgot` sigue respondiendo lo mismo y **no invalida el último enlace enviado**.
+  - `resend` responde `429`.
+- **`auth.Options.TrustProxy`**, para registrar la IP real en el aviso.
+- **testutil:** `DoFromIP`, para simular peticiones desde varias IPs.
+
+### Cambiado
+
+- **El secreto del 2FA se cifra atado a su usuario** (datos asociados de AES-GCM): copiado a otra fila, no se puede descifrar. `secretbox.Encrypt` y `Decrypt` reciben un parámetro `aad`.
+- **El HMAC de los códigos de recuperación incluye el id del usuario.**
+- Se quitó la lectura del formato cifrado de v0.3.0 (sin identificador de clave).
+- **Regla de migraciones** en `AGENTS.md` y `docs/decisions.md`: en un proyecto, hasta el primer despliegue se editan las migraciones originales; después, siempre una nueva.
+
+### Corregido
+
+- **Fuerza bruta del código del 2FA desde muchas IPs:** antes, un código incorrecto no gastaba el desafío y solo había un límite por IP.
+- **Correos ilimitados hacia una misma persona** usando varias IPs, que además le anulaban el enlace anterior.
+- **El limitador olvidaba una clave inactiva a los 10 minutos** aunque tardara más en recargarse (el de correos tarda 15), y le devolvía todos los intentos. Ahora la recuerda hasta que se recarga.
+
+### Actualizar un proyecto existente
+
+```sql
+ALTER TABLE user_tokens ADD COLUMN attempts int NOT NULL DEFAULT 0;
+```
+
+Los secretos del 2FA y los códigos de recuperación de versiones anteriores no son compatibles con el formato nuevo. Los usuarios con 2FA tienen que volver a activarlo:
+
+```sql
+UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL WHERE totp_secret IS NOT NULL;
+DELETE FROM user_recovery_codes;
+```
+
 ## [v0.3.1] - 2026-10-24
 
 Rotación de `ENCRYPTION_KEY` sin afectar a los usuarios, y mejor manejo de errores.
@@ -31,6 +76,17 @@ Rotación de `ENCRYPTION_KEY` sin afectar a los usuarios, y mejor manejo de erro
 ### Corregido
 
 - Un secreto del 2FA que no se puede descifrar ya no responde `500`: responde `503 two_factor_unavailable` con un mensaje claro, y el log registra la causa y la clave.
+
+### Actualizar un proyecto existente
+
+Los códigos de recuperación guardados no tienen `key_id`. Lo más simple es borrarlos y que cada usuario genere
+códigos nuevos desde su perfil; su app de autenticación sigue funcionando:
+
+```sql
+DELETE FROM user_recovery_codes;
+ALTER TABLE user_recovery_codes ADD COLUMN key_id text NOT NULL;
+CREATE INDEX user_recovery_codes_key_id_idx ON user_recovery_codes (key_id);
+```
 
 ## [v0.3.0] - 2026-10-24
 
@@ -60,6 +116,26 @@ Rotación de `ENCRYPTION_KEY` sin afectar a los usuarios, y mejor manejo de erro
 - La configuración quita las comillas que rodean un valor, así un `.env` con `APP_NAME="Mi App"` funciona con make, la shell y systemd.
 - sqlc escribe la sigla TOTP en mayúsculas en los nombres generados.
 
+### Actualizar un proyecto existente
+
+```sql
+ALTER TABLE users
+    ADD COLUMN totp_secret     text,
+    ADD COLUMN totp_enabled_at timestamptz,
+    ADD COLUMN totp_last_step  bigint;
+
+ALTER TABLE user_tokens DROP CONSTRAINT user_tokens_purpose_check;
+ALTER TABLE user_tokens ADD CONSTRAINT user_tokens_purpose_check
+    CHECK (purpose IN ('password_reset', 'email_verification', 'two_factor_login'));
+
+CREATE TABLE user_recovery_codes (
+    code_hash  bytea       PRIMARY KEY,
+    user_id    bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX user_recovery_codes_user_id_idx ON user_recovery_codes (user_id);
+```
+
 ## [v0.2.0] - 2026-10-24
 
 Autenticación completa para proyectos públicos y SaaS, comparable a Laravel Breeze.
@@ -88,6 +164,25 @@ Autenticación completa para proyectos públicos y SaaS, comparable a Laravel Br
 - `auth.Register` recibe `auth.Limits` (intentos y correos) en lugar de un solo middleware.
 - `auth.User` incluye `email_verified_at`.
 - Los admins creados con `create-admin` quedan con el email verificado.
+
+### Actualizar un proyecto existente
+
+Los usuarios existentes quedan sin verificar. Si vas a activar `REQUIRE_EMAIL_VERIFICATION`, conviene marcarlos
+como verificados en la misma migración (`UPDATE users SET email_verified_at = created_at;`).
+
+```sql
+ALTER TABLE users ADD COLUMN email_verified_at timestamptz;
+
+CREATE TABLE user_tokens (
+    token_hash bytea       PRIMARY KEY,
+    user_id    bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    purpose    text        NOT NULL CHECK (purpose IN ('password_reset', 'email_verification')),
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX user_tokens_user_id_purpose_idx ON user_tokens (user_id, purpose);
+CREATE INDEX user_tokens_expires_at_idx ON user_tokens (expires_at);
+```
 
 ## [v0.1.0] - 2026-10-23
 

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -104,7 +105,7 @@ func (s *Service) enableTwoFactor(w http.ResponseWriter, r *http.Request) error 
 		return errSetupFirst
 	}
 
-	step, ok, err := s.checkTOTP(stored, in.Code)
+	step, ok, err := s.checkTOTP(r.Context(), stored, in.Code)
 	if err != nil {
 		return err
 	}
@@ -189,17 +190,56 @@ func (s *Service) regenerateRecoveryCodes(w http.ResponseWriter, r *http.Request
 }
 
 // checkTOTP descifra el secreto del usuario y comprueba el código en este momento.
-func (s *Service) checkTOTP(u store.User, code string) (step int64, ok bool, err error) {
+// Si el código es correcto y el secreto está cifrado con una clave vieja, lo vuelve a
+// cifrar con la actual (rotación gradual: cada usuario se actualiza al usar su 2FA).
+func (s *Service) checkTOTP(ctx context.Context, u store.User, code string) (step int64, ok bool, err error) {
+	if u.TOTPSecret == nil {
+		return 0, false, nil
+	}
 	box, err := s.box()
 	if err != nil {
 		return 0, false, err
 	}
-	if u.TOTPSecret == nil {
-		return 0, false, nil
-	}
+
 	secret, err := box.Decrypt(*u.TOTPSecret)
 	if err != nil {
-		return 0, false, fmt.Errorf("descifrar secreto del 2FA del usuario %d: %w", u.ID, err)
+		return 0, false, twoFactorUnavailable(u, err)
 	}
-	return totp.Validate(string(secret), code, time.Now())
+
+	step, ok, err = totp.Validate(string(secret), code, time.Now())
+	if err != nil || !ok {
+		return step, ok, err
+	}
+
+	if box.NeedsRotation(*u.TOTPSecret) {
+		s.reencryptSecret(ctx, box, u, secret)
+	}
+	return step, true, nil
+}
+
+// twoFactorUnavailable es la respuesta cuando el secreto no se puede descifrar: falta su clave
+// (se quitó de ENCRYPTION_PREVIOUS_KEYS antes de terminar la rotación) o el dato está dañado.
+// El usuario ve un mensaje claro; el log registra la causa y la clave para el administrador.
+func twoFactorUnavailable(u store.User, cause error) error {
+	return &httpx.Error{
+		Status:  http.StatusServiceUnavailable,
+		Code:    "two_factor_unavailable",
+		Message: "no pudimos verificar tu 2FA por un problema del servidor; contactá al administrador",
+		Err: fmt.Errorf("descifrar secreto del 2FA del usuario %d (clave %q): %w",
+			u.ID, secretbox.KeyIDOf(*u.TOTPSecret), cause),
+	}
+}
+
+// reencryptSecret vuelve a cifrar el secreto con la clave actual. Si falla, solo se registra:
+// el login ya fue válido, y el secreto se volverá a intentar en el próximo uso o con rotate-keys.
+func (s *Service) reencryptSecret(ctx context.Context, box *secretbox.Box, u store.User, secret []byte) {
+	encrypted, err := box.Encrypt(secret)
+	if err == nil {
+		_, err = s.q.UpdateTOTPSecret(ctx, store.UpdateTOTPSecretParams{ID: u.ID, OldSecret: u.TOTPSecret, NewSecret: &encrypted})
+	}
+	if err != nil {
+		httpx.LoggerFrom(ctx).Warn("no se pudo volver a cifrar el secreto del 2FA", "user_id", u.ID, "error", err)
+		return
+	}
+	httpx.LoggerFrom(ctx).Info("secreto del 2FA cifrado con la clave actual", "user_id", u.ID, "key_id", box.KeyID())
 }

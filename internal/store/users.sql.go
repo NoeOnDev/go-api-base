@@ -129,6 +129,38 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 	return i, err
 }
 
+const listUsersWithTOTPSecret = `-- name: ListUsersWithTOTPSecret :many
+SELECT id, totp_secret
+FROM users
+WHERE totp_secret IS NOT NULL
+ORDER BY id
+`
+
+type ListUsersWithTOTPSecretRow struct {
+	ID         int64
+	TOTPSecret *string
+}
+
+func (q *Queries) ListUsersWithTOTPSecret(ctx context.Context) ([]ListUsersWithTOTPSecretRow, error) {
+	rows, err := q.db.Query(ctx, listUsersWithTOTPSecret)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUsersWithTOTPSecretRow{}
+	for rows.Next() {
+		var i ListUsersWithTOTPSecretRow
+		if err := rows.Scan(&i.ID, &i.TOTPSecret); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markEmailVerified = `-- name: MarkEmailVerified :exec
 UPDATE users
 SET email_verified_at = coalesce(email_verified_at, now()), updated_at = now()
@@ -153,6 +185,28 @@ type SetPendingTOTPSecretParams struct {
 
 func (q *Queries) SetPendingTOTPSecret(ctx context.Context, arg SetPendingTOTPSecretParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setPendingTOTPSecret, arg.ID, arg.TOTPSecret)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateTOTPSecret = `-- name: UpdateTOTPSecret :execrows
+UPDATE users
+SET totp_secret = $1
+WHERE id = $2 AND totp_secret = $3
+`
+
+type UpdateTOTPSecretParams struct {
+	NewSecret *string
+	ID        int64
+	OldSecret *string
+}
+
+// UpdateTOTPSecret vuelve a cifrar el secreto con otra clave. Solo lo cambia si sigue siendo
+// el que se leyó, así no pisa un cambio hecho al mismo tiempo (por ejemplo, desactivar el 2FA).
+func (q *Queries) UpdateTOTPSecret(ctx context.Context, arg UpdateTOTPSecretParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateTOTPSecret, arg.NewSecret, arg.ID, arg.OldSecret)
 	if err != nil {
 		return 0, err
 	}

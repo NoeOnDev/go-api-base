@@ -97,7 +97,7 @@ func (s *Service) useTOTPCode(r *http.Request, u store.User, code string) error 
 	if u.TOTPEnabledAt == nil {
 		return errWrongCode
 	}
-	step, ok, err := s.checkTOTP(u, code)
+	step, ok, err := s.checkTOTP(r.Context(), u, code)
 	if err != nil {
 		return err
 	}

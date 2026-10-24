@@ -50,3 +50,16 @@ WHERE id = $1;
 UPDATE users
 SET totp_last_step = $2
 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2);
+
+-- UpdateTOTPSecret vuelve a cifrar el secreto con otra clave. Solo lo cambia si sigue siendo
+-- el que se leyó, así no pisa un cambio hecho al mismo tiempo (por ejemplo, desactivar el 2FA).
+-- name: UpdateTOTPSecret :execrows
+UPDATE users
+SET totp_secret = sqlc.arg('new_secret')
+WHERE id = sqlc.arg('id') AND totp_secret = sqlc.arg('old_secret');
+
+-- name: ListUsersWithTOTPSecret :many
+SELECT id, totp_secret
+FROM users
+WHERE totp_secret IS NOT NULL
+ORDER BY id;

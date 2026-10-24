@@ -11,21 +11,55 @@ import (
 
 const consumeRecoveryCode = `-- name: ConsumeRecoveryCode :execrows
 DELETE FROM user_recovery_codes
-WHERE user_id = $1 AND code_hash = $2
+WHERE user_id = $1 AND code_hash = ANY($2::bytea[])
 `
 
 type ConsumeRecoveryCodeParams struct {
-	UserID   int64
-	CodeHash []byte
+	UserID     int64
+	CodeHashes [][]byte
 }
 
-// ConsumeRecoveryCode borra el código si es del usuario: 1 fila si era válido, 0 si no.
+// ConsumeRecoveryCode borra el código si es del usuario. Recibe el HMAC calculado con cada
+// clave del llavero, así funciona también con códigos generados antes de una rotación.
 func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCodeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, consumeRecoveryCode, arg.UserID, arg.CodeHash)
+	result, err := q.db.Exec(ctx, consumeRecoveryCode, arg.UserID, arg.CodeHashes)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const countRecoveryCodeUsersByKey = `-- name: CountRecoveryCodeUsersByKey :many
+SELECT key_id, count(DISTINCT user_id) AS users
+FROM user_recovery_codes
+GROUP BY key_id
+ORDER BY key_id
+`
+
+type CountRecoveryCodeUsersByKeyRow struct {
+	KeyID string
+	Users int64
+}
+
+// CountRecoveryCodeUsersByKey cuenta cuántos usuarios tienen códigos de cada clave.
+func (q *Queries) CountRecoveryCodeUsersByKey(ctx context.Context) ([]CountRecoveryCodeUsersByKeyRow, error) {
+	rows, err := q.db.Query(ctx, countRecoveryCodeUsersByKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountRecoveryCodeUsersByKeyRow{}
+	for rows.Next() {
+		var i CountRecoveryCodeUsersByKeyRow
+		if err := rows.Scan(&i.KeyID, &i.Users); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const deleteRecoveryCodes = `-- name: DeleteRecoveryCodes :exec
@@ -42,18 +76,19 @@ const replaceRecoveryCodes = `-- name: ReplaceRecoveryCodes :exec
 WITH deleted AS (
     DELETE FROM user_recovery_codes WHERE user_id = $2
 )
-INSERT INTO user_recovery_codes (code_hash, user_id)
-SELECT unnest($1::bytea[]), $2
+INSERT INTO user_recovery_codes (code_hash, user_id, key_id)
+SELECT unnest($1::bytea[]), $2, $3
 `
 
 type ReplaceRecoveryCodesParams struct {
 	CodeHashes [][]byte
 	UserID     int64
+	KeyID      string
 }
 
 // ReplaceRecoveryCodes borra los códigos del usuario e inserta los nuevos en una sola
 // sentencia, así que es atómico: nunca quedan los viejos y los nuevos a la vez.
 func (q *Queries) ReplaceRecoveryCodes(ctx context.Context, arg ReplaceRecoveryCodesParams) error {
-	_, err := q.db.Exec(ctx, replaceRecoveryCodes, arg.CodeHashes, arg.UserID)
+	_, err := q.db.Exec(ctx, replaceRecoveryCodes, arg.CodeHashes, arg.UserID, arg.KeyID)
 	return err
 }

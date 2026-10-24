@@ -58,13 +58,19 @@ func (s *Service) replaceRecoveryCodes(ctx context.Context, userID int64) ([]str
 		hashes[i] = box.MAC([]byte(normalizeRecoveryCode(codes[i])))
 	}
 
-	if err := s.q.ReplaceRecoveryCodes(ctx, store.ReplaceRecoveryCodesParams{UserID: userID, CodeHashes: hashes}); err != nil {
+	if err := s.q.ReplaceRecoveryCodes(ctx, store.ReplaceRecoveryCodesParams{
+		UserID:     userID,
+		CodeHashes: hashes,
+		KeyID:      box.KeyID(),
+	}); err != nil {
 		return nil, fmt.Errorf("guardar códigos de recuperación: %w", err)
 	}
 	return codes, nil
 }
 
 // useRecoveryCode consume el código si es válido para el usuario. Cada código sirve una vez.
+// Se compara con el HMAC de todas las claves del llavero, así siguen sirviendo los códigos
+// generados antes de una rotación (mientras su clave esté en ENCRYPTION_PREVIOUS_KEYS).
 func (s *Service) useRecoveryCode(ctx context.Context, userID int64, code string) (bool, error) {
 	box, err := s.box()
 	if err != nil {
@@ -72,8 +78,8 @@ func (s *Service) useRecoveryCode(ctx context.Context, userID int64, code string
 	}
 
 	rows, err := s.q.ConsumeRecoveryCode(ctx, store.ConsumeRecoveryCodeParams{
-		UserID:   userID,
-		CodeHash: box.MAC([]byte(normalizeRecoveryCode(code))),
+		UserID:     userID,
+		CodeHashes: box.MACs([]byte(normalizeRecoveryCode(code))),
 	})
 	if err != nil {
 		return false, fmt.Errorf("usar código de recuperación: %w", err)

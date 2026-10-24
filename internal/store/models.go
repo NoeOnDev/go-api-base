@@ -62,6 +62,7 @@ type User struct {
 type UserRecoveryCode struct {
 	CodeHash  []byte
 	UserID    int64
+	KeyID     string
 	CreatedAt time.Time
 }
 

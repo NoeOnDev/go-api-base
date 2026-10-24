@@ -5,6 +5,35 @@ usá esta lista para saber de qué versión salió un proyecto y qué mejoras po
 
 Formato: una sección por versión, con lo **agregado**, **cambiado** y **corregido**.
 
+## [v0.2.0] - 2026-10-24
+
+Autenticación completa para proyectos públicos y SaaS, comparable a Laravel Breeze.
+
+### Agregado
+
+- **Perfil:** `PUT /auth/me` para cambiar el nombre.
+- **Cambio de contraseña:** `PUT /auth/password` pide la actual, tiene límite de intentos y cierra las demás sesiones (la actual sigue activa).
+- **Recuperar la contraseña por correo:**
+  - `POST /auth/password/forgot` responde siempre igual y envía un enlace de un solo uso que vence en 1 hora.
+  - `POST /auth/password/reset` cambia la contraseña y cierra todas las sesiones.
+- **Verificación de email opcional** (`REQUIRE_EMAIL_VERIFICATION`): enlace al registrarse que vence en 24 horas, `POST /auth/email/verify` y `POST /auth/email/resend`. Mientras el email no esté verificado, las rutas protegidas responden `403 email_not_verified`.
+- **Paquete `internal/mail`:**
+  - envío por SMTP (TLS o STARTTLS);
+  - log para desarrollo;
+  - envío en segundo plano, que espera los pendientes al apagar;
+  - `Recorder` para los tests.
+- **Configuración:** `FRONTEND_URL`, `REQUIRE_EMAIL_VERIFICATION`, `MAIL_DRIVER`, `MAIL_FROM` y `SMTP_*`.
+- **Plantillas de correo** editables en `internal/auth/emails/`.
+- **Tabla `user_tokens`** para tokens de un solo uso (guardados como SHA-256) y columna `users.email_verified_at`.
+- **testutil:** `NewAPI` con opciones (`WithMailer`, `WithConfig`) y `TokenFromEmail`.
+- **Documentación:** los flujos nuevos, las pantallas que necesita el frontend, Mailpit para desarrollo y cómo quitar cada función.
+
+### Cambiado
+
+- `auth.Register` recibe `auth.Limits` (intentos y correos) en lugar de un solo middleware.
+- `auth.User` incluye `email_verified_at`.
+- Los admins creados con `create-admin` quedan con el email verificado.
+
 ## [v0.1.0] - 2026-10-23
 
 Primera versión publicada.

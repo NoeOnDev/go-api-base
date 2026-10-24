@@ -13,7 +13,8 @@ Instrucciones para agentes de código (Claude Code, Codex, Copilot) que trabajen
 Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migraciones (goose), consultas tipadas (sqlc)
 y paquetes del equipo de Go (`golang.org/x/crypto`, `x/time`, `x/term`).
 
-Trae autenticación (sesiones con cookie, roles `user`/`admin`) y tres **recursos de ejemplo** que sirven de modelo:
+Trae autenticación completa (sesiones con cookie, roles `user`/`admin`, perfil, cambio y recuperación de contraseña,
+verificación de email opcional; ver `docs/auth.md`), envío de correos y tres **recursos de ejemplo** que sirven de modelo:
 
 | Recurso | Qué muestra |
 |---|---|
@@ -45,7 +46,9 @@ cmd/api/              arranque (main.go) y subcomando create-admin (admin.go)
 internal/config/      configuración desde variables de entorno
 internal/httpx/       JSON, errores, paginación, middlewares, CORS, límite de peticiones, IP del cliente
 internal/server/      http.Server con timeouts, rutas, CSRF y orden de middlewares (routes.go)
-internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/RequireAdmin
+internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/RequireAdmin, perfil,
+                      recuperación y verificación; plantillas de correo en emails/*.txt
+internal/mail/        envío de correos: LogSender, SMTPSender, Queue (en segundo plano) y Recorder (tests)
 internal/db/          pool de pgx, migraciones, errores de PostgreSQL y consultas SQL (queries/*.sql)
 internal/store/       GENERADO por sqlc: no editar a mano
 internal/validate/    reglas de validación compartidas (obligatorio, longitud, slug, no negativo)
@@ -80,6 +83,13 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - **Pertenencia:** si los datos son de cada usuario, la tabla lleva `user_id` y **todas** las consultas filtran por él
   (`WHERE id = $1 AND user_id = $2`). Un recurso ajeno responde 404, no 403. Ver `internal/notes`.
 - No tocar la protección CSRF ni CORS de `internal/server/routes.go` sin consultarlo.
+- `RequireUser` también exige el email verificado si `REQUIRE_EMAIL_VERIFICATION=true` (403 `email_not_verified`).
+
+**Correos**
+- Enviarlos con un `mail.Sender` (en `auth`, con `s.sendEmail` y una plantilla de `internal/auth/emails`). Nunca bloquear la respuesta
+  esperando el envío: en producción el sender es un `mail.Queue`.
+- Los enlaces de los correos apuntan al frontend (`FRONTEND_URL`). Los tokens que viajan por correo son de un solo uso, vencen
+  y se guardan hasheados (ver `internal/auth/tokens.go`).
 
 **Base de datos**
 - Todo el SQL vive en `internal/db/queries/*.sql`. Después de cambiarlo, correr `make sqlc`.
@@ -96,6 +106,8 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - Tests de integración con `testutil.NewDB(t)` (vacía todas las tablas) y `testutil.Login(t, pool, email, rol)` para la sesión.
   Usan solo `TEST_DATABASE_URL`, que debe terminar en `_test` y ser distinta de `DATABASE_URL`. **No quitar esa protección.**
 - Peticiones con `testutil.NewAPI`, `testutil.Do` y `testutil.Decode`, como en `internal/products/handlers_test.go`.
+  Para leer los correos enviados: `testutil.WithMailer(&mail.Recorder{})` y `testutil.TokenFromEmail`. Para cambiar la
+  configuración: `testutil.WithConfig(func(c *config.Config){ … })`.
 - Los tests que usan la base no llevan `t.Parallel()`, y los paquetes corren en serie (`-p 1`, ya incluido en `make test`).
 - Cubrir siempre: el caso feliz, validación (422), no encontrado (404), sin sesión (401) y, si aplica, sin permiso (403) o pertenencia.
 

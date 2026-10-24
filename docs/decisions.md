@@ -62,6 +62,32 @@ Cada recurso define su struct de respuesta. Agregar una columna a la tabla no ca
 
 JWT conviene cuando varios servicios validan sesiones sin acceso a la base, o para APIs de terceros. Ninguno de los dos es el caso de esta plantilla.
 
+## Correos en segundo plano y por SMTP
+
+- **SMTP con `net/smtp` de la librería estándar**, en lugar del SDK de un proveedor: funciona con cualquiera (Resend, Brevo, Amazon SES, Mailgun, el correo del hosting) y con Mailpit en desarrollo, y cambiar de proveedor es cambiar cuatro variables.
+- **Se envían en segundo plano** (`mail.Queue`), por dos motivos:
+  - la respuesta no espera al servidor de correo;
+  - "olvidé mi contraseña" tarda lo mismo exista o no el email.
+- **Si el envío falla**, queda en el log; al apagar la API se esperan los pendientes.
+- **No hay reintentos ni cola persistente.** Para correos críticos o de mucho volumen, conviene una cola en la base o un servicio dedicado.
+- **Plantillas en texto plano**, embebidas en el binario. Se leen bien en cualquier cliente y no tienen problemas de compatibilidad con HTML.
+
+## Tokens de un solo uso por correo
+
+Recuperar la contraseña y verificar el email usan la tabla `user_tokens`:
+- **Como en las sesiones**, se guarda solo el SHA-256 del token.
+- **Vencen** a la hora (recuperación) o a las 24 horas (verificación).
+- **Solo sirve el último enlace:** pedir uno nuevo invalida el anterior.
+- **No se pueden usar dos veces:** se validan y borran en una sola sentencia (`DELETE … RETURNING`), así que ni dos peticiones simultáneas pueden reutilizarlos.
+
+Los enlaces apuntan al **frontend** (`FRONTEND_URL`), no a la API: la pantalla toma el token de la URL y llama a la API. Así la API sigue siendo solo JSON.
+
+## Verificación de email opcional
+
+Viene desactivada (`REQUIRE_EMAIL_VERIFICATION=false`), porque muchos proyectos privados no la necesitan.
+
+Activada, bloquea las rutas protegidas con un `403 email_not_verified` en lugar de impedir el login. Así el usuario puede entrar, ver el aviso y pedir otro enlace sin quedar trabado.
+
 ## argon2id para las contraseñas
 
 Es el algoritmo recomendado por OWASP. Los parámetros (19 MiB, 2 iteraciones, 1 hilo) son los mínimos que recomiendan, elegidos porque el destino es un VPS de 1 vCPU.
@@ -139,7 +165,8 @@ Con `GOTOOLCHAIN=auto` (el valor por defecto), una versión anterior de Go desca
 
 ## Qué no incluye (todavía)
 
-- Recuperar la contraseña y verificar el email (necesitan un servicio de correo).
+- Cambiar el email.
+- 2FA.
 - OAuth.
 - Permisos más finos que `user`/`admin`.
 - Guía de despliegue (systemd + Caddy).

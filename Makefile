@@ -41,6 +41,10 @@ build: ## Compila un binario estático y liviano en bin/api
 key: ## Genera una clave nueva para ENCRYPTION_KEY (ver docs/encryption.md)
 	@go run ./cmd/api generate-key
 
+.PHONY: rotate-keys
+rotate-keys: ## Vuelve a cifrar con ENCRYPTION_KEY lo que esté con claves anteriores e informa qué falta
+	go run ./cmd/api rotate-keys
+
 .PHONY: create-admin
 create-admin: ## Crea un administrador: make create-admin email=admin@ejemplo.com name="Admin"
 	@test -n "$(email)" || { echo "Falta el email: make create-admin email=admin@ejemplo.com"; exit 1; }

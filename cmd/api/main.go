@@ -29,8 +29,10 @@ func main() {
 		err = runCreateAdmin(os.Args[2:])
 	case os.Args[1] == "generate-key":
 		err = runGenerateKey()
+	case os.Args[1] == "rotate-keys":
+		err = runRotateKeys()
 	default:
-		err = fmt.Errorf("comando desconocido %q (disponibles: create-admin, generate-key)", os.Args[1])
+		err = fmt.Errorf("comando desconocido %q (disponibles: create-admin, generate-key, rotate-keys)", os.Args[1])
 	}
 
 	if err != nil {

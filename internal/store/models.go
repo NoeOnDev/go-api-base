@@ -46,11 +46,20 @@ type Session struct {
 }
 
 type User struct {
-	ID           int64
-	Name         string
-	Email        string
-	PasswordHash string
-	Role         string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID              int64
+	Name            string
+	Email           string
+	PasswordHash    string
+	Role            string
+	EmailVerifiedAt *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type UserToken struct {
+	TokenHash []byte
+	UserID    int64
+	Purpose   string
+	ExpiresAt time.Time
+	CreatedAt time.Time
 }

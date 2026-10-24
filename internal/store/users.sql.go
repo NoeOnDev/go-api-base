@@ -7,19 +7,21 @@ package store
 
 import (
 	"context"
+	"time"
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (name, email, password_hash, role)
-VALUES ($1, $2, $3, $4)
-RETURNING id, name, email, password_hash, role, created_at, updated_at
+INSERT INTO users (name, email, password_hash, role, email_verified_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, name, email, password_hash, role, email_verified_at, created_at, updated_at
 `
 
 type CreateUserParams struct {
-	Name         string
-	Email        string
-	PasswordHash string
-	Role         string
+	Name            string
+	Email           string
+	PasswordHash    string
+	Role            string
+	EmailVerifiedAt *time.Time
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
@@ -28,6 +30,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.Email,
 		arg.PasswordHash,
 		arg.Role,
+		arg.EmailVerifiedAt,
 	)
 	var i User
 	err := row.Scan(
@@ -36,6 +39,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Email,
 		&i.PasswordHash,
 		&i.Role,
+		&i.EmailVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -43,7 +47,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, name, email, password_hash, role, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, created_at, updated_at
 FROM users
 WHERE email = $1
 `
@@ -57,8 +61,86 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.Email,
 		&i.PasswordHash,
 		&i.Role,
+		&i.EmailVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, name, email, password_hash, role, email_verified_at, created_at, updated_at
+FROM users
+WHERE id = $1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const markEmailVerified = `-- name: MarkEmailVerified :exec
+UPDATE users
+SET email_verified_at = coalesce(email_verified_at, now()), updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) MarkEmailVerified(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, markEmailVerified, id)
+	return err
+}
+
+const updateUserName = `-- name: UpdateUserName :one
+UPDATE users
+SET name = $2, updated_at = now()
+WHERE id = $1
+RETURNING id, name, email, password_hash, role, email_verified_at, created_at, updated_at
+`
+
+type UpdateUserNameParams struct {
+	ID   int64
+	Name string
+}
+
+func (q *Queries) UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserName, arg.ID, arg.Name)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateUserPassword = `-- name: UpdateUserPassword :exec
+UPDATE users
+SET password_hash = $2, updated_at = now()
+WHERE id = $1
+`
+
+type UpdateUserPasswordParams struct {
+	ID           int64
+	PasswordHash string
+}
+
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	return err
 }

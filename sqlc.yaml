@@ -17,6 +17,12 @@ sql:
         # Las columnas que admiten NULL se generan como punteros (*string) en lugar de pgtype.Text.
         emit_pointers_for_null_types: true
         overrides:
-          # Las fechas se generan como time.Time en lugar de pgtype.Timestamptz.
+          # Las fechas se generan como time.Time en lugar de pgtype.Timestamptz,
+          # y como *time.Time si la columna admite NULL.
           - db_type: "timestamptz"
             go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              type: "time.Time"
+              pointer: true

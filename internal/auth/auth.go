@@ -29,18 +29,30 @@ const DefaultSessionTTL = 7 * 24 * time.Hour
 // User es el usuario autenticado. Es lo que reciben los handlers y lo que devuelve la API:
 // nunca incluye el hash de la contraseña.
 type User struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
+	// EmailVerifiedAt es null mientras el usuario no confirme su email.
+	EmailVerifiedAt *time.Time `json:"email_verified_at"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
+
+// EmailVerified indica si el usuario confirmó su email.
+func (u User) EmailVerified() bool { return u.EmailVerifiedAt != nil }
 
 // IsAdmin indica si el usuario tiene rol de administrador.
 func (u User) IsAdmin() bool { return u.Role == RoleAdmin }
 
 func toUser(u store.User) User {
-	return User{ID: u.ID, Name: u.Name, Email: u.Email, Role: u.Role, CreatedAt: u.CreatedAt}
+	return User{
+		ID:              u.ID,
+		Name:            u.Name,
+		Email:           u.Email,
+		Role:            u.Role,
+		EmailVerifiedAt: u.EmailVerifiedAt,
+		CreatedAt:       u.CreatedAt,
+	}
 }
 
 // Options configura el servicio de autenticación.

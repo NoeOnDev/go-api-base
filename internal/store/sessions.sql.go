@@ -39,6 +39,21 @@ func (q *Queries) DeleteExpiredSessions(ctx context.Context) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const deleteOtherSessions = `-- name: DeleteOtherSessions :exec
+DELETE FROM sessions
+WHERE user_id = $1 AND token_hash <> $2
+`
+
+type DeleteOtherSessionsParams struct {
+	UserID    int64
+	TokenHash []byte
+}
+
+func (q *Queries) DeleteOtherSessions(ctx context.Context, arg DeleteOtherSessionsParams) error {
+	_, err := q.db.Exec(ctx, deleteOtherSessions, arg.UserID, arg.TokenHash)
+	return err
+}
+
 const deleteSession = `-- name: DeleteSession :exec
 DELETE FROM sessions
 WHERE token_hash = $1
@@ -49,8 +64,18 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 	return err
 }
 
+const deleteUserSessions = `-- name: DeleteUserSessions :exec
+DELETE FROM sessions
+WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteUserSessions, userID)
+	return err
+}
+
 const getSessionUser = `-- name: GetSessionUser :one
-SELECT u.id, u.name, u.email, u.password_hash, u.role, u.created_at, u.updated_at
+SELECT u.id, u.name, u.email, u.password_hash, u.role, u.email_verified_at, u.created_at, u.updated_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1 AND s.expires_at > now()
@@ -65,6 +90,7 @@ func (q *Queries) GetSessionUser(ctx context.Context, tokenHash []byte) (User, e
 		&i.Email,
 		&i.PasswordHash,
 		&i.Role,
+		&i.EmailVerifiedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

@@ -21,9 +21,9 @@ const CookieName = "session"
 // errNoSession indica que la petición no trae una sesión válida.
 var errNoSession = errors.New("sin sesión válida")
 
-// newSessionToken genera un token aleatorio de 32 bytes (256 bits) para el cliente
-// y el hash que se guarda en la base.
-func newSessionToken() (token string, hash []byte, err error) {
+// newToken genera un token aleatorio de 32 bytes (256 bits) para el cliente y el hash que
+// se guarda en la base. Lo usan las sesiones y los tokens que se envían por correo.
+func newToken() (token string, hash []byte, err error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", nil, fmt.Errorf("generar token: %w", err)
@@ -42,7 +42,7 @@ func hashToken(token string) []byte {
 // StartSession crea una sesión para el usuario y envía la cookie.
 // De paso borra las sesiones vencidas, para que la tabla no crezca sin límite.
 func (s *Service) StartSession(ctx context.Context, w http.ResponseWriter, userID int64) error {
-	token, hash, err := newSessionToken()
+	token, hash, err := newToken()
 	if err != nil {
 		return err
 	}

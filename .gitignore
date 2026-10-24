@@ -1,0 +1,15 @@
+# Variables de entorno locales (pueden contener contraseñas)
+.env
+
+# Binarios compilados
+/bin/
+
+# Salida de tests y perfiles
+*.out
+*.test
+coverage.html
+
+# Editores y sistema
+.idea/
+.vscode/
+.DS_Store

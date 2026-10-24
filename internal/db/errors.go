@@ -2,6 +2,7 @@ package db
 
 import (
 	"errors"
+	"slices"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -11,6 +12,9 @@ import (
 const (
 	codeUniqueViolation     = "23505"
 	codeForeignKeyViolation = "23503"
+	// codeRestrictViolation es el que devuelve una FK con ON DELETE RESTRICT al borrar
+	// una fila que todavía se usa (las FK sin esa opción devuelven codeForeignKeyViolation).
+	codeRestrictViolation = "23001"
 )
 
 // IsUniqueViolation indica si err es una violación de UNIQUE (por ejemplo, un email repetido)
@@ -22,12 +26,12 @@ func IsUniqueViolation(err error) (constraint string, ok bool) {
 // IsForeignKeyViolation indica si err es una violación de FOREIGN KEY: se referenció una fila
 // que no existe, o se intentó borrar una fila que otras todavía referencian.
 func IsForeignKeyViolation(err error) (constraint string, ok bool) {
-	return pgErrorConstraint(err, codeForeignKeyViolation)
+	return pgErrorConstraint(err, codeForeignKeyViolation, codeRestrictViolation)
 }
 
-func pgErrorConstraint(err error, code string) (string, bool) {
+func pgErrorConstraint(err error, codes ...string) (string, bool) {
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == code {
+	if errors.As(err, &pgErr) && slices.Contains(codes, pgErr.Code) {
 		return pgErr.ConstraintName, true
 	}
 	return "", false

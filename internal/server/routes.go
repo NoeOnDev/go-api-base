@@ -9,9 +9,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/categories"
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/notes"
+	"github.com/NoeOnDev/go-api-base/internal/products"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -40,6 +42,8 @@ func NewHandler(d Deps) http.Handler {
 
 	// Recursos de la API. Cada recurso nuevo se registra acá.
 	notes.Register(mux, notes.NewHandler(queries), authService)
+	categories.Register(mux, categories.NewHandler(queries), authService)
+	products.Register(mux, products.NewHandler(queries), authService)
 
 	// Cualquier ruta no registrada responde 404 con el formato de error de la API.
 	mux.Handle("/", httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {

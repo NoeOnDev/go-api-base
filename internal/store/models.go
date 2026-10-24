@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+type Category struct {
+	ID        int64
+	Name      string
+	Slug      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type Note struct {
 	ID        int64
 	UserID    int64
@@ -15,6 +23,19 @@ type Note struct {
 	Body      string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type Product struct {
+	ID          int64
+	CategoryID  int64
+	Name        string
+	Slug        string
+	Description string
+	PriceCents  int64
+	Stock       int32
+	Active      bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type Session struct {

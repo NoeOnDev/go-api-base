@@ -65,7 +65,8 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
   Cualquier otro error se responde como 500 sin exponer detalles.
 - Paginación con `httpx.ParsePage` y respuesta `httpx.List[T]` (`{data, meta}`). IDs de la ruta con `httpx.PathID(r, "id")`.
 - Cada recurso define su propio struct de respuesta; no devolver directamente los structs de `internal/store`.
-- Logs con `httpx.LoggerFrom(r.Context())` (ya incluye `request_id` y, con sesión, `user_id`). No registrar contraseñas ni tokens.
+- Logs con `httpx.LoggerFrom(r.Context())` (ya incluye `request_id` y, con sesión, `user_id`). Para sumar un dato a todas las
+  líneas de la petición, incluida la final, usar `httpx.AddLogAttrs(ctx, "clave", valor)`. No registrar contraseñas ni tokens.
 
 **Autenticación y permisos**
 - Proteger rutas en `routes.go` del recurso: `authn.RequireUser(...)` (cualquier usuario) o `authn.RequireAdmin(...)`.

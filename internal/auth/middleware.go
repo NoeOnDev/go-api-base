@@ -22,9 +22,10 @@ func (s *Service) RequireUser(next http.Handler) http.Handler {
 			return err
 		}
 
+		// Desde acá, cada línea de log de la petición (incluida la final) incluye el usuario.
+		httpx.AddLogAttrs(r.Context(), "user_id", u.ID)
+
 		ctx := context.WithValue(r.Context(), ctxKey{}, u)
-		// Desde acá, cada línea de log de la petición incluye el usuario.
-		ctx = httpx.WithLogger(ctx, httpx.LoggerFrom(ctx).With("user_id", u.ID))
 		next.ServeHTTP(w, r.WithContext(ctx))
 		return nil
 	})

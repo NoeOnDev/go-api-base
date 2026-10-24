@@ -165,3 +165,20 @@ func TestHandle(t *testing.T) {
 		t.Errorf("message = %q", got.Message)
 	}
 }
+
+func TestAddLogAttrsReachesRequestLog(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	// Un middleware interno (como auth) agrega el user_id; la línea final de Logger debe incluirlo.
+	h := Chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		AddLogAttrs(r.Context(), "user_id", 42)
+		w.WriteHeader(http.StatusOK)
+	}), RequestID(logger), Logger)
+
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if line := buf.String(); !strings.Contains(line, "msg=petición") || !strings.Contains(line, "user_id=42") {
+		t.Errorf("la línea de la petición no incluye el user_id: %s", line)
+	}
+}

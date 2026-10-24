@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"sync"
 	"time"
 )
 
@@ -46,7 +47,7 @@ func RequestID(logger *slog.Logger) Middleware {
 			w.Header().Set(RequestIDHeader, id)
 
 			ctx := context.WithValue(r.Context(), requestIDKey, id)
-			ctx = context.WithValue(ctx, loggerKey, logger.With("request_id", id))
+			ctx = context.WithValue(ctx, loggerKey, &requestLogger{logger: logger.With("request_id", id)})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -58,18 +59,33 @@ func RequestIDFrom(ctx context.Context) string {
 	return id
 }
 
-// LoggerFrom devuelve el logger de la petición (con su request_id) o el logger por defecto.
+// requestLogger es el logger de una petición. Se guarda como puntero en el contexto para que
+// AddLogAttrs pueda ampliarlo desde un middleware interno y el cambio lo vean también los
+// middlewares externos, como Logger al escribir la línea final de la petición.
+type requestLogger struct {
+	mu     sync.Mutex
+	logger *slog.Logger
+}
+
+// LoggerFrom devuelve el logger de la petición (con su request_id y los atributos agregados
+// con AddLogAttrs) o el logger por defecto.
 func LoggerFrom(ctx context.Context) *slog.Logger {
-	if l, ok := ctx.Value(loggerKey).(*slog.Logger); ok {
-		return l
+	if rl, ok := ctx.Value(loggerKey).(*requestLogger); ok {
+		rl.mu.Lock()
+		defer rl.mu.Unlock()
+		return rl.logger
 	}
 	return slog.Default()
 }
 
-// WithLogger devuelve un contexto con otro logger para la petición, por ejemplo
-// el mismo logger con el user_id agregado una vez que se sabe quién es el usuario.
-func WithLogger(ctx context.Context, logger *slog.Logger) context.Context {
-	return context.WithValue(ctx, loggerKey, logger)
+// AddLogAttrs agrega atributos a todas las líneas de log de la petición, incluida la línea
+// final de Logger. Por ejemplo, auth agrega el user_id cuando identifica al usuario.
+func AddLogAttrs(ctx context.Context, args ...any) {
+	if rl, ok := ctx.Value(loggerKey).(*requestLogger); ok {
+		rl.mu.Lock()
+		defer rl.mu.Unlock()
+		rl.logger = rl.logger.With(args...)
+	}
 }
 
 func newRequestID() string {

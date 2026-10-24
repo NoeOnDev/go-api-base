@@ -7,6 +7,7 @@ import (
 )
 
 // register responde POST /auth/register: crea un usuario con rol user e inicia su sesión.
+// Con REQUIRE_EMAIL_VERIFICATION activa, también le envía el enlace para confirmar el email.
 func (s *Service) register(w http.ResponseWriter, r *http.Request) error {
 	var in RegisterInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -20,6 +21,12 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) error {
 
 	if err := s.StartSession(r.Context(), w, u.ID); err != nil {
 		return err
+	}
+
+	if s.opts.RequireVerifiedEmail {
+		if err := s.sendVerificationEmail(r.Context(), u); err != nil {
+			return err
+		}
 	}
 
 	httpx.Write(w, http.StatusCreated, u)

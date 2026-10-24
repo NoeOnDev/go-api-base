@@ -1,0 +1,122 @@
+package auth_test
+
+import (
+	"fmt"
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/config"
+	"github.com/NoeOnDev/go-api-base/internal/mail"
+	"github.com/NoeOnDev/go-api-base/internal/testutil"
+)
+
+func requireVerification(c *config.Config) { c.RequireEmailVerification = true }
+
+func verifyBody(token string) string { return fmt.Sprintf(`{"token":%q}`, token) }
+
+func TestEmailVerificationRequired(t *testing.T) {
+	pool := testutil.NewDB(t)
+	mails := &mail.Recorder{}
+	api := testutil.NewAPI(pool, testutil.WithMailer(mails), testutil.WithConfig(requireVerification))
+
+	// Al registrarse se envía el enlace, y el usuario queda sin verificar.
+	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/register", registerBody)
+	u := testutil.Decode[auth.User](t, w, http.StatusCreated)
+	if u.EmailVerified() {
+		t.Fatal("el usuario no debería estar verificado al registrarse")
+	}
+	cookie := sessionCookie(t, w)
+
+	first, ok := mails.Last("ana@ejemplo.com")
+	if !ok || !strings.Contains(first.Body, "https://app.test/verify-email?token=") {
+		t.Fatalf("no se envió el enlace de verificación: %+v", mails.Messages())
+	}
+
+	// Sin verificar: las rutas protegidas responden 403, pero la cuenta sigue accesible.
+	resp := testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodGet, "/notes", ""), http.StatusForbidden)
+	if resp.Error.Code != "email_not_verified" {
+		t.Errorf("code = %q", resp.Error.Code)
+	}
+	for _, tt := range []struct{ method, path, body string }{
+		{http.MethodGet, "/auth/me", ""},
+		{http.MethodPut, "/auth/me", `{"name":"Ana"}`},
+	} {
+		if w := testutil.Do(t, api, cookie, tt.method, tt.path, tt.body); w.Code != http.StatusOK {
+			t.Errorf("%s %s sin verificar: status = %d", tt.method, tt.path, w.Code)
+		}
+	}
+
+	// Pedir otro enlace invalida el anterior.
+	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/email/resend", ""); w.Code != http.StatusAccepted {
+		t.Fatalf("resend: status = %d", w.Code)
+	}
+	second, _ := mails.Last("ana@ejemplo.com")
+	testutil.Decode[testutil.APIError](t,
+		testutil.Do(t, api, nil, http.MethodPost, "/auth/email/verify", verifyBody(testutil.TokenFromEmail(t, first))),
+		http.StatusUnprocessableEntity)
+
+	// Con el enlace nuevo se verifica, y las rutas protegidas ya funcionan.
+	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/email/verify", verifyBody(testutil.TokenFromEmail(t, second))); w.Code != http.StatusNoContent {
+		t.Fatalf("verify: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+	me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK)
+	if !me.EmailVerified() {
+		t.Error("el email no quedó verificado")
+	}
+	if w := testutil.Do(t, api, cookie, http.MethodGet, "/notes", ""); w.Code != http.StatusOK {
+		t.Errorf("/notes después de verificar: status = %d", w.Code)
+	}
+
+	// Ya verificado, pedir otro enlace no envía nada.
+	sent := len(mails.Messages())
+	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/email/resend", ""); w.Code != http.StatusNoContent {
+		t.Errorf("resend ya verificado: status = %d", w.Code)
+	}
+	if len(mails.Messages()) != sent {
+		t.Error("se envió un correo a un email ya verificado")
+	}
+}
+
+func TestEmailVerificationDisabledByDefault(t *testing.T) {
+	pool := testutil.NewDB(t)
+	mails := &mail.Recorder{}
+	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
+
+	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/register", registerBody)
+	testutil.Decode[auth.User](t, w, http.StatusCreated)
+
+	if len(mails.Messages()) != 0 {
+		t.Errorf("no debería enviar correos al registrarse: %+v", mails.Messages())
+	}
+	if w := testutil.Do(t, api, sessionCookie(t, w), http.MethodGet, "/notes", ""); w.Code != http.StatusOK {
+		t.Errorf("sin verificación obligatoria, /notes debería funcionar: status = %d", w.Code)
+	}
+}
+
+func TestAdminsAreVerified(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool, testutil.WithConfig(requireVerification))
+	admin, cookie := testutil.Login(t, pool, "admin@ejemplo.com", auth.RoleAdmin)
+
+	if !admin.EmailVerified() {
+		t.Error("un admin debería quedar verificado al crearse")
+	}
+	if w := testutil.Do(t, api, cookie, http.MethodPost, "/categories", `{"name":"Bebidas","slug":"bebidas"}`); w.Code != http.StatusCreated {
+		t.Errorf("el admin no puede usar rutas protegidas: status = %d", w.Code)
+	}
+}
+
+func TestVerifyEmailInvalidToken(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+
+	resp := testutil.Decode[testutil.APIError](t,
+		testutil.Do(t, api, nil, http.MethodPost, "/auth/email/verify", verifyBody("token-inventado")),
+		http.StatusUnprocessableEntity)
+	if resp.Error.Fields["token"] == "" {
+		t.Errorf("se esperaba error en token: %+v", resp.Error)
+	}
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodPost, "/auth/email/resend", ""), http.StatusUnauthorized)
+}

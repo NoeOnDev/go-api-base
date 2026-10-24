@@ -93,7 +93,8 @@ func NewService(q *store.Queries, opts Options) *Service {
 }
 
 // CreateUser valida los datos, hashea la contraseña y crea el usuario con el rol indicado.
-// Lo usan el registro (rol user) y el comando create-admin (rol admin).
+// Lo usan el registro (rol user) y el comando create-admin (rol admin). Los admins quedan
+// con el email verificado: los crea alguien con acceso al servidor.
 // Los errores de validación y el email repetido se devuelven como *httpx.Error.
 func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string) (User, error) {
 	in.normalize()
@@ -109,11 +110,18 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 		return User{}, fmt.Errorf("hashear contraseña: %w", err)
 	}
 
+	var verifiedAt *time.Time
+	if role == RoleAdmin {
+		now := time.Now()
+		verifiedAt = &now
+	}
+
 	u, err := s.q.CreateUser(ctx, store.CreateUserParams{
-		Name:         in.Name,
-		Email:        in.Email,
-		PasswordHash: hash,
-		Role:         role,
+		Name:            in.Name,
+		Email:           in.Email,
+		PasswordHash:    hash,
+		Role:            role,
+		EmailVerifiedAt: verifiedAt,
 	})
 	if _, ok := db.IsUniqueViolation(err); ok {
 		return User{}, httpx.Conflict("el email ya está registrado", "email")

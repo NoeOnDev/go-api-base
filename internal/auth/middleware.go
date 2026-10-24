@@ -12,8 +12,26 @@ type ctxKey struct{}
 
 // RequireUser deja pasar solo peticiones con una sesión válida (si no, responde 401)
 // y guarda el usuario en el contexto. Los handlers lo obtienen con UserFrom o MustUser.
+//
+// Con REQUIRE_EMAIL_VERIFICATION activa, además exige el email verificado: si no lo está,
+// responde 403 con el código "email_not_verified", para que el frontend muestre el aviso.
 func (s *Service) RequireUser(next http.Handler) http.Handler {
-	return s.requireSession(next)
+	if !s.opts.RequireVerifiedEmail {
+		return s.requireSession(next)
+	}
+	return s.requireSession(httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		if !MustUser(r.Context()).EmailVerified() {
+			return errEmailNotVerified
+		}
+		next.ServeHTTP(w, r)
+		return nil
+	}))
+}
+
+var errEmailNotVerified = &httpx.Error{
+	Status:  http.StatusForbidden,
+	Code:    "email_not_verified",
+	Message: "confirmá tu email para continuar; revisá tu correo o pedí otro enlace",
 }
 
 // requireSession exige una sesión válida, pero no el email verificado. Lo usan las rutas

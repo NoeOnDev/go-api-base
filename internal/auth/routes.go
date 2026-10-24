@@ -33,4 +33,8 @@ func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	// Recuperar la contraseña por correo.
 	mux.Handle("POST /auth/password/forgot", limits.Emails(httpx.Handle(s.forgotPassword)))
 	mux.Handle("POST /auth/password/reset", limits.Attempts(httpx.Handle(s.resetPassword)))
+
+	// Verificar el email (obligatorio solo con REQUIRE_EMAIL_VERIFICATION=true).
+	mux.Handle("POST /auth/email/verify", limits.Attempts(httpx.Handle(s.verifyEmail)))
+	mux.Handle("POST /auth/email/resend", limits.Emails(s.requireSession(httpx.Handle(s.resendVerification))))
 }

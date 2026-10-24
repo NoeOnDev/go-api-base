@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/notes"
+	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
 // Deps son las dependencias que necesitan las rutas.
@@ -22,6 +24,10 @@ func NewHandler(d Deps) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.Handle("GET /healthz", health(d.DB))
+
+	// Recursos de la API. Cada recurso nuevo se registra acá.
+	queries := store.New(d.DB)
+	notes.Register(mux, notes.NewHandler(queries))
 
 	// Cualquier ruta no registrada responde 404 con el formato de error de la API.
 	mux.Handle("/", httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {

@@ -40,6 +40,36 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.TrustProxy || len(cfg.CORSAllowedOrigins) != 0 {
 		t.Errorf("TrustProxy = %v, CORSAllowedOrigins = %v", cfg.TrustProxy, cfg.CORSAllowedOrigins)
 	}
+	if cfg.FrontendURL != "http://localhost:5173" || cfg.RequireEmailVerification {
+		t.Errorf("FrontendURL = %q, RequireEmailVerification = %v", cfg.FrontendURL, cfg.RequireEmailVerification)
+	}
+	if cfg.Mail.Driver != MailDriverLog || cfg.Mail.SMTPPort != 587 || cfg.Mail.From != "no-reply@localhost" {
+		t.Errorf("Mail = %+v", cfg.Mail)
+	}
+}
+
+func TestLoadMailSMTP(t *testing.T) {
+	cfg, err := load(envFrom(map[string]string{
+		"DATABASE_URL":               "x",
+		"FRONTEND_URL":               "https://app.ejemplo.com/",
+		"REQUIRE_EMAIL_VERIFICATION": "true",
+		"MAIL_DRIVER":                "smtp",
+		"MAIL_FROM":                  "Mi App <no-reply@ejemplo.com>",
+		"SMTP_HOST":                  "smtp.ejemplo.com",
+		"SMTP_PORT":                  "465",
+		"SMTP_USERNAME":              "usuario",
+		"SMTP_PASSWORD":              "clave",
+	}))
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if cfg.FrontendURL != "https://app.ejemplo.com" || !cfg.RequireEmailVerification {
+		t.Errorf("FrontendURL = %q, RequireEmailVerification = %v", cfg.FrontendURL, cfg.RequireEmailVerification)
+	}
+	want := Mail{Driver: "smtp", From: "Mi App <no-reply@ejemplo.com>", SMTPHost: "smtp.ejemplo.com", SMTPPort: 465, SMTPUser: "usuario", SMTPPass: "clave"}
+	if cfg.Mail != want {
+		t.Errorf("Mail = %+v, se esperaba %+v", cfg.Mail, want)
+	}
 }
 
 func TestLoadCustomValues(t *testing.T) {

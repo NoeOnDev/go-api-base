@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -36,6 +37,32 @@ type Config struct {
 	// TrustProxy indica que hay un proxy (por ejemplo Caddy) delante, y que la IP real
 	// del cliente viene en X-Forwarded-For.
 	TrustProxy bool
+
+	// FrontendURL es la base de los enlaces que van en los correos
+	// (por ejemplo https://app.cliente.com/reset-password?token=…).
+	FrontendURL string
+	// RequireEmailVerification exige que el usuario verifique su email para usar las rutas protegidas.
+	RequireEmailVerification bool
+
+	// Mail configura el envío de correos.
+	Mail Mail
+}
+
+// Drivers de correo soportados.
+const (
+	MailDriverLog  = "log"
+	MailDriverSMTP = "smtp"
+)
+
+// Mail es la configuración del envío de correos.
+type Mail struct {
+	// Driver es "log" (escribe los correos en el log, para desarrollo) o "smtp".
+	Driver   string
+	From     string
+	SMTPHost string
+	SMTPPort int
+	SMTPUser string
+	SMTPPass string
 }
 
 // IsProduction indica si la aplicación corre en producción.
@@ -93,7 +120,62 @@ func load(getenv func(string) string) (Config, error) {
 		errs = append(errs, fmt.Errorf("CORS_ALLOWED_ORIGINS: %w", err))
 	}
 
+	if cfg.FrontendURL, err = baseURL(valueOr(getenv("FRONTEND_URL"), "http://localhost:5173")); err != nil {
+		errs = append(errs, fmt.Errorf("FRONTEND_URL: %w", err))
+	}
+
+	if cfg.RequireEmailVerification, err = boolOr(getenv("REQUIRE_EMAIL_VERIFICATION"), false); err != nil {
+		errs = append(errs, fmt.Errorf("REQUIRE_EMAIL_VERIFICATION %w", err))
+	}
+
+	cfg.Mail, err = loadMail(getenv)
+	errs = append(errs, err)
+
 	return cfg, errors.Join(errs...)
+}
+
+func loadMail(getenv func(string) string) (Mail, error) {
+	m := Mail{
+		Driver:   valueOr(getenv("MAIL_DRIVER"), MailDriverLog),
+		From:     valueOr(getenv("MAIL_FROM"), "no-reply@localhost"),
+		SMTPHost: strings.TrimSpace(getenv("SMTP_HOST")),
+		SMTPUser: getenv("SMTP_USERNAME"),
+		SMTPPass: getenv("SMTP_PASSWORD"),
+	}
+
+	var errs []error
+
+	if _, err := mail.ParseAddress(m.From); err != nil {
+		errs = append(errs, fmt.Errorf("MAIL_FROM inválido (ejemplo: Mi App <no-reply@miapp.com>): %w", err))
+	}
+
+	port, err := strconv.Atoi(valueOr(getenv("SMTP_PORT"), "587"))
+	if err != nil || port < 1 || port > 65535 {
+		errs = append(errs, errors.New("SMTP_PORT debe ser un número de puerto"))
+	}
+	m.SMTPPort = port
+
+	switch m.Driver {
+	case MailDriverLog:
+	case MailDriverSMTP:
+		if m.SMTPHost == "" {
+			errs = append(errs, errors.New("SMTP_HOST es obligatorio con MAIL_DRIVER=smtp"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("MAIL_DRIVER debe ser %q o %q, no %q", MailDriverLog, MailDriverSMTP, m.Driver))
+	}
+
+	return m, errors.Join(errs...)
+}
+
+// baseURL valida una URL base http/https y le quita la barra final.
+func baseURL(value string) (string, error) {
+	value = strings.TrimSuffix(strings.TrimSpace(value), "/")
+	u, err := url.Parse(value)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", fmt.Errorf("%q no es una URL válida (ejemplo: https://app.ejemplo.com)", value)
+	}
+	return value, nil
 }
 
 func valueOr(value, fallback string) string {

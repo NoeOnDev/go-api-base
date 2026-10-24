@@ -2,9 +2,28 @@ package auth
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
+
+// Límite de intentos de login por cuenta: 10 seguidos y luego uno por minuto, vengan de la IP
+// que vengan. Complementa el límite por IP, que no frena un ataque repartido entre muchas IPs.
+//
+// Cuenta por email, exista o no, así la respuesta no revela qué emails están registrados.
+// El costo: quien conozca un email puede demorar ese login. La salida del dueño es recuperar
+// la contraseña, que reinicia el límite (ver resetPassword).
+const (
+	loginLimitEvery = time.Minute
+	loginLimitBurst = 10
+)
+
+// loginLimitKey es la clave de un email en el límite de intentos del login.
+func loginLimitKey(email string) string {
+	return "login:" + strings.ToLower(strings.TrimSpace(email))
+}
 
 // register responde POST /auth/register: crea un usuario con rol user e inicia su sesión.
 // Con REQUIRE_EMAIL_VERIFICATION activa, también le envía el enlace para confirmar el email.
@@ -43,6 +62,11 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 	}
 	if err := in.validate(); err != nil {
 		return err
+	}
+	if !s.loginLimiter.Allow(loginLimitKey(in.Email)) {
+		httpx.LoggerFrom(r.Context()).Warn("límite de intentos de login de la cuenta superado")
+		w.Header().Set("Retry-After", strconv.Itoa(int(loginLimitEvery.Seconds())))
+		return httpx.TooManyRequests()
 	}
 
 	u, err := s.Authenticate(r.Context(), in.Email, in.Password)

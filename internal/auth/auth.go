@@ -87,7 +87,8 @@ type Service struct {
 	q    *store.Queries
 	opts Options
 
-	// Límites en memoria que no dependen de la IP (ver two_factor_login.go y emails.go).
+	// Límites en memoria que no dependen de la IP (ver handlers.go, two_factor_login.go y emails.go).
+	loginLimiter     *httpx.RateLimiter
 	twoFactorLimiter *httpx.RateLimiter
 	emailLimiter     *httpx.RateLimiter
 }
@@ -109,6 +110,7 @@ func NewService(q *store.Queries, opts Options) *Service {
 	return &Service{
 		q:                q,
 		opts:             opts,
+		loginLimiter:     httpx.NewRateLimiter(loginLimitEvery, loginLimitBurst, false),
 		twoFactorLimiter: httpx.NewRateLimiter(twoFactorLimitEvery, twoFactorLimitBurst, false),
 		emailLimiter:     httpx.NewRateLimiter(emailLimitEvery, emailLimitBurst, false),
 	}

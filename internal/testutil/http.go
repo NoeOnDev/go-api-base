@@ -5,11 +5,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/NoeOnDev/go-api-base/internal/config"
+	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 )
 
@@ -22,12 +25,45 @@ type APIError struct {
 	} `json:"error"`
 }
 
+// Option ajusta la API de prueba que crea NewAPI.
+type Option func(*server.Deps)
+
+// WithMailer usa el sender indicado para los correos, normalmente un *mail.Recorder
+// para poder leer los correos enviados en el test.
+func WithMailer(m mail.Sender) Option {
+	return func(d *server.Deps) { d.Mailer = m }
+}
+
+// WithConfig permite cambiar la configuración, por ejemplo para activar la verificación de email.
+func WithConfig(change func(*config.Config)) Option {
+	return func(d *server.Deps) { change(&d.Config) }
+}
+
 // NewAPI devuelve la API completa (rutas y middlewares) conectada a la base de pruebas.
-func NewAPI(pool *pgxpool.Pool) http.Handler {
-	return server.NewHandler(server.Deps{
+// Por defecto los correos van a un mail.Recorder que se descarta.
+func NewAPI(pool *pgxpool.Pool, opts ...Option) http.Handler {
+	d := server.Deps{
 		Logger: slog.New(slog.DiscardHandler),
 		DB:     pool,
-	})
+		Config: config.Config{FrontendURL: "https://app.test"},
+		Mailer: &mail.Recorder{},
+	}
+	for _, opt := range opts {
+		opt(&d)
+	}
+	return server.NewHandler(d)
+}
+
+var tokenInLink = regexp.MustCompile(`[?&]token=([A-Za-z0-9_-]+)`)
+
+// TokenFromEmail extrae el token del enlace de un correo (por ejemplo, el de recuperar la contraseña).
+func TokenFromEmail(t *testing.T, msg mail.Message) string {
+	t.Helper()
+	m := tokenInLink.FindStringSubmatch(msg.Body)
+	if m == nil {
+		t.Fatalf("el correo no tiene un enlace con token:\n%s", msg.Body)
+	}
+	return m[1]
 }
 
 // Do envía una petición a la API. cookie es la sesión del usuario, o nil para una petición sin sesión.

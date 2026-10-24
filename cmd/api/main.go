@@ -13,6 +13,7 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/db"
+	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 )
 
@@ -61,10 +62,17 @@ func run() error {
 		return err
 	}
 
+	sender, err := newMailSender(cfg, logger)
+	if err != nil {
+		return err
+	}
+	mailer := mail.NewQueue(sender, logger)
+
 	srv := server.New(cfg.HTTPAddr, server.NewHandler(server.Deps{
 		Logger: logger,
 		DB:     pool,
 		Config: cfg,
+		Mailer: mailer,
 	}), logger)
 
 	// El servidor corre en otra goroutine para que esta pueda esperar la señal de apagado.
@@ -93,8 +101,29 @@ func run() error {
 		return fmt.Errorf("servidor: %w", err)
 	}
 
+	// Los correos se envían en segundo plano: se espera a que salgan los pendientes.
+	if err := mailer.Wait(shutdownCtx); err != nil {
+		logger.Warn("quedaron correos sin enviar al apagar", "error", err)
+	}
+
 	logger.Info("servidor detenido")
 	return nil
+}
+
+// newMailSender crea el envío de correos según MAIL_DRIVER.
+func newMailSender(cfg config.Config, logger *slog.Logger) (mail.Sender, error) {
+	if cfg.Mail.Driver == config.MailDriverSMTP {
+		s, err := mail.NewSMTPSender(cfg.Mail.SMTPHost, cfg.Mail.SMTPPort, cfg.Mail.SMTPUser, cfg.Mail.SMTPPass, cfg.Mail.From)
+		if err != nil {
+			return nil, fmt.Errorf("configuración de correo: %w", err)
+		}
+		return s, nil
+	}
+
+	if cfg.IsProduction() {
+		logger.Warn("MAIL_DRIVER=log en producción: los correos no se envían, se escriben en el log")
+	}
+	return mail.LogSender{Logger: logger}, nil
 }
 
 // newLogger devuelve un logger en texto legible para desarrollo y en JSON para producción,

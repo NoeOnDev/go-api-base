@@ -12,6 +12,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/categories"
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/notes"
 	"github.com/NoeOnDev/go-api-base/internal/products"
 	"github.com/NoeOnDev/go-api-base/internal/store"
@@ -22,6 +23,9 @@ type Deps struct {
 	Logger *slog.Logger
 	DB     *pgxpool.Pool
 	Config config.Config
+	// Mailer envía los correos. En main es un mail.Queue (envío en segundo plano);
+	// en los tests, un mail.Recorder.
+	Mailer mail.Sender
 }
 
 // NewHandler registra todas las rutas y les aplica los middlewares comunes.
@@ -33,12 +37,17 @@ func NewHandler(d Deps) http.Handler {
 	queries := store.New(d.DB)
 
 	authService := auth.NewService(queries, auth.Options{
-		SessionTTL:   d.Config.SessionTTL,
-		CookieSecure: d.Config.CookieSecure,
+		SessionTTL:           d.Config.SessionTTL,
+		CookieSecure:         d.Config.CookieSecure,
+		Mailer:               d.Mailer,
+		FrontendURL:          d.Config.FrontendURL,
+		RequireVerifiedEmail: d.Config.RequireEmailVerification,
 	})
-	// 5 intentos seguidos por IP y luego uno cada 12 segundos (5 por minuto).
+	// Intentos: 5 seguidos por IP y luego uno cada 12 segundos (5 por minuto).
+	// Correos: 3 seguidos por IP y luego uno cada 5 minutos.
 	attempts := httpx.NewRateLimiter(12*time.Second, 5, d.Config.TrustProxy)
-	auth.Register(mux, authService, attempts.Middleware)
+	emails := httpx.NewRateLimiter(5*time.Minute, 3, d.Config.TrustProxy)
+	auth.Register(mux, authService, auth.Limits{Attempts: attempts.Middleware, Emails: emails.Middleware})
 
 	// Recursos de la API. Cada recurso nuevo se registra acá.
 	notes.Register(mux, notes.NewHandler(queries), authService)

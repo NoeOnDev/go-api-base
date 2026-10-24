@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -61,6 +63,13 @@ type Options struct {
 	SessionTTL time.Duration
 	// CookieSecure hace que la cookie solo viaje por HTTPS. Debe ser true en producción.
 	CookieSecure bool
+	// Mailer envía los correos (recuperar contraseña, verificar email). Si es nil,
+	// los correos se escriben en el log.
+	Mailer mail.Sender
+	// FrontendURL es la base de los enlaces de los correos, por ejemplo https://app.cliente.com.
+	FrontendURL string
+	// RequireVerifiedEmail exige el email verificado en RequireUser y RequireAdmin.
+	RequireVerifiedEmail bool
 }
 
 // Service agrupa la lógica de autenticación y sus dependencias.
@@ -73,6 +82,12 @@ type Service struct {
 func NewService(q *store.Queries, opts Options) *Service {
 	if opts.SessionTTL <= 0 {
 		opts.SessionTTL = DefaultSessionTTL
+	}
+	if opts.Mailer == nil {
+		opts.Mailer = mail.LogSender{Logger: slog.Default()}
+	}
+	if opts.FrontendURL == "" {
+		opts.FrontendURL = "http://localhost:5173"
 	}
 	return &Service{q: q, opts: opts}
 }

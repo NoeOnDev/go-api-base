@@ -4,6 +4,11 @@ Instrucciones para agentes de código (Claude Code, Codex, Copilot) que trabajen
 
 ## Qué es
 
+> **Este repositorio es una plantilla**, no una dependencia: `gonew` copia el código y los proyectos creados no quedan
+> conectados a ella. Por eso acá se puede reorganizar libremente (incluidas las migraciones, que son el esquema inicial).
+> En los **proyectos derivados** sí aplican las reglas de abajo: nunca modificar una migración ya aplicada.
+> Cada cambio de la plantilla se anota en `CHANGELOG.md`.
+
 `go-api-base` es una plantilla de API REST en Go para proyectos chicos y medianos que corren en un VPS.
 Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migraciones (goose), consultas tipadas (sqlc)
 y paquetes del equipo de Go (`golang.org/x/crypto`, `x/time`, `x/term`).
@@ -14,7 +19,7 @@ Trae autenticación (sesiones con cookie, roles `user`/`admin`) y tres **recurso
 |---|---|
 | `internal/notes` | CRUD protegido con **pertenencia**: cada usuario ve solo lo suyo |
 | `internal/categories` | Lectura pública, escritura solo admin, valor único (409), no borrar si está en uso (409) |
-| `internal/products` | Relación con otra tabla (JOIN), filtros y búsqueda, FK inexistente (422) |
+| `internal/products` | Relación con otra tabla (JOIN), filtros y búsqueda, FK inexistente (422), datos visibles según el rol |
 
 ## Comandos
 
@@ -69,7 +74,8 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
   líneas de la petición, incluida la final, usar `httpx.AddLogAttrs(ctx, "clave", valor)`. No registrar contraseñas ni tokens.
 
 **Autenticación y permisos**
-- Proteger rutas en `routes.go` del recurso: `authn.RequireUser(...)` (cualquier usuario) o `authn.RequireAdmin(...)`.
+- Proteger rutas en `routes.go` del recurso: `authn.RequireUser(...)` (cualquier usuario), `authn.RequireAdmin(...)`
+  o `authn.OptionalUser(...)` (ruta pública que muestra más a ciertos usuarios; en el handler, `auth.UserFrom`).
 - En un handler protegido, el usuario es `auth.MustUser(r.Context())`.
 - **Pertenencia:** si los datos son de cada usuario, la tabla lleva `user_id` y **todas** las consultas filtran por él
   (`WHERE id = $1 AND user_id = $2`). Un recurso ajeno responde 404, no 403. Ver `internal/notes`.

@@ -80,6 +80,14 @@ Un token bucket por IP (`golang.org/x/time/rate`) en `/auth/login` y `/auth/regi
 
 La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, para que nadie pueda falsearla si la API está expuesta directamente.
 
+Las IPv6 se agrupan por bloque `/64`: un proveedor le asigna a cada cliente un `/64` entero, así que contar por dirección exacta permitiría esquivar el límite rotando direcciones.
+
+## La plantilla no es una dependencia
+
+`gonew` copia el código, y los proyectos creados no quedan conectados a la plantilla: mejorarla no rompe nada en ellos. Por eso en este repositorio se puede reorganizar libremente, incluidas las migraciones, que representan el esquema inicial.
+
+Para saber de qué versión salió cada proyecto, la plantilla se versiona con tags (`v0.1.0`, …) y un `CHANGELOG.md`. Llevar una mejora a un proyecto existente se hace a mano, mirando el cambio en el historial.
+
 ## Ejemplos de recursos
 
 Cada ejemplo muestra algo distinto, y entre los tres cubren los casos más comunes:

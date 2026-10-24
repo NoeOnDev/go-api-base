@@ -1,0 +1,18 @@
+# sqlc genera código Go con tipos a partir de SQL normal.
+# - schema: lee las migraciones de goose para saber cómo son las tablas (ignora las secciones Down).
+# - queries: las consultas que escribís, con un comentario "-- name: Nombre :tipo" cada una.
+# Para regenerar después de cambiar migraciones o consultas: make sqlc
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/db/queries"
+    gen:
+      go:
+        package: "store"
+        out: "internal/store"
+        sql_package: "pgx/v5"
+        # Los listados vacíos devuelven [] en lugar de nil.
+        emit_empty_slices: true
+        # Las columnas que admiten NULL se generan como punteros (*string) en lugar de pgtype.Text.
+        emit_pointers_for_null_types: true

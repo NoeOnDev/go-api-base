@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/NoeOnDev/go-api-base/internal/config"
+	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 )
 
@@ -37,8 +38,19 @@ func run() error {
 	logger := newLogger(cfg)
 	slog.SetDefault(logger)
 
+	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	if err := db.Migrate(ctx, pool, logger); err != nil {
+		return err
+	}
+
 	srv := server.New(cfg.HTTPAddr, server.NewHandler(server.Deps{
 		Logger: logger,
+		DB:     pool,
 	}), logger)
 
 	// El servidor corre en otra goroutine para que esta pueda esperar la señal de apagado.

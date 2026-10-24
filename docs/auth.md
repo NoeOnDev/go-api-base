@@ -23,7 +23,7 @@ La cookie tiene estos atributos:
 |---|---|---|---|
 | `POST` | `/auth/register` | `{"name","email","password"}` | `201` con el usuario y la cookie; `409` si el email ya existe; `422` si hay datos inválidos |
 | `POST` | `/auth/login` | `{"email","password"}` | `200` con el usuario y la cookie; `401` si los datos no coinciden |
-| `POST` | `/auth/logout` | | `204` |
+| `POST` | `/auth/logout` | | `204`, siempre (también si la sesión ya venció) |
 | `GET` | `/auth/me` | | `200` con el usuario; `401` sin sesión |
 
 El usuario se devuelve así (nunca incluye la contraseña):
@@ -60,7 +60,7 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 
 - **Contraseñas con argon2id** (19 MiB, 2 iteraciones, 1 hilo, según OWASP), con sal aleatoria.
 - **Login sin filtraciones:** siempre responde el mismo `401` y tarda lo mismo exista o no el email, así no se puede averiguar qué cuentas existen. El registro sí indica si un email está en uso (`409`), porque si no el usuario no sabría por qué falla.
-- **Límite de intentos:** 5 seguidos por IP en `/auth/login` y `/auth/register`, y luego uno cada 12 segundos. Al superarlo responde `429` con el encabezado `Retry-After`.
+- **Límite de intentos:** 5 seguidos por IP en `/auth/login` y `/auth/register`, y luego uno cada 12 segundos. Las IPv6 se cuentan por bloque `/64`, para que no se pueda esquivar el límite cambiando de dirección. Al superarlo responde `429` con el encabezado `Retry-After`.
 - **Protección CSRF** (`http.CrossOriginProtection` de Go): rechaza con `403` los `POST`/`PUT`/`DELETE` que el navegador envía desde otro sitio. Las peticiones sin encabezados de navegador (`curl`, apps móviles) no se ven afectadas.
 - **Limpieza de sesiones:** las sesiones vencidas se borran en cada login.
 
@@ -117,6 +117,7 @@ En el `routes.go` de cada recurso:
 mux.Handle("GET /orders", authn.RequireUser(httpx.Handle(h.list)))        // cualquier usuario con sesión
 mux.Handle("DELETE /orders/{id}", authn.RequireAdmin(httpx.Handle(h.delete))) // solo admin
 mux.Handle("GET /products", httpx.Handle(h.list))                         // público
+mux.Handle("GET /products", authn.OptionalUser(httpx.Handle(h.list)))     // público, pero sabe si hay usuario
 ```
 
 Dentro del handler:

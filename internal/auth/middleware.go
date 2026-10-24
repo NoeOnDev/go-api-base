@@ -31,6 +31,26 @@ func (s *Service) RequireUser(next http.Handler) http.Handler {
 	})
 }
 
+// OptionalUser identifica al usuario si la petición trae una sesión válida, pero no la exige:
+// sin sesión (o con una vencida) la petición sigue como anónima. Sirve para rutas públicas que
+// muestran más datos a ciertos usuarios; en el handler se consulta con UserFrom.
+func (s *Service) OptionalUser(next http.Handler) http.Handler {
+	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		u, err := s.userFromRequest(r)
+		if errors.Is(err, errNoSession) {
+			next.ServeHTTP(w, r)
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		httpx.AddLogAttrs(r.Context(), "user_id", u.ID)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, u)))
+		return nil
+	})
+}
+
 // RequireAdmin deja pasar solo a usuarios con rol admin: 401 sin sesión, 403 con otro rol.
 func (s *Service) RequireAdmin(next http.Handler) http.Handler {
 	return s.RequireUser(httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {

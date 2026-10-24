@@ -1,5 +1,6 @@
 // Package products es la segunda mitad del ejemplo de catálogo. Además del patrón de notes,
 // muestra cómo:
+//   - mostrar más datos según quién pide: los visitantes solo ven productos activos, el admin ve todos;
 //   - relacionar tablas: cada producto pertenece a una categoría y la respuesta la incluye (JOIN);
 //   - filtrar y buscar en un listado con parámetros opcionales;
 //   - traducir errores de la base: slug repetido → 409, categoría inexistente → 422.
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/store"
@@ -92,6 +94,13 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// Solo el admin ve los productos inactivos (y puede filtrarlos con ?active=false).
+	// Para el resto, el listado siempre es de productos activos.
+	if !isAdmin(r) {
+		active := true
+		f.Active = &active
+	}
+
 	rows, err := h.q.ListProducts(r.Context(), store.ListProductsParams{
 		CategoryID: f.CategoryID,
 		Search:     f.Search,
@@ -130,7 +139,29 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return h.writeProduct(r.Context(), w, http.StatusOK, id)
+
+	p, err := h.q.GetProduct(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("obtener producto %d: %w", id, err)
+	}
+
+	// Un producto inactivo no existe para quien no es admin.
+	if !p.Active && !isAdmin(r) {
+		return errNotFound
+	}
+
+	httpx.Write(w, http.StatusOK, toResponse(p))
+	return nil
+}
+
+// isAdmin indica si la petición viene de un administrador. Las rutas públicas de productos
+// usan auth.OptionalUser, así que puede haber usuario o no.
+func isAdmin(r *http.Request) bool {
+	u, ok := auth.UserFrom(r.Context())
+	return ok && u.IsAdmin()
 }
 
 // create responde POST /products.

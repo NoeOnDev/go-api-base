@@ -245,3 +245,22 @@ func TestRequireAdmin(t *testing.T) {
 		})
 	}
 }
+
+func TestLogoutAlwaysClearsCookie(t *testing.T) {
+	api, _ := newAPI(t)
+
+	for name, c := range map[string]*http.Cookie{
+		"sin cookie":     nil,
+		"sesión vencida": {Name: auth.CookieName, Value: "token-que-ya-no-existe"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := do(t, api, http.MethodPost, "/auth/logout", "", c)
+			if w.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, se esperaba 204", w.Code)
+			}
+			if cleared := sessionCookie(t, w); cleared.MaxAge >= 0 {
+				t.Errorf("la cookie no se borró: %+v", cleared)
+			}
+		})
+	}
+}

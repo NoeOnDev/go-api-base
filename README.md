@@ -77,13 +77,13 @@ Incluye:
 |---|---|---|
 | `GET` | `/healthz` | Público. `200` si la API y la base responden, `503` si no |
 | `POST` | `/auth/register`, `/auth/login` | Público, con límite de intentos |
-| `POST` | `/auth/logout` | Con sesión |
+| `POST` | `/auth/logout` | Público; borra la sesión si existe y siempre borra la cookie |
 | `GET` | `/auth/me` | Con sesión |
 | `GET`, `POST` | `/notes` | Con sesión; cada usuario ve solo sus notas |
 | `GET`, `PUT`, `DELETE` | `/notes/{id}` | Con sesión; la nota de otro usuario responde `404` |
 | `GET` | `/categories`, `/categories/{id}` | Público |
 | `POST`, `PUT`, `DELETE` | `/categories…` | Solo admin |
-| `GET` | `/products?category_id=&q=&active=`, `/products/{id}` | Público |
+| `GET` | `/products?category_id=&q=&active=`, `/products/{id}` | Público: los visitantes solo ven productos activos; el admin ve todos |
 | `POST`, `PUT`, `DELETE` | `/products…` | Solo admin |
 
 Los listados aceptan `?limit=` (de 1 a 100, 20 por defecto) y `?offset=`, y responden `{"data": [...], "meta": {"limit", "offset", "total"}}`.

@@ -11,6 +11,7 @@ import (
 func Register(mux *http.ServeMux, s *Service, limitAttempts httpx.Middleware) {
 	mux.Handle("POST /auth/register", limitAttempts(httpx.Handle(s.register)))
 	mux.Handle("POST /auth/login", limitAttempts(httpx.Handle(s.login)))
-	mux.Handle("POST /auth/logout", s.RequireUser(httpx.Handle(s.logout)))
+	// El logout no exige una sesión válida: si venció, igual tiene que borrar la cookie del navegador.
+	mux.Handle("POST /auth/logout", httpx.Handle(s.logout))
 	mux.Handle("GET /auth/me", s.RequireUser(httpx.Handle(s.me)))
 }

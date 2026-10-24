@@ -3,6 +3,7 @@ package httpx
 import (
 	"math"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"sync"
 	"time"
@@ -10,8 +11,8 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// RateLimiter limita las peticiones por IP con el algoritmo token bucket: cada IP tiene
-// "burst" intentos disponibles, que se recargan de a uno cada "every".
+// RateLimiter limita las peticiones por IP (o por bloque /64 en IPv6) con el algoritmo
+// token bucket: cada IP tiene "burst" intentos disponibles, que se recargan de a uno cada "every".
 //
 // Guarda el estado en memoria: alcanza para una sola instancia de la API, que es el caso
 // de un VPS. Con varias instancias detrás de un balanceador, cada una contaría por separado.
@@ -46,7 +47,7 @@ func NewRateLimiter(every time.Duration, burst int, trustProxy bool) *RateLimite
 	}
 }
 
-// Allow indica si la IP puede hacer otra petición ahora.
+// Allow indica si la clave (una IP, o un bloque /64 para IPv6) puede hacer otra petición ahora.
 func (rl *RateLimiter) Allow(ip string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -73,13 +74,32 @@ func (rl *RateLimiter) Allow(ip string) bool {
 	return v.limiter.Allow()
 }
 
+// rateLimitKey agrupa las direcciones IPv6 por su bloque /64. Un proveedor suele asignarle
+// a cada cliente un /64 entero (miles de millones de direcciones), así que contar por dirección
+// exacta permitiría esquivar el límite cambiando de IP. Las IPv4 se cuentan una por una.
+func rateLimitKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	addr = addr.Unmap() // una IPv4 escrita como IPv6 (::ffff:1.2.3.4) se trata como IPv4
+	if addr.Is4() {
+		return addr.String()
+	}
+	prefix, err := addr.WithZone("").Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return prefix.String()
+}
+
 // Middleware responde 429 con el encabezado Retry-After cuando la IP supera el límite.
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	retryAfter := strconv.Itoa(int(math.Ceil(rl.every.Seconds())))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := ClientIP(r, rl.trustProxy)
-		if !rl.Allow(ip) {
+		if !rl.Allow(rateLimitKey(ip)) {
 			LoggerFrom(r.Context()).Warn("límite de peticiones superado", "ip", ip, "path", r.URL.Path)
 			w.Header().Set("Retry-After", retryAfter)
 			WriteError(w, r, TooManyRequests())

@@ -65,9 +65,10 @@ func (c *catalog) createProduct(categoryID int64, name, slug string, active bool
 	return testutil.Decode[product](c.t, testutil.Do(c.t, c.api, c.admin, http.MethodPost, "/products", body), http.StatusCreated)
 }
 
-func (c *catalog) list(query string) productList {
+// list pide el listado con la sesión indicada (nil = visitante anónimo).
+func (c *catalog) list(cookie *http.Cookie, query string) productList {
 	c.t.Helper()
-	return testutil.Decode[productList](c.t, testutil.Do(c.t, c.api, nil, http.MethodGet, "/products"+query, ""), http.StatusOK)
+	return testutil.Decode[productList](c.t, testutil.Do(c.t, c.api, cookie, http.MethodGet, "/products"+query, ""), http.StatusOK)
 }
 
 func TestProductsCRUD(t *testing.T) {
@@ -100,6 +101,7 @@ func TestProductsCRUD(t *testing.T) {
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, c.api, nil, http.MethodGet, path, ""), http.StatusNotFound)
 }
 
+// Los filtros se prueban como admin, que ve también los productos inactivos.
 func TestProductsFilters(t *testing.T) {
 	c := newCatalog(t)
 	c.createProduct(c.drinks, "Café molido", "cafe-molido", true)
@@ -123,7 +125,7 @@ func TestProductsFilters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			list := c.list(tt.query)
+			list := c.list(c.admin, tt.query)
 			if list.Meta.Total != tt.want || int64(len(list.Data)) != tt.want {
 				t.Errorf("total = %d, items = %d, se esperaba %d", list.Meta.Total, len(list.Data), tt.want)
 			}
@@ -167,4 +169,39 @@ func TestProductsErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInactiveProductsOnlyVisibleToAdmin(t *testing.T) {
+	c := newCatalog(t)
+	c.createProduct(c.drinks, "Café molido", "cafe-molido", true)
+	inactive := c.createProduct(c.drinks, "Té verde", "te-verde", false)
+	path := fmt.Sprintf("/products/%d", inactive.ID)
+
+	for name, cookie := range map[string]*http.Cookie{"visitante": nil, "usuario común": c.user} {
+		t.Run(name, func(t *testing.T) {
+			// El listado solo trae activos, aunque pida ?active=false.
+			for _, query := range []string{"", "?active=false"} {
+				list := c.list(cookie, query)
+				if list.Meta.Total != 1 || list.Data[0].Name != "Café molido" {
+					t.Errorf("listado %q: %+v", query, list)
+				}
+			}
+			// Y el producto inactivo no existe para él.
+			testutil.Decode[testutil.APIError](t, testutil.Do(t, c.api, cookie, http.MethodGet, path, ""), http.StatusNotFound)
+		})
+	}
+
+	t.Run("admin", func(t *testing.T) {
+		if list := c.list(c.admin, ""); list.Meta.Total != 2 {
+			t.Errorf("el admin debería ver los 2 productos: %+v", list)
+		}
+		testutil.Decode[product](t, testutil.Do(t, c.api, c.admin, http.MethodGet, path, ""), http.StatusOK)
+	})
+
+	t.Run("sesión vencida o inválida se trata como visitante", func(t *testing.T) {
+		bad := &http.Cookie{Name: auth.CookieName, Value: "token-invalido"}
+		if list := c.list(bad, ""); list.Meta.Total != 1 {
+			t.Errorf("listado inesperado: %+v", list)
+		}
+	})
 }

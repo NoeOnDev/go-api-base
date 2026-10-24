@@ -49,7 +49,8 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// logout responde POST /auth/logout.
+// logout responde POST /auth/logout. Borra la sesión si existe y siempre le pide al navegador
+// que borre la cookie, así que responde 204 aunque la sesión ya haya vencido.
 func (s *Service) logout(w http.ResponseWriter, r *http.Request) error {
 	if err := s.EndSession(r.Context(), w, r); err != nil {
 		return err

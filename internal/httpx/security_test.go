@@ -126,3 +126,43 @@ func TestCORS(t *testing.T) {
 		}
 	})
 }
+
+func TestRateLimitKey(t *testing.T) {
+	tests := map[string]string{
+		"203.0.113.7":                "203.0.113.7",
+		"::ffff:203.0.113.7":         "203.0.113.7",
+		"2001:db8:aaaa:bbbb::1":      "2001:db8:aaaa:bbbb::/64",
+		"2001:db8:aaaa:bbbb:ffff::9": "2001:db8:aaaa:bbbb::/64",
+		"2001:db8:aaaa:cccc::1":      "2001:db8:aaaa:cccc::/64",
+		"no-es-ip":                   "no-es-ip",
+	}
+	for ip, want := range tests {
+		if got := rateLimitKey(ip); got != want {
+			t.Errorf("rateLimitKey(%q) = %q, se esperaba %q", ip, got, want)
+		}
+	}
+}
+
+func TestRateLimiterGroupsIPv6Block(t *testing.T) {
+	rl := NewRateLimiter(time.Hour, 2, false)
+	h := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	call := func(remote string) int {
+		r := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
+		r.RemoteAddr = remote
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+
+	// Tres direcciones distintas del mismo /64 comparten el límite de 2.
+	call("[2001:db8:1:2::1]:1000")
+	call("[2001:db8:1:2::2]:1000")
+	if code := call("[2001:db8:1:2::3]:1000"); code != http.StatusTooManyRequests {
+		t.Errorf("tercera dirección del mismo /64: status = %d, se esperaba 429", code)
+	}
+	// Otro /64 tiene su propio límite.
+	if code := call("[2001:db8:1:3::1]:1000"); code != http.StatusOK {
+		t.Errorf("otro /64: status = %d, se esperaba 200", code)
+	}
+}

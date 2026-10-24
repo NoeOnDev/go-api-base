@@ -161,3 +161,17 @@ func TestLoadInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadUnquotesValues(t *testing.T) {
+	cfg, err := load(envFrom(map[string]string{
+		"DATABASE_URL": `"postgres://localhost/db"`,
+		"APP_NAME":     `"Mi App"`,
+		"MAIL_FROM":    `'Mi App <no-reply@ejemplo.com>'`,
+	}))
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if cfg.AppName != "Mi App" || cfg.Mail.From != "Mi App <no-reply@ejemplo.com>" || cfg.DatabaseURL != "postgres://localhost/db" {
+		t.Errorf("valores con comillas: AppName=%q, From=%q, DatabaseURL=%q", cfg.AppName, cfg.Mail.From, cfg.DatabaseURL)
+	}
+}

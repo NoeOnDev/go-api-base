@@ -52,8 +52,17 @@ type User struct {
 	PasswordHash    string
 	Role            string
 	EmailVerifiedAt *time.Time
+	TOTPSecret      *string
+	TOTPEnabledAt   *time.Time
+	TOTPLastStep    *int64
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+}
+
+type UserRecoveryCode struct {
+	CodeHash  []byte
+	UserID    int64
+	CreatedAt time.Time
 }
 
 type UserToken struct {

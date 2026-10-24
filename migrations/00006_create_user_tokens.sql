@@ -1,10 +1,11 @@
 -- +goose Up
--- Tokens de un solo uso que se envían por correo (recuperar la contraseña, verificar el email).
+-- Tokens de un solo uso: los que se envían por correo (recuperar la contraseña, verificar el email)
+-- y el desafío pendiente del login con 2FA.
 -- Como en las sesiones, se guarda el SHA-256 del token, nunca el token.
 CREATE TABLE user_tokens (
     token_hash bytea       PRIMARY KEY,
     user_id    bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    purpose    text        NOT NULL CHECK (purpose IN ('password_reset', 'email_verification')),
+    purpose    text        NOT NULL CHECK (purpose IN ('password_reset', 'email_verification', 'two_factor_login')),
     expires_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );

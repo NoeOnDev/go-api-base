@@ -13,7 +13,7 @@ import (
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (name, email, password_hash, role, email_verified_at)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, email, password_hash, role, email_verified_at, created_at, updated_at
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
 `
 
 type CreateUserParams struct {
@@ -40,14 +40,47 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.PasswordHash,
 		&i.Role,
 		&i.EmailVerifiedAt,
+		&i.TOTPSecret,
+		&i.TOTPEnabledAt,
+		&i.TOTPLastStep,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
+const disableTOTP = `-- name: DisableTOTP :exec
+UPDATE users
+SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL, updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) DisableTOTP(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, disableTOTP, id)
+	return err
+}
+
+const enableTOTP = `-- name: EnableTOTP :execrows
+UPDATE users
+SET totp_enabled_at = now(), totp_last_step = $2, updated_at = now()
+WHERE id = $1 AND totp_secret IS NOT NULL AND totp_enabled_at IS NULL
+`
+
+type EnableTOTPParams struct {
+	ID           int64
+	TOTPLastStep *int64
+}
+
+func (q *Queries) EnableTOTP(ctx context.Context, arg EnableTOTPParams) (int64, error) {
+	result, err := q.db.Exec(ctx, enableTOTP, arg.ID, arg.TOTPLastStep)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, name, email, password_hash, role, email_verified_at, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
 FROM users
 WHERE email = $1
 `
@@ -62,6 +95,9 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.PasswordHash,
 		&i.Role,
 		&i.EmailVerifiedAt,
+		&i.TOTPSecret,
+		&i.TOTPEnabledAt,
+		&i.TOTPLastStep,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -69,7 +105,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, name, email, password_hash, role, email_verified_at, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
 FROM users
 WHERE id = $1
 `
@@ -84,6 +120,9 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.PasswordHash,
 		&i.Role,
 		&i.EmailVerifiedAt,
+		&i.TOTPSecret,
+		&i.TOTPEnabledAt,
+		&i.TOTPLastStep,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -101,11 +140,30 @@ func (q *Queries) MarkEmailVerified(ctx context.Context, id int64) error {
 	return err
 }
 
+const setPendingTOTPSecret = `-- name: SetPendingTOTPSecret :execrows
+UPDATE users
+SET totp_secret = $2, totp_last_step = NULL, updated_at = now()
+WHERE id = $1 AND totp_enabled_at IS NULL
+`
+
+type SetPendingTOTPSecretParams struct {
+	ID         int64
+	TOTPSecret *string
+}
+
+func (q *Queries) SetPendingTOTPSecret(ctx context.Context, arg SetPendingTOTPSecretParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setPendingTOTPSecret, arg.ID, arg.TOTPSecret)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateUserName = `-- name: UpdateUserName :one
 UPDATE users
 SET name = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, password_hash, role, email_verified_at, created_at, updated_at
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
 `
 
 type UpdateUserNameParams struct {
@@ -123,6 +181,9 @@ func (q *Queries) UpdateUserName(ctx context.Context, arg UpdateUserNameParams) 
 		&i.PasswordHash,
 		&i.Role,
 		&i.EmailVerifiedAt,
+		&i.TOTPSecret,
+		&i.TOTPEnabledAt,
+		&i.TOTPLastStep,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -143,4 +204,25 @@ type UpdateUserPasswordParams struct {
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
 	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
 	return err
+}
+
+const useTOTPStep = `-- name: UseTOTPStep :execrows
+UPDATE users
+SET totp_last_step = $2
+WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)
+`
+
+type UseTOTPStepParams struct {
+	ID           int64
+	TOTPLastStep *int64
+}
+
+// UseTOTPStep registra el paso del código usado solo si es posterior al último: si devuelve
+// 0 filas, el código ya se había usado y se rechaza. Es atómico ante peticiones simultáneas.
+func (q *Queries) UseTOTPStep(ctx context.Context, arg UseTOTPStepParams) (int64, error) {
+	result, err := q.db.Exec(ctx, useTOTPStep, arg.ID, arg.TOTPLastStep)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

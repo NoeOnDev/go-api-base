@@ -62,6 +62,16 @@ func (q *Queries) DeleteExpiredUserTokens(ctx context.Context) error {
 	return err
 }
 
+const deleteUserToken = `-- name: DeleteUserToken :exec
+DELETE FROM user_tokens
+WHERE token_hash = $1
+`
+
+func (q *Queries) DeleteUserToken(ctx context.Context, tokenHash []byte) error {
+	_, err := q.db.Exec(ctx, deleteUserToken, tokenHash)
+	return err
+}
+
 const deleteUserTokens = `-- name: DeleteUserTokens :exec
 DELETE FROM user_tokens
 WHERE user_id = $1 AND purpose = $2
@@ -75,4 +85,24 @@ type DeleteUserTokensParams struct {
 func (q *Queries) DeleteUserTokens(ctx context.Context, arg DeleteUserTokensParams) error {
 	_, err := q.db.Exec(ctx, deleteUserTokens, arg.UserID, arg.Purpose)
 	return err
+}
+
+const getUserTokenUser = `-- name: GetUserTokenUser :one
+SELECT user_id
+FROM user_tokens
+WHERE token_hash = $1 AND purpose = $2 AND expires_at > now()
+`
+
+type GetUserTokenUserParams struct {
+	TokenHash []byte
+	Purpose   string
+}
+
+// GetUserTokenUser busca un token vigente sin consumirlo (el desafío del 2FA sigue
+// sirviendo después de un código incorrecto).
+func (q *Queries) GetUserTokenUser(ctx context.Context, arg GetUserTokenUserParams) (int64, error) {
+	row := q.db.QueryRow(ctx, getUserTokenUser, arg.TokenHash, arg.Purpose)
+	var user_id int64
+	err := row.Scan(&user_id)
+	return user_id, err
 }

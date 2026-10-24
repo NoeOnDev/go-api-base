@@ -16,3 +16,14 @@ WHERE user_id = $1 AND purpose = $2;
 -- name: DeleteExpiredUserTokens :exec
 DELETE FROM user_tokens
 WHERE expires_at <= now();
+
+-- GetUserTokenUser busca un token vigente sin consumirlo (el desafío del 2FA sigue
+-- sirviendo después de un código incorrecto).
+-- name: GetUserTokenUser :one
+SELECT user_id
+FROM user_tokens
+WHERE token_hash = $1 AND purpose = $2 AND expires_at > now();
+
+-- name: DeleteUserToken :exec
+DELETE FROM user_tokens
+WHERE token_hash = $1;

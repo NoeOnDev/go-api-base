@@ -85,7 +85,9 @@ func Load() (Config, error) {
 }
 
 // load recibe la función que lee variables para poder probarla sin tocar el entorno real.
-func load(getenv func(string) string) (Config, error) {
+func load(rawGetenv func(string) string) (Config, error) {
+	getenv := func(key string) string { return unquote(rawGetenv(key)) }
+
 	cfg := Config{
 		Env:         valueOr(getenv("APP_ENV"), EnvDevelopment),
 		HTTPAddr:    valueOr(getenv("HTTP_ADDR"), ":8080"),
@@ -192,6 +194,17 @@ func baseURL(value string) (string, error) {
 		return "", fmt.Errorf("%q no es una URL válida (ejemplo: https://app.ejemplo.com)", value)
 	}
 	return value, nil
+}
+
+// unquote quita las comillas que rodean un valor ("Mi App" o 'Mi App'). Así un .env con
+// valores entre comillas funciona igual con make (que deja las comillas), con la shell
+// (que las quita), con systemd y con Docker.
+func unquote(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+		return v[1 : len(v)-1]
+	}
+	return v
 }
 
 func valueOr(value, fallback string) string {

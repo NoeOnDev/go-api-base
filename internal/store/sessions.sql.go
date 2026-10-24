@@ -75,7 +75,7 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) error {
 }
 
 const getSessionUser = `-- name: GetSessionUser :one
-SELECT u.id, u.name, u.email, u.password_hash, u.role, u.email_verified_at, u.created_at, u.updated_at
+SELECT u.id, u.name, u.email, u.password_hash, u.role, u.email_verified_at, u.totp_secret, u.totp_enabled_at, u.totp_last_step, u.created_at, u.updated_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1 AND s.expires_at > now()
@@ -91,6 +91,9 @@ func (q *Queries) GetSessionUser(ctx context.Context, tokenHash []byte) (User, e
 		&i.PasswordHash,
 		&i.Role,
 		&i.EmailVerifiedAt,
+		&i.TOTPSecret,
+		&i.TOTPEnabledAt,
+		&i.TOTPLastStep,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

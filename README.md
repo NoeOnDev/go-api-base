@@ -8,7 +8,7 @@ Plantilla de API REST en Go, liviana y lista para producción en un VPS chico. U
 
 Incluye:
 
-- **Autenticación** con sesiones en cookie `HttpOnly`, contraseñas con argon2id y roles `user`/`admin`. Incluye perfil, cambio de contraseña, recuperación por correo y verificación de email opcional. El primer admin se crea con un comando.
+- **Autenticación** con sesiones en cookie `HttpOnly`, contraseñas con argon2id y roles `user`/`admin`. Incluye perfil, cambio de contraseña, recuperación por correo, verificación de email opcional y 2FA con app de autenticación y códigos de recuperación. El primer admin se crea con un comando.
 - **Correos** por SMTP (cualquier proveedor), enviados en segundo plano, con plantillas editables. En desarrollo se usa Mailpit o el log.
 - **Seguridad:** protección CSRF, CORS configurable, límite de intentos en el login y timeouts del servidor.
 - **Base de la API:**
@@ -44,10 +44,11 @@ Incluye:
    SQL
    ```
 
-2. **Configurar el entorno.** Copiá el archivo de ejemplo y completá `DATABASE_URL` y `TEST_DATABASE_URL`:
+2. **Configurar el entorno.** Copiá el archivo de ejemplo, completá `DATABASE_URL` y `TEST_DATABASE_URL`, y generá la clave de cifrado:
 
    ```bash
    cp .env.example .env
+   sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=$(openssl rand -base64 32)|" .env
    ```
 
 3. **(Opcional) Correos en desarrollo.** Levantá Mailpit, que muestra los correos en `http://localhost:8025`, y configurá `MAIL_DRIVER=smtp`, `SMTP_HOST=localhost` y `SMTP_PORT=1025`:
@@ -91,6 +92,8 @@ Incluye:
 | `PUT` | `/auth/password` | Con sesión: cambiar la contraseña (pide la actual y cierra las demás sesiones) |
 | `POST` | `/auth/password/forgot`, `/auth/password/reset` | Público: recuperar la contraseña por correo |
 | `POST` | `/auth/email/verify`, `/auth/email/resend` | Verificar el email (obligatorio con `REQUIRE_EMAIL_VERIFICATION=true`) |
+| `POST` | `/auth/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Con sesión: activar y administrar el 2FA |
+| `POST` | `/auth/two-factor/challenge` | Segundo paso del login cuando el usuario tiene 2FA |
 | `GET`, `POST` | `/notes` | Con sesión; cada usuario ve solo sus notas |
 | `GET`, `PUT`, `DELETE` | `/notes/{id}` | Con sesión; la nota de otro usuario responde `404` |
 | `GET` | `/categories`, `/categories/{id}` | Público |
@@ -138,6 +141,10 @@ Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene
 | `MAIL_DRIVER` | `log` | `log` (escribe los correos en el log) o `smtp` |
 | `MAIL_FROM` | `no-reply@localhost` | Remitente |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | — / `587` | Datos del servidor SMTP |
+| `APP_NAME` | `Mi App` | Nombre que muestra la app de autenticación del 2FA |
+| `ENCRYPTION_KEY` | (obligatoria) | Clave para cifrar el secreto del 2FA. Generala con `openssl rand -base64 32` |
+
+Los valores con espacios van entre comillas: `APP_NAME="Mi App"`.
 
 ## Comandos
 
@@ -161,6 +168,8 @@ internal/httpx/      JSON, errores, paginación, middlewares, CORS y límite de 
 internal/server/     servidor, rutas y protección CSRF
 internal/auth/       usuarios, sesiones, roles, perfil, recuperación y verificación (y sus plantillas de correo)
 internal/mail/       envío de correos (log, SMTP, en segundo plano)
+internal/totp/       códigos TOTP del 2FA (RFC 6238)
+internal/secretbox/  cifrado (AES-256-GCM) y HMAC con claves derivadas de ENCRYPTION_KEY
 internal/db/         conexión, migraciones, errores de PostgreSQL y consultas SQL
 internal/store/      código generado por sqlc (no editar)
 internal/validate/   reglas de validación compartidas

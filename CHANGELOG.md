@@ -5,6 +5,34 @@ usá esta lista para saber de qué versión salió un proyecto y qué mejoras po
 
 Formato: una sección por versión, con lo **agregado**, **cambiado** y **corregido**.
 
+## [v0.3.0] - 2026-10-24
+
+2FA voluntario con app de autenticación, comparable a lo que Laravel Fortify suma sobre Breeze.
+
+### Agregado
+
+- **2FA con TOTP (RFC 6238):** funciona con Google Authenticator, Authy, 1Password, etc.
+  - `POST /auth/two-factor/setup` devuelve el secreto y la URL `otpauth://` para el QR.
+  - `POST /auth/two-factor/enable` lo activa con un código válido y entrega 10 códigos de recuperación.
+  - `POST /auth/two-factor/disable` y `POST /auth/two-factor/recovery-codes` piden la contraseña.
+- **Login en dos pasos:** con 2FA, `POST /auth/login` responde `202 {two_factor_required: true}` y una cookie de desafío que vence en 5 minutos. `POST /auth/two-factor/challenge` acepta el código de la app o un código de recuperación.
+- **Protecciones del 2FA:**
+  - un código ya usado se rechaza;
+  - cada código de recuperación sirve una vez;
+  - al activar o desactivar el 2FA se cierran las demás sesiones;
+  - recuperar la contraseña no saltea el 2FA.
+- **Paquete `internal/totp`**, con la librería estándar y probado con los vectores del RFC.
+- **Paquete `internal/secretbox`:** AES-256-GCM y HMAC-SHA256 con claves derivadas por HKDF.
+- **Configuración:** `ENCRYPTION_KEY` (obligatoria) y `APP_NAME`.
+- **testutil:** `EncryptionKey`, `EnableTwoFactor` y `TwoFactor.Code`.
+
+### Cambiado
+
+- `POST /auth/login` puede responder `202` cuando el usuario tiene 2FA.
+- `auth.User` incluye `two_factor_enabled`.
+- La configuración quita las comillas que rodean un valor, así un `.env` con `APP_NAME="Mi App"` funciona con make, la shell y systemd.
+- sqlc escribe la sigla TOTP en mayúsculas en los nombres generados.
+
 ## [v0.2.0] - 2026-10-24
 
 Autenticación completa para proyectos públicos y SaaS, comparable a Laravel Breeze.

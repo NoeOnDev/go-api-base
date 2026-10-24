@@ -88,6 +88,16 @@ Viene desactivada (`REQUIRE_EMAIL_VERIFICATION=false`), porque muchos proyectos 
 
 Activada, bloquea las rutas protegidas con un `403 email_not_verified` en lugar de impedir el login. Así el usuario puede entrar, ver el aviso y pedir otro enlace sin quedar trabado.
 
+## 2FA con TOTP propio
+
+- **TOTP (RFC 6238) implementado con la librería estándar** (unas 100 líneas en `internal/totp`, probadas con los vectores oficiales del RFC), en lugar de sumar una dependencia.
+- **El QR lo dibuja el frontend** a partir de `otpauth_url`, porque generar la imagen en Go necesitaría otra librería.
+- **El secreto se cifra con `secretbox`:** AES-256-GCM con una clave derivada de `ENCRYPTION_KEY` mediante HKDF. Así, un respaldo de la base filtrado no alcanza para generar códigos.
+- **Los códigos de recuperación se guardan como HMAC** con otra clave derivada. Son aleatorios de unos 50 bits, así que un hash rápido alcanza si va con clave: sin `ENCRYPTION_KEY` no se pueden probar por fuerza bruta.
+- **Se rechaza el reuso de un código** guardando el último paso usado, con un `UPDATE … WHERE totp_last_step < $2` atómico.
+- **El login en dos pasos usa un desafío** en `user_tokens` y una cookie `HttpOnly`, no un token en el cuerpo de la respuesta. El frontend no maneja secretos, y el desafío vence en 5 minutos.
+- **El 2FA es voluntario.** Obligarlo para ciertos roles es fácil de agregar en un proyecto (un control en `RequireAdmin`), pero cada proyecto lo decide.
+
 ## argon2id para las contraseñas
 
 Es el algoritmo recomendado por OWASP. Los parámetros (19 MiB, 2 iteraciones, 1 hilo) son los mínimos que recomiendan, elegidos porque el destino es un VPS de 1 vCPU.
@@ -166,7 +176,7 @@ Con `GOTOOLCHAIN=auto` (el valor por defecto), una versión anterior de Go desca
 ## Qué no incluye (todavía)
 
 - Cambiar el email.
-- 2FA.
+- 2FA obligatorio, y passkeys o WebAuthn.
 - OAuth.
 - Permisos más finos que `user`/`admin`.
 - Guía de despliegue (systemd + Caddy).

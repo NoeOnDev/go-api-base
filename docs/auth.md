@@ -7,6 +7,7 @@ Incluye:
 - perfil y cambio de contraseña;
 - recuperar la contraseña por correo;
 - verificar el email (opcional);
+- 2FA con app de autenticación y códigos de recuperación (voluntario para cada usuario);
 - roles `user`/`admin`.
 
 Cada función se puede quitar si un proyecto no la necesita (ver [al final](#quitar-funciones)).
@@ -31,7 +32,7 @@ La cookie tiene estos atributos:
 | Método | Ruta | Acceso | Cuerpo | Respuesta |
 |---|---|---|---|---|
 | `POST` | `/auth/register` | público | `{name, email, password}` | `201` con el usuario y la cookie; `409` si el email ya existe; `422` |
-| `POST` | `/auth/login` | público | `{email, password}` | `200` con el usuario y la cookie; `401` si los datos no coinciden |
+| `POST` | `/auth/login` | público | `{email, password}` | `200` con el usuario y la cookie; `202 {two_factor_required: true}` si tiene 2FA; `401` si los datos no coinciden |
 | `POST` | `/auth/logout` | público | | `204`, siempre (también si la sesión ya venció) |
 | `GET` | `/auth/me` | sesión | | `200` con el usuario |
 | `PUT` | `/auth/me` | sesión | `{name}` | `200` con el usuario |
@@ -40,6 +41,11 @@ La cookie tiene estos atributos:
 | `POST` | `/auth/password/reset` | público | `{token, password}` | `204`; `422` si el enlace no es válido o venció |
 | `POST` | `/auth/email/verify` | público | `{token}` | `204`; `422` si el enlace no es válido o venció |
 | `POST` | `/auth/email/resend` | sesión | | `202`; `204` si el email ya estaba verificado |
+| `POST` | `/auth/two-factor/challenge` | cookie del desafío | `{code}` o `{recovery_code}` | `200` con el usuario y la cookie de sesión; `422` si el código es incorrecto; `401` si el desafío venció |
+| `POST` | `/auth/two-factor/setup` | usuario | | `200 {secret, otpauth_url}`; `409` si ya está activo |
+| `POST` | `/auth/two-factor/enable` | usuario | `{code}` | `200 {recovery_codes}`; `422` si el código es incorrecto |
+| `POST` | `/auth/two-factor/disable` | usuario | `{password}` | `204` |
+| `POST` | `/auth/two-factor/recovery-codes` | usuario | `{password}` | `200 {recovery_codes}` nuevos |
 
 En la columna de acceso:
 - **sesión:** cualquier usuario logueado, aunque no haya verificado su email.
@@ -48,7 +54,7 @@ En la columna de acceso:
 El usuario se devuelve así (nunca incluye la contraseña):
 
 ```json
-{"id": 1, "name": "Ana", "email": "ana@ejemplo.com", "role": "user", "email_verified_at": null, "created_at": "..."}
+{"id": 1, "name": "Ana", "email": "ana@ejemplo.com", "role": "user", "email_verified_at": null, "two_factor_enabled": false, "created_at": "..."}
 ```
 
 **Reglas:**
@@ -82,6 +88,49 @@ Con **`REQUIRE_EMAIL_VERIFICATION=true`**:
 Mientras no verificó, el usuario sí puede usar `/auth/me` (que trae `email_verified_at: null`), editar su perfil, cerrar sesión y pedir otro enlace. Los admins creados con `create-admin` quedan verificados.
 
 Con la opción en `false` (por defecto) no se envía ningún correo al registrarse y nada se bloquea.
+
+## 2FA (verificación en dos pasos)
+
+Cada usuario puede activarlo si quiere. Funciona con cualquier app de autenticación: Google Authenticator, Microsoft Authenticator, Authy, 1Password, Bitwarden, etc.
+
+### Activar
+
+1. El frontend llama a `POST /auth/two-factor/setup` y recibe `{secret, otpauth_url}`.
+2. Muestra `otpauth_url` como **código QR** (en React, con `qrcode.react`: `<QRCodeSVG value={otpauth_url} />`) y `secret` en texto, para cargarlo a mano.
+3. El usuario lo escanea con su app y escribe el código de 6 dígitos que aparece.
+4. El frontend llama a `POST /auth/two-factor/enable` con `{code}`. Si es correcto, el 2FA queda activo y la respuesta trae **10 códigos de recuperación**.
+5. El frontend muestra los códigos **una sola vez**, con la opción de copiarlos o descargarlos. Sirven para entrar si el usuario pierde el teléfono.
+
+Hasta que se confirma con `enable`, el 2FA no está activo, así que un QR mal escaneado no deja a nadie bloqueado. Al activarlo se cierran las demás sesiones.
+
+### Iniciar sesión con 2FA
+
+1. `POST /auth/login` con email y contraseña correctos responde **`202 {"two_factor_required": true}`** y una cookie `HttpOnly` con el desafío, que vence en 5 minutos. Todavía no hay sesión.
+2. El frontend muestra el campo del código y llama a `POST /auth/two-factor/challenge` con:
+   - `{"code": "123456"}`, el código de la app; o
+   - `{"recovery_code": "xxxxx-xxxxx"}`, un código de recuperación (se acepta en mayúsculas o sin guion).
+3. Si es correcto, responde `200` con el usuario y crea la sesión, como un login normal.
+
+Un código incorrecto responde `422` y deja reintentar, con el límite de intentos. Si el desafío venció, responde `401` y hay que volver a ingresar la contraseña.
+
+### Desactivar y regenerar códigos
+
+- **`POST /auth/two-factor/disable`** con `{password}`: desactiva el 2FA, borra los códigos de recuperación y cierra las demás sesiones.
+- **`POST /auth/two-factor/recovery-codes`** con `{password}`: genera 10 códigos nuevos; los anteriores dejan de servir.
+
+### Seguridad del 2FA
+
+- **Códigos TOTP estándar** (RFC 6238): 6 dígitos, cambian cada 30 segundos y se tolera ±30 segundos de desfase del reloj.
+- **Un código ya usado se rechaza** aunque siga vigente, así que un código interceptado no sirve para otro login.
+- **El secreto se guarda cifrado** con AES-256-GCM y la clave `ENCRYPTION_KEY`. Los códigos de recuperación se guardan como HMAC, nunca en texto plano, y cada uno sirve una vez.
+- **Recuperar la contraseña no saltea el 2FA:** el siguiente login vuelve a pedir el código.
+- **Si un usuario pierde el teléfono y los códigos**, un admin puede desactivarle el 2FA desde la base:
+
+  ```sql
+  UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL WHERE email = '…';
+  ```
+
+**Cuidado con `ENCRYPTION_KEY`:** es obligatoria y hay que guardarla como cualquier secreto de producción. Si se pierde o se cambia, los secretos guardados no se pueden descifrar y los usuarios con 2FA tendrán que volver a configurarlo.
 
 ## Correos
 
@@ -133,8 +182,9 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 - **Tokens de un solo uso** para recuperar la contraseña y verificar el email: en la base solo se guarda su SHA-256, vencen, y se validan y borran en una sola operación, así que no se pueden usar dos veces.
 - **Las sesiones se cierran al cambiar o recuperar la contraseña**, por si alguien había entrado con la anterior.
 - **Límites por IP** (las IPv6 se cuentan por bloque `/64`). Al superarlos se responde `429` con `Retry-After`:
-  - **Intentos:** login, registro, cambio de contraseña, reset y verificación. 5 seguidos y luego uno cada 12 segundos.
+  - **Intentos:** login, registro, cambio de contraseña, reset, verificación y las rutas del 2FA. 5 seguidos y luego uno cada 12 segundos.
   - **Correos:** `forgot` y `resend`. 3 seguidos y luego uno cada 5 minutos.
+- **2FA** opcional para cada usuario (ver la sección [2FA](#2fa-verificación-en-dos-pasos)).
 - **Protección CSRF** (`http.CrossOriginProtection` de Go): rechaza con `403` los `POST`/`PUT`/`DELETE` que el navegador envía desde otro sitio. Las peticiones sin encabezados de navegador (`curl`, apps móviles) no se ven afectadas.
 - **Limpieza:** las sesiones y los tokens vencidos se borran al crear nuevos.
 
@@ -146,7 +196,9 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 - "olvidé mi contraseña";
 - `/reset-password`, la del enlace del correo;
 - `/verify-email`, la del enlace del correo, solo con la verificación activa;
-- un aviso de "confirmá tu email" cuando una respuesta trae `email_not_verified`.
+- un aviso de "confirmá tu email" cuando una respuesta trae `email_not_verified`;
+- el segundo paso del login (el código del 2FA) cuando el login responde `202`;
+- en el perfil, activar el 2FA (QR, código y códigos de recuperación) y desactivarlo.
 
 ### Mismo dominio (recomendado)
 
@@ -220,14 +272,16 @@ Todas las rutas están en `internal/auth/routes.go`. Para quitar una función, b
 | Perfil y cambio de contraseña | `PUT /auth/me`, `PUT /auth/password` | `profile.go` |
 | Recuperar la contraseña | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go` y `emails/password_reset.txt` |
 | Verificar el email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go` y `emails/verify_email.txt` (y dejá `REQUIRE_EMAIL_VERIFICATION=false`) |
+| 2FA | `/auth/two-factor/...` y el bloque `if u.TwoFactorEnabled` del login en `handlers.go` | `two_factor.go`, `two_factor_login.go` y `recovery_codes.go` (también se pueden borrar `internal/totp` y la tabla `user_recovery_codes`) |
 
 Si no queda ninguna función que envíe correos, también se pueden borrar `internal/mail`, `emails.go`, `tokens.go`, la tabla `user_tokens` y las variables de correo.
 
-Borrá también sus tests (`account_test.go`, `password_reset_test.go`, `email_verification_test.go`) y corré `make check` para confirmar que todo compila y pasa.
+Borrá también sus tests (`account_test.go`, `password_reset_test.go`, `email_verification_test.go`, `two_factor*_test.go`) y corré `make check` para confirmar que todo compila y pasa.
 
 ## Qué no incluye
 
 - Cambiar el email.
-- 2FA.
+- 2FA obligatorio (por rol o para todos).
+- Llaves de seguridad físicas o passkeys (WebAuthn).
 - Login con Google u otros proveedores (OAuth).
 - Permisos más finos que `user`/`admin`.

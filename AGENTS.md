@@ -14,7 +14,7 @@ Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migra
 y paquetes del equipo de Go (`golang.org/x/crypto`, `x/time`, `x/term`).
 
 Trae autenticación completa (sesiones con cookie, roles `user`/`admin`, perfil, cambio y recuperación de contraseña,
-verificación de email opcional; ver `docs/auth.md`), envío de correos y tres **recursos de ejemplo** que sirven de modelo:
+verificación de email opcional y 2FA con TOTP; ver `docs/auth.md`), envío de correos y tres **recursos de ejemplo** que sirven de modelo:
 
 | Recurso | Qué muestra |
 |---|---|
@@ -49,6 +49,8 @@ internal/server/      http.Server con timeouts, rutas, CSRF y orden de middlewar
 internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/RequireAdmin, perfil,
                       recuperación y verificación; plantillas de correo en emails/*.txt
 internal/mail/        envío de correos: LogSender, SMTPSender, Queue (en segundo plano) y Recorder (tests)
+internal/totp/        códigos TOTP del 2FA (RFC 6238), solo librería estándar
+internal/secretbox/   cifrado AES-256-GCM y HMAC con claves derivadas de ENCRYPTION_KEY
 internal/db/          pool de pgx, migraciones, errores de PostgreSQL y consultas SQL (queries/*.sql)
 internal/store/       GENERADO por sqlc: no editar a mano
 internal/validate/    reglas de validación compartidas (obligatorio, longitud, slug, no negativo)
@@ -85,6 +87,11 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - No tocar la protección CSRF ni CORS de `internal/server/routes.go` sin consultarlo.
 - `RequireUser` también exige el email verificado si `REQUIRE_EMAIL_VERIFICATION=true` (403 `email_not_verified`).
 
+**Datos sensibles**
+- Todo dato secreto que haya que guardar y después leer (como el secreto del 2FA o un token de una API externa) se
+  cifra con `secretbox.Box.Encrypt`. Lo que solo se compara (como los códigos de recuperación) se guarda con `Box.MAC`.
+- Nunca guardar secretos en texto plano ni registrarlos en el log.
+
 **Correos**
 - Enviarlos con un `mail.Sender` (en `auth`, con `s.sendEmail` y una plantilla de `internal/auth/emails`). Nunca bloquear la respuesta
   esperando el envío: en producción el sender es un `mail.Queue`.
@@ -107,7 +114,8 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
   Usan solo `TEST_DATABASE_URL`, que debe terminar en `_test` y ser distinta de `DATABASE_URL`. **No quitar esa protección.**
 - Peticiones con `testutil.NewAPI`, `testutil.Do` y `testutil.Decode`, como en `internal/products/handlers_test.go`.
   Para leer los correos enviados: `testutil.WithMailer(&mail.Recorder{})` y `testutil.TokenFromEmail`. Para cambiar la
-  configuración: `testutil.WithConfig(func(c *config.Config){ … })`.
+  configuración: `testutil.WithConfig(func(c *config.Config){ … })`. Para el 2FA: `testutil.EnableTwoFactor` y `TwoFactor.Code`.
+- Las rutas de auth comparten el límite de 5 intentos por IP: un test no debería hacer más de 5 peticiones a ellas.
 - Los tests que usan la base no llevan `t.Parallel()`, y los paquetes corren en serie (`-p 1`, ya incluido en `make test`).
 - Cubrir siempre: el caso feliz, validación (422), no encontrado (404), sin sesión (401) y, si aplica, sin permiso (403) o pertenencia.
 

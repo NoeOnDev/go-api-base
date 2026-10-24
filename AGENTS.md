@@ -100,6 +100,10 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
   (todas las claves) y se guarda también `Box.KeyID()`.
 - Si agregás un dato cifrado nuevo, sumalo a `auth.RotateKeys` (o a su equivalente) para que la rotación lo incluya.
 - Nunca guardar secretos en texto plano ni registrarlos en el log.
+- Las contraseñas se hashean solo con `auth.HashPassword(ctx, …)` y se comparan con `auth.VerifyPassword(ctx, …)`:
+  limitan cuántos hashes de argon2 corren a la vez. No llamar a `argon2` directamente.
+- Las respuestas con datos personales o secretos llevan `Cache-Control: no-store`: envolver la ruta con `httpx.NoStore`
+  (todo `/auth` ya lo tiene).
 
 **Correos**
 - Enviarlos con un `mail.Sender` (en `auth`, con `s.sendEmail` y una plantilla de `internal/auth/emails`). Nunca bloquear la respuesta

@@ -10,7 +10,7 @@ Incluye:
 
 - **Autenticación** con sesiones en cookie `HttpOnly`, contraseñas con argon2id y roles `user`/`admin`. Incluye perfil, cambio de contraseña, recuperación por correo, verificación de email opcional y 2FA con app de autenticación y códigos de recuperación. El primer admin se crea con un comando.
 - **Correos** por SMTP (cualquier proveedor), enviados en segundo plano, con plantillas editables. En desarrollo se usa Mailpit o el log.
-- **Seguridad:** protección CSRF, CORS configurable, límites de intentos (por IP, por usuario en el 2FA y por destinatario en los correos) y timeouts del servidor.
+- **Seguridad:** protección CSRF, CORS configurable, límites de intentos (por IP, por cuenta en el login y el 2FA, y por destinatario en los correos), argon2 con tope de concurrencia, cookies `__Host-` en producción, encabezados `nosniff` y `no-store`, y timeouts del servidor.
 - **Base de la API:**
   - formato único de errores en JSON
   - validación y paginación

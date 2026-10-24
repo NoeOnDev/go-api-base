@@ -62,6 +62,10 @@ Cada recurso define su struct de respuesta. Agregar una columna a la tabla no ca
 
 JWT conviene cuando varios servicios validan sesiones sin acceso a la base, o para APIs de terceros. Ninguno de los dos es el caso de esta plantilla.
 
+**En producción, la cookie se llama `__Host-session`.** El navegador solo acepta ese prefijo si la cookie es `Secure`, tiene `Path=/` y no tiene `Domain`, así que un subdominio (por ejemplo, uno comprometido) no puede crearla ni pisarla. En desarrollo se llama `session`, porque el prefijo exige HTTPS.
+
+**Encabezados:** todas las respuestas llevan `X-Content-Type-Options: nosniff`, y las de `/auth`, `Cache-Control: no-store`, porque algunas llevan secretos (el del 2FA, los códigos de recuperación). El resto de la API no lleva `no-store`, porque un listado público puede querer caché; un recurso con datos personales puede sumarlo con `httpx.NoStore`.
+
 ## Correos en segundo plano y por SMTP
 
 - **SMTP con `net/smtp` de la librería estándar**, en lugar del SDK de un proveedor: funciona con cualquiera (Resend, Brevo, Amazon SES, Mailgun, el correo del hosting) y con Mailpit en desarrollo, y cambiar de proveedor es cambiar cuatro variables.
@@ -115,6 +119,8 @@ Es el algoritmo recomendado por OWASP. Los parámetros (19 MiB, 2 iteraciones, 1
 
 Van guardados dentro de cada hash (formato PHC), así que se pueden subir más adelante sin invalidar las contraseñas existentes.
 
+**Como mucho un hash por núcleo a la vez** (un semáforo en `password.go`). Cada hash reserva 19 MiB: sin tope, 200 logins simultáneos llevaban el proceso de 16 MiB a 2,5 GiB en 2 núcleos, y en un VPS chico el sistema lo habría matado. Con el tope, el pico queda en unos 120 MiB y los logins terminan incluso antes, porque la CPU ya no se reparte entre 200 hashes. Si el cliente se va mientras espera su turno, no se calcula nada.
+
 ## Protección CSRF con la librería estándar
 
 `http.CrossOriginProtection` (Go 1.25) rechaza las peticiones que modifican datos cuando el navegador indica que vienen de otro sitio (`Sec-Fetch-Site`, `Origin`). Junto con la cookie `SameSite=Lax`, reemplaza a los tokens CSRF clásicos sin que el frontend tenga que hacer nada.
@@ -123,15 +129,16 @@ Los orígenes de `CORS_ALLOWED_ORIGINS` se consideran confiables.
 
 ## Límite de peticiones en memoria
 
-Un token bucket (`golang.org/x/time/rate`) con tres usos:
+Un token bucket (`golang.org/x/time/rate`) con cuatro usos:
 
 - **Por IP**, en las rutas de auth: intentos (login, registro, contraseñas, 2FA) y correos.
+- **Por cuenta, en el login:** 10 intentos seguidos por email y luego uno por minuto, vengan de la IP que vengan. Cuenta también los emails que no existen, para no revelar cuáles están registrados.
 - **Por usuario, en el código del 2FA:** quien llega a ese paso ya tiene la contraseña y puede repartir sus intentos entre muchas IPs. Además, cada desafío admite 5 intentos (contados en la base, con un `UPDATE` atómico); después hay que volver a poner la contraseña, y se le avisa al usuario por correo.
 - **Por destinatario, en los correos:** desde muchas IPs tampoco se le pueden mandar decenas de correos a una persona. En "olvidé mi contraseña" el límite es silencioso, para no revelar qué emails existen, y no invalida el último enlace enviado.
 
 Al estar en memoria, alcanza para una instancia, y se reinicia con la API. Con varias instancias, los límites habría que moverlos a la base, a Redis o al proxy. Una clave inactiva se olvida recién cuando su límite ya se habría recargado.
 
-No hay un bloqueo de cuenta por contraseñas incorrectas: le permitiría a cualquiera dejar afuera a otro usuario, y argon2id ya encarece cada intento.
+El límite por cuenta tiene un costo: quien conozca un email puede demorar ese login gastando un intento por minuto. Se eligió así porque, sin él, un ataque repartido entre cientos de IPs prueba contraseñas sin freno. La salida del dueño es recuperar la contraseña, que reinicia sus límites del login y del 2FA. No es un bloqueo permanente: el límite se recarga solo.
 
 La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, para que nadie pueda falsearla si la API está expuesta directamente.
 

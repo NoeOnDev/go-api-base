@@ -26,6 +26,10 @@ La cookie tiene estos atributos:
 | `SameSite=Lax` | El navegador no la envía en peticiones disparadas por otro sitio |
 | `Secure` | Solo viaja por HTTPS. Se controla con `COOKIE_SECURE` y está activado por defecto en producción |
 | `Path=/` | Vale para toda la API |
+| Sin `Domain` | Solo vale para el host que la creó, no para sus subdominios |
+| Prefijo `__Host-` | Solo en producción (`COOKIE_SECURE=true`): la cookie se llama `__Host-session`, y el navegador la rechaza si no es `Secure`, con `Path=/` y sin `Domain`. Así ningún subdominio puede crearla ni pisarla. En desarrollo se llama `session` |
+
+El desafío del 2FA usa una cookie con los mismos atributos: `two_factor_challenge`, o `__Host-two_factor_challenge` en producción. El frontend no necesita conocer estos nombres, porque las cookies son `HttpOnly` y viajan solas.
 
 ## Endpoints
 
@@ -190,9 +194,12 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
   - **Intentos:** login, registro, cambio de contraseña, reset, verificación y las rutas del 2FA. 5 seguidos y luego uno cada 12 segundos.
   - **Correos:** `forgot` y `resend`. 3 seguidos y luego uno cada 5 minutos.
 - **Límites por usuario**, aunque los pedidos lleguen de muchas IPs:
+  - **Login:** 10 intentos seguidos por email y luego uno por minuto. Cuenta también los emails que no existen, para no revelar cuáles están registrados. Recuperar la contraseña lo reinicia.
   - **Código del 2FA:** 10 intentos seguidos y luego uno cada 6 minutos.
   - **Correos a una misma persona:** 3 seguidos de cada tipo (recuperación, verificación, aviso) y luego uno cada 20 minutos. En `forgot`, al superarlo no se envía nada y la respuesta es la misma de siempre, para no revelar si el email existe; el último enlace enviado sigue sirviendo. `resend` responde `429`.
 - Los límites están en memoria: alcanzan para una instancia de la API, y se reinician con ella.
+- **Como mucho un hash de argon2 por núcleo a la vez**, para que muchos logins simultáneos no agoten la memoria del servidor. Los demás esperan su turno.
+- **Encabezados:** `X-Content-Type-Options: nosniff` en todas las respuestas y `Cache-Control: no-store` en todas las de `/auth`.
 - **2FA** opcional para cada usuario (ver la sección [2FA](#2fa-verificación-en-dos-pasos)).
 - **Protección CSRF** (`http.CrossOriginProtection` de Go): rechaza con `403` los `POST`/`PUT`/`DELETE` que el navegador envía desde otro sitio. Las peticiones sin encabezados de navegador (`curl`, apps móviles) no se ven afectadas.
 - **Limpieza:** las sesiones y los tokens vencidos se borran al crear nuevos.

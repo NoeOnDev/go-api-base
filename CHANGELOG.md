@@ -9,6 +9,24 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.3.4] - 2026-10-24
+
+Ajustes para producción en un VPS chico, a partir de una revisión con la API levantada.
+
+### Agregado
+
+- **Límite de intentos de login por cuenta:** 10 seguidos por email y luego uno por minuto, vengan de la IP que vengan (`429` con `Retry-After`). Cuenta también los emails que no existen, para no revelar cuáles están registrados. Recuperar la contraseña lo reinicia.
+- **Encabezados:** `X-Content-Type-Options: nosniff` en todas las respuestas (`httpx.SecurityHeaders`) y `Cache-Control: no-store` en todo `/auth` (`httpx.NoStore`).
+- **Cookies `__Host-` en producción:** con `COOKIE_SECURE=true` se llaman `__Host-session` y `__Host-two_factor_challenge`, así un subdominio no puede crearlas ni pisarlas.
+
+### Cambiado
+
+- `auth.HashPassword` y `auth.VerifyPassword` reciben un `context.Context`.
+
+### Corregido
+
+- **Logins simultáneos podían agotar la memoria:** cada hash de argon2 reserva 19 MiB y no había tope. Con 200 logins simultáneos en 2 núcleos, el proceso pasaba de 16 MiB a 2,5 GiB. Ahora corre como mucho un hash por núcleo: el pico queda en unos 120 MiB, y los logins terminan antes (2,4 s contra 3,3 s).
+
 ## [v0.3.3] - 2026-10-24
 
 Dos detalles del 2FA alrededor del cambio de contraseña.

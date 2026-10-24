@@ -66,7 +66,7 @@ type challengeInput struct {
 // Un código incorrecto deja reintentar hasta maxChallengeAttempts veces; al agotarlos se borra
 // el desafío y se le avisa al usuario por correo.
 func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) error {
-	c, err := r.Cookie(ChallengeCookieName)
+	c, err := r.Cookie(s.cookieName(ChallengeCookieName))
 	if err != nil {
 		return errNoChallenge
 	}

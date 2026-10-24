@@ -16,11 +16,26 @@ import (
 )
 
 // CookieName es el nombre de la cookie que lleva el token de sesión.
+// Con CookieSecure se le agrega el prefijo __Host- (ver cookieName).
 const CookieName = "session"
 
 // ChallengeCookieName es la cookie del desafío del 2FA: el login con la contraseña correcta
 // la envía, y POST /auth/two-factor/challenge la usa para saber qué usuario está entrando.
+// Con CookieSecure también lleva el prefijo __Host-.
 const ChallengeCookieName = "two_factor_challenge"
+
+// hostPrefix hace que el navegador solo acepte la cookie si es Secure, tiene Path=/ y no
+// tiene Domain. Así ningún subdominio (por ejemplo, uno comprometido) puede crearla ni pisarla.
+const hostPrefix = "__Host-"
+
+// cookieName devuelve el nombre real de una cookie: con el prefijo __Host- cuando las cookies
+// son Secure (producción). En desarrollo no se puede usar, porque exige HTTPS.
+func (s *Service) cookieName(base string) string {
+	if s.opts.CookieSecure {
+		return hostPrefix + base
+	}
+	return base
+}
 
 // errNoSession indica que la petición no trae una sesión válida.
 var errNoSession = errors.New("sin sesión válida")
@@ -70,7 +85,7 @@ func (s *Service) StartSession(ctx context.Context, w http.ResponseWriter, userI
 
 // EndSession borra la sesión de la petición (si hay) y le indica al navegador que borre la cookie.
 func (s *Service) EndSession(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	if c, err := r.Cookie(CookieName); err == nil {
+	if c, err := r.Cookie(s.cookieName(CookieName)); err == nil {
 		if err := s.q.DeleteSession(ctx, hashToken(c.Value)); err != nil {
 			return fmt.Errorf("borrar sesión: %w", err)
 		}
@@ -85,7 +100,7 @@ func (s *Service) EndSession(ctx context.Context, w http.ResponseWriter, r *http
 // userFromRequest busca el usuario de la sesión enviada en la cookie.
 // Devuelve errNoSession si no hay cookie, la sesión no existe o venció.
 func (s *Service) userFromRequest(r *http.Request) (User, error) {
-	c, err := r.Cookie(CookieName)
+	c, err := r.Cookie(s.cookieName(CookieName))
 	if err != nil {
 		return User{}, errNoSession
 	}
@@ -103,14 +118,14 @@ func (s *Service) userFromRequest(r *http.Request) (User, error) {
 // setChallengeCookie envía la cookie del desafío del 2FA, con la misma protección que la de sesión.
 func (s *Service) setChallengeCookie(w http.ResponseWriter, token string, expires time.Time) {
 	c := s.cookie(token, expires)
-	c.Name = ChallengeCookieName
+	c.Name = s.cookieName(ChallengeCookieName)
 	http.SetCookie(w, c)
 }
 
 // clearChallengeCookie le pide al navegador que borre la cookie del desafío.
 func (s *Service) clearChallengeCookie(w http.ResponseWriter) {
 	c := s.cookie("", time.Unix(0, 0))
-	c.Name = ChallengeCookieName
+	c.Name = s.cookieName(ChallengeCookieName)
 	c.MaxAge = -1
 	http.SetCookie(w, c)
 }
@@ -120,9 +135,11 @@ func (s *Service) clearChallengeCookie(w http.ResponseWriter) {
 //   - SameSite=Lax: el navegador no la envía en peticiones que otro sitio dispara
 //     (por ejemplo un formulario oculto), la primera barrera contra CSRF.
 //   - Secure: solo viaja por HTTPS (se desactiva en desarrollo, donde se usa http://localhost).
+//   - Path=/ y sin Domain: vale para toda la API y solo para el host que la creó. Con Secure,
+//     el nombre lleva el prefijo __Host-, que obliga al navegador a respetar estas tres reglas.
 func (s *Service) cookie(value string, expires time.Time) *http.Cookie {
 	return &http.Cookie{
-		Name:     CookieName,
+		Name:     s.cookieName(CookieName),
 		Value:    value,
 		Path:     "/",
 		Expires:  expires,

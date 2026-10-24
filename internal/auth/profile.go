@@ -101,7 +101,7 @@ func (s *Service) checkPassword(ctx context.Context, userID int64, password, fie
 // endOtherSessions cierra todas las sesiones del usuario salvo la de esta petición.
 // Se usa después de un cambio de seguridad (contraseña, 2FA).
 func (s *Service) endOtherSessions(r *http.Request, userID int64) error {
-	c, err := r.Cookie(CookieName)
+	c, err := r.Cookie(s.cookieName(CookieName))
 	if err != nil {
 		return fmt.Errorf("leer la cookie de sesión: %w", err)
 	}

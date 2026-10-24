@@ -77,12 +77,19 @@ type Options struct {
 	Box *secretbox.Box
 	// Issuer es el nombre de la aplicación que muestra la app de autenticación.
 	Issuer string
+	// TrustProxy toma la IP del cliente de X-Forwarded-For (detrás de Caddy o Nginx).
+	// Se usa en el correo que avisa de códigos del 2FA incorrectos.
+	TrustProxy bool
 }
 
 // Service agrupa la lógica de autenticación y sus dependencias.
 type Service struct {
 	q    *store.Queries
 	opts Options
+
+	// Límites en memoria que no dependen de la IP (ver two_factor_login.go y emails.go).
+	twoFactorLimiter *httpx.RateLimiter
+	emailLimiter     *httpx.RateLimiter
 }
 
 // NewService crea el servicio de autenticación.
@@ -99,7 +106,12 @@ func NewService(q *store.Queries, opts Options) *Service {
 	if opts.Issuer == "" {
 		opts.Issuer = "Mi App"
 	}
-	return &Service{q: q, opts: opts}
+	return &Service{
+		q:                q,
+		opts:             opts,
+		twoFactorLimiter: httpx.NewRateLimiter(twoFactorLimitEvery, twoFactorLimitBurst, false),
+		emailLimiter:     httpx.NewRateLimiter(emailLimitEvery, emailLimitBurst, false),
+	}
 }
 
 // CreateUser valida los datos, hashea la contraseña y crea el usuario con el rol indicado.

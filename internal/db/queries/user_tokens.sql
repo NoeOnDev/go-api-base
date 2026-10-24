@@ -18,11 +18,21 @@ DELETE FROM user_tokens
 WHERE expires_at <= now();
 
 -- GetUserTokenUser busca un token vigente sin consumirlo (el desafío del 2FA sigue
--- sirviendo después de un código incorrecto).
+-- sirviendo después de un código incorrecto, hasta agotar sus intentos).
 -- name: GetUserTokenUser :one
 SELECT user_id
 FROM user_tokens
-WHERE token_hash = $1 AND purpose = $2 AND expires_at > now();
+WHERE token_hash = sqlc.arg('token_hash') AND purpose = sqlc.arg('purpose') AND expires_at > now()
+  AND attempts < sqlc.arg('max_attempts')::int;
+
+-- UseUserTokenAttempt gasta un intento del token y devuelve cuántos lleva. Es una sola
+-- sentencia, así que varias peticiones simultáneas no pueden pasarse del máximo.
+-- name: UseUserTokenAttempt :one
+UPDATE user_tokens
+SET attempts = attempts + 1
+WHERE token_hash = sqlc.arg('token_hash') AND purpose = sqlc.arg('purpose') AND expires_at > now()
+  AND attempts < sqlc.arg('max_attempts')::int
+RETURNING attempts;
 
 -- name: DeleteUserToken :exec
 DELETE FROM user_tokens

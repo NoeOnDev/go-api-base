@@ -67,10 +67,21 @@ func TokenFromEmail(t *testing.T, msg mail.Message) string {
 }
 
 // Do envía una petición a la API. cookie es la sesión del usuario, o nil para una petición sin sesión.
+// Todas salen de la misma IP (192.0.2.1), así que comparten los límites por IP.
 func Do(t *testing.T, api http.Handler, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return DoFromIP(t, api, "", cookie, method, path, body)
+}
+
+// DoFromIP es como Do, pero la petición sale de la IP indicada. Sirve para simular un
+// atacante que reparte sus intentos entre muchas IPs, o para no chocar con el límite por IP.
+func DoFromIP(t *testing.T, api http.Handler, ip string, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
+	if ip != "" {
+		r.RemoteAddr = ip + ":1234"
+	}
 	if cookie != nil {
 		r.AddCookie(cookie)
 	}

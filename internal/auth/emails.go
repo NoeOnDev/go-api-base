@@ -6,7 +6,9 @@ import (
 	"embed"
 	"fmt"
 	"net/url"
+	"strconv"
 	"text/template"
+	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 )
@@ -24,6 +26,22 @@ type emailData struct {
 	Name    string
 	Link    string
 	Expires string // por ejemplo "1 hora"
+	When    string // fecha y hora del evento, en UTC
+	IP      string // IP desde la que se hizo el pedido
+}
+
+// Límite de correos por destinatario y tipo: 3 seguidos y luego uno cada 20 minutos.
+// Complementa el límite por IP: desde muchas IPs tampoco se le pueden mandar
+// decenas de correos a una misma persona.
+const (
+	emailLimitEvery = 20 * time.Minute
+	emailLimitBurst = 3
+)
+
+// allowEmail indica si se le puede enviar otro correo de este tipo al usuario.
+// Cada tipo (recuperación, verificación, aviso) tiene su propio límite.
+func (s *Service) allowEmail(kind string, userID int64) bool {
+	return s.emailLimiter.Allow(kind + ":" + strconv.FormatInt(userID, 10))
 }
 
 // sendEmail arma el correo con la plantilla indicada y lo envía. Con mail.Queue el envío

@@ -57,6 +57,7 @@ func NewHandler(d Deps) http.Handler {
 		RequireVerifiedEmail: d.Config.RequireEmailVerification,
 		Box:                  box,
 		Issuer:               d.Config.AppName,
+		TrustProxy:           d.Config.TrustProxy,
 	})
 	// Intentos: 5 seguidos por IP y luego uno cada 12 segundos (5 por minuto).
 	// Correos: 3 seguidos por IP y luego uno cada 5 minutos.

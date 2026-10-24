@@ -71,5 +71,6 @@ type UserToken struct {
 	UserID    int64
 	Purpose   string
 	ExpiresAt time.Time
+	Attempts  int32
 	CreatedAt time.Time
 }

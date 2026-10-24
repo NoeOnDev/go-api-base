@@ -7,6 +7,8 @@ CREATE TABLE user_tokens (
     user_id    bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     purpose    text        NOT NULL CHECK (purpose IN ('password_reset', 'email_verification', 'two_factor_login')),
     expires_at timestamptz NOT NULL,
+    -- Intentos usados: el desafío del 2FA se borra al llegar al máximo (ver auth.maxChallengeAttempts).
+    attempts   int         NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 

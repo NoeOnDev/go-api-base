@@ -53,7 +53,7 @@ func TestLoginRequiresSecondFactor(t *testing.T) {
 
 	pending := loginWithTwoFactor(t, api)
 
-	// Un código incorrecto no gasta el desafío.
+	// Un código incorrecto deja reintentar (hasta agotar los intentos del desafío).
 	resp := testutil.Decode[testutil.APIError](t, challenge(t, api, pending, codeBody("000000")), http.StatusUnprocessableEntity)
 	if resp.Error.Fields["code"] == "" {
 		t.Errorf("se esperaba error en code: %+v", resp.Error)

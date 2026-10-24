@@ -91,18 +91,43 @@ const getUserTokenUser = `-- name: GetUserTokenUser :one
 SELECT user_id
 FROM user_tokens
 WHERE token_hash = $1 AND purpose = $2 AND expires_at > now()
+  AND attempts < $3::int
 `
 
 type GetUserTokenUserParams struct {
-	TokenHash []byte
-	Purpose   string
+	TokenHash   []byte
+	Purpose     string
+	MaxAttempts int32
 }
 
 // GetUserTokenUser busca un token vigente sin consumirlo (el desafío del 2FA sigue
-// sirviendo después de un código incorrecto).
+// sirviendo después de un código incorrecto, hasta agotar sus intentos).
 func (q *Queries) GetUserTokenUser(ctx context.Context, arg GetUserTokenUserParams) (int64, error) {
-	row := q.db.QueryRow(ctx, getUserTokenUser, arg.TokenHash, arg.Purpose)
+	row := q.db.QueryRow(ctx, getUserTokenUser, arg.TokenHash, arg.Purpose, arg.MaxAttempts)
 	var user_id int64
 	err := row.Scan(&user_id)
 	return user_id, err
+}
+
+const useUserTokenAttempt = `-- name: UseUserTokenAttempt :one
+UPDATE user_tokens
+SET attempts = attempts + 1
+WHERE token_hash = $1 AND purpose = $2 AND expires_at > now()
+  AND attempts < $3::int
+RETURNING attempts
+`
+
+type UseUserTokenAttemptParams struct {
+	TokenHash   []byte
+	Purpose     string
+	MaxAttempts int32
+}
+
+// UseUserTokenAttempt gasta un intento del token y devuelve cuántos lleva. Es una sola
+// sentencia, así que varias peticiones simultáneas no pueden pasarse del máximo.
+func (q *Queries) UseUserTokenAttempt(ctx context.Context, arg UseUserTokenAttemptParams) (int32, error) {
+	row := q.db.QueryRow(ctx, useUserTokenAttempt, arg.TokenHash, arg.Purpose, arg.MaxAttempts)
+	var attempts int32
+	err := row.Scan(&attempts)
+	return attempts, err
 }

@@ -42,12 +42,8 @@ func (in RegisterInput) validate() error {
 		fields["email"] = msg
 	}
 
-	// La contraseña no se recorta: los espacios también cuentan.
-	switch n := utf8.RuneCountInString(in.Password); {
-	case n < minPasswordLen:
-		fields["password"] = "debe tener al menos 8 caracteres"
-	case n > maxPasswordLen:
-		fields["password"] = "no puede superar 128 caracteres"
+	if msg := validatePassword(in.Password); msg != "" {
+		fields["password"] = msg
 	}
 
 	if len(fields) > 0 {
@@ -75,6 +71,18 @@ func (in loginInput) validate() error {
 		return httpx.Validation(fields)
 	}
 	return nil
+}
+
+// validatePassword aplica las reglas de una contraseña nueva. No se recorta:
+// los espacios también cuentan.
+func validatePassword(password string) string {
+	switch n := utf8.RuneCountInString(password); {
+	case n < minPasswordLen:
+		return "debe tener al menos 8 caracteres"
+	case n > maxPasswordLen:
+		return "no puede superar 128 caracteres"
+	}
+	return ""
 }
 
 func validateEmail(email string) string {

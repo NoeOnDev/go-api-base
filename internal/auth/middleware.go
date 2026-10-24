@@ -13,6 +13,13 @@ type ctxKey struct{}
 // RequireUser deja pasar solo peticiones con una sesión válida (si no, responde 401)
 // y guarda el usuario en el contexto. Los handlers lo obtienen con UserFrom o MustUser.
 func (s *Service) RequireUser(next http.Handler) http.Handler {
+	return s.requireSession(next)
+}
+
+// requireSession exige una sesión válida, pero no el email verificado. Lo usan las rutas
+// de la propia cuenta (ver el perfil, cerrar sesión, reenviar la verificación), que tienen
+// que funcionar aunque el usuario todavía no haya confirmado su email.
+func (s *Service) requireSession(next http.Handler) http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		u, err := s.userFromRequest(r)
 		if errors.Is(err, errNoSession) {

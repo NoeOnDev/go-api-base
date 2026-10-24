@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 
 	"github.com/NoeOnDev/go-api-base/migrations"
 )
@@ -22,7 +23,16 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error
 	sqlDB := stdlib.OpenDBFromPool(pool)
 	defer sqlDB.Close()
 
-	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, migrations.FS)
+	// El bloqueo (un advisory lock de PostgreSQL) evita que dos procesos migren al mismo tiempo,
+	// por ejemplo dos instancias arrancando juntas o tests de varios paquetes en paralelo.
+	locker, err := lock.NewPostgresSessionLocker()
+	if err != nil {
+		return fmt.Errorf("preparar bloqueo de migraciones: %w", err)
+	}
+
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, migrations.FS,
+		goose.WithSessionLocker(locker),
+	)
 	if err != nil {
 		return fmt.Errorf("preparar migraciones: %w", err)
 	}

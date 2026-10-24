@@ -51,6 +51,11 @@ const (
 	twoFactorLimitBurst  = 10
 )
 
+// twoFactorLimitKey es la clave del usuario en el límite de intentos del 2FA.
+func twoFactorLimitKey(userID int64) string {
+	return "two_factor:" + strconv.FormatInt(userID, 10)
+}
+
 type challengeInput struct {
 	Code         string `json:"code"`
 	RecoveryCode string `json:"recovery_code"`
@@ -87,7 +92,7 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 		return fmt.Errorf("buscar desafío del 2FA: %w", err)
 	}
 
-	if !s.twoFactorLimiter.Allow("two_factor:" + strconv.FormatInt(userID, 10)) {
+	if !s.twoFactorLimiter.Allow(twoFactorLimitKey(userID)) {
 		httpx.LoggerFrom(r.Context()).Warn("límite de intentos del 2FA del usuario superado", "user_id", userID)
 		w.Header().Set("Retry-After", strconv.Itoa(int(twoFactorLimitEvery.Seconds())))
 		return httpx.TooManyRequests()

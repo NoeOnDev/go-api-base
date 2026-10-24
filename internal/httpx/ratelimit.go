@@ -79,6 +79,14 @@ func (rl *RateLimiter) Allow(ip string) bool {
 	return v.limiter.Allow()
 }
 
+// Reset olvida una clave y le devuelve todos sus intentos. Sirve cuando cambia lo que el
+// límite protegía: por ejemplo, después de recuperar la contraseña.
+func (rl *RateLimiter) Reset(key string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	delete(rl.visitors, key)
+}
+
 // rateLimitKey agrupa las direcciones IPv6 por su bloque /64. Un proveedor suele asignarle
 // a cada cliente un /64 entero (miles de millones de direcciones), así que contar por dirección
 // exacta permitiría esquivar el límite cambiando de IP. Las IPv4 se cuentan una por una.

@@ -75,6 +75,9 @@ type resetPasswordInput struct {
 // resetPassword responde POST /auth/password/reset con el token del enlace y la contraseña nueva.
 // Cierra todas las sesiones del usuario (por si alguien más había entrado) y marca el email
 // como verificado, porque el usuario demostró que recibe correos en esa dirección.
+//
+// También reinicia su límite de intentos del 2FA: si alguien con la contraseña vieja lo había
+// agotado, el dueño no tiene que esperar para entrar con la nueva.
 func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	var in resetPasswordInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -100,6 +103,7 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	if err := s.q.DeleteUserSessions(r.Context(), userID); err != nil {
 		return fmt.Errorf("cerrar sesiones: %w", err)
 	}
+	s.twoFactorLimiter.Reset(twoFactorLimitKey(userID))
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil

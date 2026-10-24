@@ -185,6 +185,7 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 - **Login sin filtraciones:** siempre responde el mismo `401` y tarda lo mismo exista o no el email. "Olvidé mi contraseña" también responde siempre lo mismo. El registro sí indica si un email está en uso (`409`), porque si no el usuario no sabría por qué falla.
 - **Tokens de un solo uso** para recuperar la contraseña y verificar el email: en la base solo se guarda su SHA-256, vencen, y se validan y borran en una sola operación, así que no se pueden usar dos veces.
 - **Las sesiones se cierran al cambiar o recuperar la contraseña**, por si alguien había entrado con la anterior.
+- **Una contraseña nueva corta los logins con 2FA a medio hacer:** al cambiarla o recuperarla se borran los desafíos pendientes, que se obtuvieron con la anterior. Al recuperarla, además, se reinicia el límite de intentos del 2FA del usuario, por si alguien con la contraseña vieja lo había agotado.
 - **Límites por IP** (las IPv6 se cuentan por bloque `/64`). Al superarlos se responde `429` con `Retry-After`:
   - **Intentos:** login, registro, cambio de contraseña, reset, verificación y las rutas del 2FA. 5 seguidos y luego uno cada 12 segundos.
   - **Correos:** `forgot` y `resend`. 3 seguidos y luego uno cada 5 minutos.

@@ -9,6 +9,19 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.3.3] - 2026-10-24
+
+Dos detalles del 2FA alrededor del cambio de contraseña.
+
+### Corregido
+
+- **Al cambiar o recuperar la contraseña se borran los desafíos del 2FA pendientes.** Antes, quien había pasado el primer paso del login con la contraseña anterior podía completarlo con un código durante los 5 minutos del desafío.
+- **Al recuperar la contraseña se reinicia el límite de intentos del 2FA del usuario.** Antes, si alguien con la contraseña anterior lo había agotado, el dueño tenía que esperar hasta una hora para entrar con la nueva.
+
+### Agregado
+
+- `httpx.RateLimiter.Reset`, para olvidar una clave.
+
 ## [v0.3.2] - 2026-10-24
 
 Correcciones de seguridad a partir de una revisión del 2FA, del envío de correos y del cifrado.

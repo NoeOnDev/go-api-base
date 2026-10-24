@@ -191,3 +191,15 @@ func TestRateLimiterRemembersUntilRefilled(t *testing.T) {
 		t.Errorf("con recarga rápida debería usar visitorTTL: %v", rl.ttl)
 	}
 }
+
+func TestRateLimiterReset(t *testing.T) {
+	rl := NewRateLimiter(time.Hour, 1, false)
+	rl.Allow("ana")
+	if rl.Allow("ana") {
+		t.Fatal("el segundo intento debería rechazarse")
+	}
+	rl.Reset("ana")
+	if !rl.Allow("ana") {
+		t.Error("después de Reset la clave debería tener sus intentos de nuevo")
+	}
+}

@@ -114,7 +114,8 @@ func (s *Service) endOtherSessions(r *http.Request, userID int64) error {
 	return nil
 }
 
-// setPassword hashea y guarda una contraseña nueva.
+// setPassword hashea y guarda una contraseña nueva. También borra los desafíos del 2FA
+// pendientes: se obtuvieron con la contraseña anterior, que pudo haber conocido otra persona.
 func (s *Service) setPassword(r *http.Request, userID int64, password string) error {
 	hash, err := HashPassword(password)
 	if err != nil {
@@ -122,6 +123,9 @@ func (s *Service) setPassword(r *http.Request, userID int64, password string) er
 	}
 	if err := s.q.UpdateUserPassword(r.Context(), store.UpdateUserPasswordParams{ID: userID, PasswordHash: hash}); err != nil {
 		return fmt.Errorf("guardar contraseña del usuario %d: %w", userID, err)
+	}
+	if err := s.q.DeleteUserTokens(r.Context(), store.DeleteUserTokensParams{UserID: userID, Purpose: purposeTwoFactorLogin}); err != nil {
+		return fmt.Errorf("borrar desafíos del 2FA pendientes: %w", err)
 	}
 	return nil
 }

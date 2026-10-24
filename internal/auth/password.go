@@ -1,11 +1,13 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -27,20 +29,41 @@ var defaultParams = argonParams{memory: 19 * 1024, time: 2, threads: 1, saltLen:
 
 var errInvalidHash = errors.New("hash de contraseña con formato inválido")
 
+// hashSlots limita cuántos hashes de argon2 se calculan a la vez: uno por núcleo. Cada hash
+// reserva 19 MiB, así que sin tope 200 logins simultáneos llevan el proceso a varios GiB y,
+// en un VPS chico, el sistema lo mata por falta de memoria. Con el tope, los logins de más
+// esperan su turno: el total es el mismo, porque la CPU ya no daba para más a la vez.
+var hashSlots = make(chan struct{}, max(1, runtime.GOMAXPROCS(0)))
+
+// argon2Key calcula la clave de argon2id cuando hay un lugar libre. Si el contexto se
+// cancela mientras espera (por ejemplo, el cliente cortó la conexión), no calcula nada.
+func argon2Key(ctx context.Context, password, salt []byte, p argonParams, keyLen uint32) ([]byte, error) {
+	select {
+	case hashSlots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-hashSlots }()
+	return argon2.IDKey(password, salt, p.time, p.memory, p.threads, keyLen), nil
+}
+
 // HashPassword devuelve el hash de la contraseña en formato PHC:
 //
 //	$argon2id$v=19$m=19456,t=2,p=1$<sal>$<hash>
 //
 // Los parámetros viajan dentro del hash, así que se pueden subir en el futuro
 // sin romper las contraseñas ya guardadas.
-func HashPassword(password string) (string, error) {
+func HashPassword(ctx context.Context, password string) (string, error) {
 	p := defaultParams
 	salt := make([]byte, p.saltLen)
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("generar sal: %w", err)
 	}
 
-	key := argon2.IDKey([]byte(password), salt, p.time, p.memory, p.threads, p.keyLen)
+	key, err := argon2Key(ctx, []byte(password), salt, p, p.keyLen)
+	if err != nil {
+		return "", err
+	}
 
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, p.memory, p.time, p.threads,
@@ -50,13 +73,16 @@ func HashPassword(password string) (string, error) {
 }
 
 // VerifyPassword compara una contraseña con su hash en tiempo constante.
-func VerifyPassword(password, encoded string) (bool, error) {
+func VerifyPassword(ctx context.Context, password, encoded string) (bool, error) {
 	p, salt, key, err := decodeHash(encoded)
 	if err != nil {
 		return false, err
 	}
 
-	other := argon2.IDKey([]byte(password), salt, p.time, p.memory, p.threads, uint32(len(key)))
+	other, err := argon2Key(ctx, []byte(password), salt, p, uint32(len(key)))
+	if err != nil {
+		return false, err
+	}
 	return subtle.ConstantTimeCompare(key, other) == 1, nil
 }
 
@@ -93,7 +119,7 @@ func decodeHash(encoded string) (argonParams, []byte, []byte, error) {
 // Así el login tarda lo mismo exista o no el usuario, y no se puede averiguar qué emails
 // están registrados midiendo el tiempo de respuesta.
 var dummyHash = sync.OnceValue(func() string {
-	h, err := HashPassword("contraseña-ficticia-para-igualar-tiempos")
+	h, err := HashPassword(context.Background(), "contraseña-ficticia-para-igualar-tiempos")
 	if err != nil {
 		panic(err) // solo falla si el sistema no puede generar números aleatorios
 	}

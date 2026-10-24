@@ -127,7 +127,7 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 		return User{}, fmt.Errorf("rol desconocido %q", role)
 	}
 
-	hash, err := HashPassword(in.Password)
+	hash, err := HashPassword(ctx, in.Password)
 	if err != nil {
 		return User{}, fmt.Errorf("hashear contraseña: %w", err)
 	}
@@ -164,14 +164,14 @@ func (s *Service) Authenticate(ctx context.Context, email, password string) (Use
 	u, err := s.q.GetUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Se calcula un hash igual, para que la respuesta tarde lo mismo que con un email válido.
-		_, _ = VerifyPassword(password, dummyHash())
+		_, _ = VerifyPassword(ctx, password, dummyHash())
 		return User{}, errInvalidCredentials
 	}
 	if err != nil {
 		return User{}, fmt.Errorf("buscar usuario: %w", err)
 	}
 
-	ok, err := VerifyPassword(password, u.PasswordHash)
+	ok, err := VerifyPassword(ctx, password, u.PasswordHash)
 	if err != nil {
 		return User{}, fmt.Errorf("verificar contraseña del usuario %d: %w", u.ID, err)
 	}

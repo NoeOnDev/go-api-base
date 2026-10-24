@@ -88,7 +88,7 @@ func (s *Service) checkPassword(ctx context.Context, userID int64, password, fie
 	if err != nil {
 		return fmt.Errorf("buscar usuario %d: %w", userID, err)
 	}
-	ok, err := VerifyPassword(password, stored.PasswordHash)
+	ok, err := VerifyPassword(ctx, password, stored.PasswordHash)
 	if err != nil {
 		return fmt.Errorf("verificar contraseña del usuario %d: %w", userID, err)
 	}
@@ -117,7 +117,7 @@ func (s *Service) endOtherSessions(r *http.Request, userID int64) error {
 // setPassword hashea y guarda una contraseña nueva. También borra los desafíos del 2FA
 // pendientes: se obtuvieron con la contraseña anterior, que pudo haber conocido otra persona.
 func (s *Service) setPassword(r *http.Request, userID int64, password string) error {
-	hash, err := HashPassword(password)
+	hash, err := HashPassword(r.Context(), password)
 	if err != nil {
 		return fmt.Errorf("hashear contraseña: %w", err)
 	}

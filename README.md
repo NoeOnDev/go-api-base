@@ -151,7 +151,6 @@ internal/categories/ ejemplo: catálogo, lectura pública y escritura de admin
 internal/products/   ejemplo: relaciones, filtros y búsqueda
 internal/testutil/   ayudas para los tests
 migrations/          migraciones SQL
-tools/               herramientas de desarrollo (sqlc, goose, govulncheck)
 docs/                guías y decisiones
 ```
 

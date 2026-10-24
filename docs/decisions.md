@@ -28,10 +28,14 @@ Menos dependencias significa menos actualizaciones, menos vulnerabilidades posib
 - La API migra al arrancar, con un advisory lock de PostgreSQL para que dos instancias no migren a la vez. Es simple y suficiente para un VPS.
 - sqlc lee las mismas migraciones como esquema, así que son la única fuente de verdad.
 
-## Herramientas en un módulo aparte (`tools/go.mod`)
+## Herramientas con versión fija en el Makefile
 
-sqlc, goose (la CLI) y govulncheck quedan fijados a una versión, sin instalar nada globalmente.
-Están en un `go.mod` separado porque sqlc arrastra cientos de dependencias, y así el `go.mod` principal solo refleja lo que usa la API.
+sqlc, goose (la CLI) y govulncheck se ejecutan con `go run paquete@versión`, con la versión en una variable del `Makefile` (`SQLC_VERSION`, etc.):
+- **No hace falta instalar nada:** la primera vez se descargan, verificadas contra la base de checksums de Go, y se compilan; después se usan desde la caché.
+- **No agregan dependencias al `go.mod` de la API.** sqlc sola arrastra cientos.
+- **Funcionan en proyectos creados con `gonew`.** Un módulo aparte (por ejemplo `tools/go.mod`) no sirve: Go excluye las subcarpetas con su propio `go.mod` al empaquetar el módulo, así que `gonew` no las copia.
+
+Para actualizar una herramienta, cambiá su versión en el `Makefile`.
 
 ## Formato único de errores
 

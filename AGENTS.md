@@ -29,8 +29,9 @@ Trae autenticación (sesiones con cookie, roles `user`/`admin`) y tres **recurso
 | `make create-admin email=… name=…` | Crear un administrador (contraseña por `ADMIN_PASSWORD` o por la terminal) |
 | `make build` | Binario estático en `bin/api` |
 
-`make` carga `.env` automáticamente. Las herramientas (sqlc, goose, govulncheck) se ejecutan con
-`go tool -modfile=tools/go.mod <herramienta>`; no hace falta instalarlas.
+`make` carga `.env` automáticamente. Las herramientas (sqlc, goose, govulncheck) se ejecutan con `go run paquete@versión`,
+con las versiones fijas al principio del `Makefile`; no hace falta instalarlas. **No crear subcarpetas con su propio `go.mod`**:
+`gonew` no las copia.
 
 ## Estructura
 
@@ -46,7 +47,6 @@ internal/validate/    reglas de validación compartidas (obligatorio, longitud, 
 internal/<recurso>/   un paquete por recurso: handlers.go, validation.go, routes.go, handlers_test.go
 internal/testutil/    ayudas para tests de integración (NewDB, Login, NewAPI, Do, Decode)
 migrations/           migraciones SQL de goose, embebidas en el binario
-tools/                módulo aparte con las herramientas de desarrollo
 docs/                 guías (recursos, autenticación) y decisiones de diseño
 ```
 

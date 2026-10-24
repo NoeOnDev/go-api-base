@@ -7,10 +7,19 @@ include .env
 export
 endif
 
-# Herramientas de desarrollo (sqlc, goose y govulncheck), versionadas en tools/go.mod.
+# Herramientas de desarrollo con versión fija. "go run paquete@versión" las descarga
+# (verificadas contra la base de checksums de Go) y las compila la primera vez; después
+# usa la caché. No agregan nada al go.mod de la aplicación.
+SQLC_VERSION        := v1.31.1
+GOOSE_VERSION       := v3.29.0
+GOVULNCHECK_VERSION := v1.9.0
+
+SQLC        := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+GOOSE_CLI   := go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
+GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
 # Los comandos de goose llevan @ para que make no imprima la URL con la contraseña.
-TOOL  := go tool -modfile=tools/go.mod
-GOOSE := $(TOOL) goose -dir migrations postgres "$(DATABASE_URL)"
+GOOSE := $(GOOSE_CLI) -dir migrations postgres "$(DATABASE_URL)"
 
 .DEFAULT_GOAL := help
 
@@ -35,12 +44,11 @@ create-admin: ## Crea un administrador: make create-admin email=admin@ejemplo.co
 
 .PHONY: sqlc
 sqlc: ## Regenera internal/store a partir de migraciones y consultas
-	$(TOOL) sqlc generate
+	$(SQLC) generate
 
 .PHONY: tidy
-tidy: ## Ordena las dependencias de go.mod y tools/go.mod
+tidy: ## Ordena las dependencias de go.mod
 	go mod tidy
-	cd tools && go mod tidy
 
 .PHONY: clean
 clean: ## Borra los binarios compilados
@@ -64,20 +72,20 @@ test: ## Corre los tests (los de base de datos usan TEST_DATABASE_URL)
 
 .PHONY: vuln
 vuln: ## Busca vulnerabilidades conocidas en el código y sus dependencias
-	$(TOOL) govulncheck ./...
+	$(GOVULNCHECK) ./...
 
 .PHONY: check
 check: ## Todo lo que debe pasar antes de commitear
 	@echo "==> gofmt"
 	@test -z "$$(gofmt -l .)" || { echo "Archivos sin formatear (corré make fmt):"; gofmt -l .; exit 1; }
 	@echo "==> sqlc (código generado al día)"
-	@$(TOOL) sqlc diff || { echo "internal/store no coincide con las consultas: corré make sqlc"; exit 1; }
+	@$(SQLC) diff || { echo "internal/store no coincide con las consultas: corré make sqlc"; exit 1; }
 	@echo "==> go vet"
 	@go vet ./...
 	@echo "==> go test"
 	@go test -p 1 ./...
 	@echo "==> govulncheck"
-	@$(TOOL) govulncheck ./...
+	@$(GOVULNCHECK) ./...
 
 ## --- Migraciones (en desarrollo; la API también migra al arrancar)
 
@@ -96,4 +104,4 @@ migrate-status: ## Muestra qué migraciones están aplicadas
 .PHONY: migrate-new
 migrate-new: ## Crea una migración: make migrate-new name=create_products
 	@test -n "$(name)" || { echo "Falta el nombre: make migrate-new name=create_products"; exit 1; }
-	$(TOOL) goose -dir migrations -s create $(name) sql
+	$(GOOSE_CLI) -dir migrations -s create $(name) sql

@@ -40,9 +40,6 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            tools/go.sum
 
       - name: make check
         run: make check

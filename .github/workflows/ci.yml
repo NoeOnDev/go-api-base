@@ -33,6 +33,8 @@ jobs:
       # Base descartable del contenedor de CI; las credenciales no son secretas.
       # Solo hace falta TEST_DATABASE_URL: los tests no usan DATABASE_URL.
       TEST_DATABASE_URL: postgres://go_api_base:go_api_base@localhost:5432/go_api_base_test?sslmode=disable
+      # Clave de prueba (no es secreta): solo cifra datos de la base descartable de CI.
+      ENCRYPTION_KEY: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
 
     steps:
       - uses: actions/checkout@v7

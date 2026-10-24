@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 )
 
 // Entornos soportados.
@@ -46,6 +48,12 @@ type Config struct {
 
 	// Mail configura el envío de correos.
 	Mail Mail
+
+	// AppName es el nombre de la aplicación, por ejemplo el que muestra la app de autenticación del 2FA.
+	AppName string
+	// EncryptionKey (32 bytes) cifra los datos sensibles guardados en la base, como el secreto del 2FA.
+	// Si se pierde, esos datos no se pueden recuperar.
+	EncryptionKey []byte
 }
 
 // Drivers de correo soportados.
@@ -130,6 +138,14 @@ func load(getenv func(string) string) (Config, error) {
 
 	cfg.Mail, err = loadMail(getenv)
 	errs = append(errs, err)
+
+	cfg.AppName = valueOr(getenv("APP_NAME"), "Mi App")
+
+	if v := strings.TrimSpace(getenv("ENCRYPTION_KEY")); v == "" {
+		errs = append(errs, errors.New("ENCRYPTION_KEY es obligatoria (generala con: openssl rand -base64 32)"))
+	} else if cfg.EncryptionKey, err = secretbox.ParseKey(v); err != nil {
+		errs = append(errs, fmt.Errorf("ENCRYPTION_KEY: %w", err))
+	}
 
 	return cfg, errors.Join(errs...)
 }

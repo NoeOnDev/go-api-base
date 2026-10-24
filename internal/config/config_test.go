@@ -7,8 +7,21 @@ import (
 	"time"
 )
 
+// testKey es una ENCRYPTION_KEY válida (32 bytes en base64) para los tests.
+const testKey = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
+
+// envFrom simula el entorno. Si el mapa no trae ENCRYPTION_KEY, usa testKey,
+// para no repetirla en cada test; para probar su ausencia, pasala vacía.
 func envFrom(m map[string]string) func(string) string {
-	return func(key string) string { return m[key] }
+	return func(key string) string {
+		if v, ok := m[key]; ok {
+			return v
+		}
+		if key == "ENCRYPTION_KEY" {
+			return testKey
+		}
+		return ""
+	}
 }
 
 func TestLoadDefaults(t *testing.T) {
@@ -45,6 +58,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Mail.Driver != MailDriverLog || cfg.Mail.SMTPPort != 587 || cfg.Mail.From != "no-reply@localhost" {
 		t.Errorf("Mail = %+v", cfg.Mail)
+	}
+	if cfg.AppName != "Mi App" || len(cfg.EncryptionKey) != 32 {
+		t.Errorf("AppName = %q, EncryptionKey = %d bytes", cfg.AppName, len(cfg.EncryptionKey))
 	}
 }
 

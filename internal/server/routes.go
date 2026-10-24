@@ -34,7 +34,9 @@ func NewHandler(d Deps) http.Handler {
 		SessionTTL:   d.Config.SessionTTL,
 		CookieSecure: d.Config.CookieSecure,
 	})
-	auth.Register(mux, authService)
+	// 5 intentos seguidos por IP y luego uno cada 12 segundos (5 por minuto).
+	attempts := httpx.NewRateLimiter(12*time.Second, 5, d.Config.TrustProxy)
+	auth.Register(mux, authService, attempts.Middleware)
 
 	// Recursos de la API. Cada recurso nuevo se registra acá.
 	notes.Register(mux, notes.NewHandler(queries))
@@ -44,13 +46,34 @@ func NewHandler(d Deps) http.Handler {
 		return httpx.NotFound("la ruta no existe")
 	}))
 
-	// Orden: RequestID primero para que el resto ya tenga el logger con request_id;
-	// Recover dentro de Logger para que la respuesta 500 de un panic también quede registrada.
-	return httpx.Chain(mux,
+	// Orden:
+	//   - RequestID primero, para que el resto ya tenga el logger con request_id.
+	//   - Recover dentro de Logger, para que la respuesta 500 de un panic también quede registrada.
+	//   - CORS antes de la protección CSRF, para responder los preflight de los orígenes permitidos.
+	return httpx.Chain(csrfProtection(mux, d.Config.CORSAllowedOrigins),
 		httpx.RequestID(d.Logger),
 		httpx.Logger,
 		httpx.Recover,
+		httpx.CORS(d.Config.CORSAllowedOrigins),
 	)
+}
+
+// csrfProtection rechaza las peticiones que modifican datos (POST, PUT, DELETE…) enviadas
+// por el navegador desde otro sitio. Usa los encabezados Sec-Fetch-Site y Origin, que el
+// navegador completa y una página maliciosa no puede falsificar. Complementa a la cookie
+// SameSite=Lax. Los orígenes de CORS se consideran confiables.
+func csrfProtection(next http.Handler, trustedOrigins []string) http.Handler {
+	cop := http.NewCrossOriginProtection()
+	for _, origin := range trustedOrigins {
+		// config ya validó el formato de cada origen.
+		_ = cop.AddTrustedOrigin(origin)
+	}
+	cop.SetDenyHandler(httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		httpx.LoggerFrom(r.Context()).Warn("petición de otro origen rechazada",
+			"origin", r.Header.Get("Origin"), "sec_fetch_site", r.Header.Get("Sec-Fetch-Site"))
+		return httpx.Forbidden("petición de otro origen rechazada")
+	}))
+	return cop.Handler(next)
 }
 
 // health indica si el servidor está vivo y puede hablar con la base de datos.

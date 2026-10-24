@@ -20,8 +20,8 @@ import (
 // Si TEST_DATABASE_URL no está definida, el test se saltea en lugar de fallar:
 // así los tests unitarios siguen corriendo en una máquina sin base de datos.
 //
-// Cada paquete debe vaciar solo sus propias tablas, porque go test corre
-// los paquetes en paralelo contra la misma base.
+// Los paquetes comparten la base de pruebas, así que deben correr de a uno:
+// go test -p 1 ./... (es lo que hace make test).
 func NewDB(t *testing.T, tables ...string) *pgxpool.Pool {
 	t.Helper()
 

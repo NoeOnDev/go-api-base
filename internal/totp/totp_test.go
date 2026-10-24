@@ -90,6 +90,9 @@ func TestURI(t *testing.T) {
 	if u.Scheme != "otpauth" || u.Host != "totp" || !strings.HasPrefix(u.Path, "/Mi App:ana@ejemplo.com") {
 		t.Errorf("URI inesperada: %s", uri)
 	}
+	if strings.Contains(uri, "+") {
+		t.Errorf("los espacios deberían ir como %%20: %s", uri)
+	}
 	q := u.Query()
 	if q.Get("secret") != "JBSWY3DPEHPK3PXP" || q.Get("issuer") != "Mi App" || q.Get("digits") != "6" || q.Get("period") != "30" {
 		t.Errorf("parámetros inesperados: %v", q)

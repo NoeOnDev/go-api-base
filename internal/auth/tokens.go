@@ -17,12 +17,14 @@ import (
 const (
 	purposePasswordReset     = "password_reset"
 	purposeEmailVerification = "email_verification"
+	purposeTwoFactorLogin    = "two_factor_login"
 )
 
 // Vigencia de cada tipo de token.
 const (
 	passwordResetTTL     = time.Hour
 	emailVerificationTTL = 24 * time.Hour
+	twoFactorLoginTTL    = 5 * time.Minute
 )
 
 // errInvalidToken responde a un enlace inventado, vencido o ya usado. No distingue entre

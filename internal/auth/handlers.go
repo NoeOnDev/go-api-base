@@ -33,7 +33,9 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// login responde POST /auth/login.
+// login responde POST /auth/login. Si el usuario tiene el 2FA activo, todavía no crea la sesión:
+// responde 202 {"two_factor_required": true} con la cookie del desafío, y el login se completa
+// con POST /auth/two-factor/challenge.
 func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 	var in loginInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -46,6 +48,10 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 	u, err := s.Authenticate(r.Context(), in.Email, in.Password)
 	if err != nil {
 		return err
+	}
+
+	if u.TwoFactorEnabled {
+		return s.startTwoFactorChallenge(w, r, u.ID)
 	}
 
 	if err := s.StartSession(r.Context(), w, u.ID); err != nil {

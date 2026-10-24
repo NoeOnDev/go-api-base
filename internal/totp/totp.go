@@ -76,14 +76,11 @@ func Validate(secret, code string, t time.Time) (step int64, ok bool, err error)
 // URI arma la dirección otpauth:// que se convierte en código QR para que la app la escanee.
 // issuer es el nombre de la aplicación y account, normalmente, el email del usuario.
 func URI(issuer, account, secret string) string {
-	v := url.Values{}
-	v.Set("secret", secret)
-	v.Set("issuer", issuer)
-	v.Set("algorithm", "SHA1")
-	v.Set("digits", fmt.Sprint(Digits))
-	v.Set("period", fmt.Sprint(Period))
+	// Los espacios se codifican como %20 y no como "+": algunas apps muestran el "+" literal.
 	label := url.PathEscape(issuer) + ":" + url.PathEscape(account)
-	return "otpauth://totp/" + label + "?" + v.Encode()
+	query := fmt.Sprintf("secret=%s&issuer=%s&algorithm=SHA1&digits=%d&period=%d",
+		url.PathEscape(secret), url.PathEscape(issuer), Digits, Period)
+	return "otpauth://totp/" + label + "?" + query
 }
 
 func stepAt(t time.Time) int64 {

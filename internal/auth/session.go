@@ -18,6 +18,10 @@ import (
 // CookieName es el nombre de la cookie que lleva el token de sesión.
 const CookieName = "session"
 
+// ChallengeCookieName es la cookie del desafío del 2FA: el login con la contraseña correcta
+// la envía, y POST /auth/two-factor/challenge la usa para saber qué usuario está entrando.
+const ChallengeCookieName = "two_factor_challenge"
+
 // errNoSession indica que la petición no trae una sesión válida.
 var errNoSession = errors.New("sin sesión válida")
 
@@ -94,6 +98,21 @@ func (s *Service) userFromRequest(r *http.Request) (User, error) {
 		return User{}, fmt.Errorf("buscar sesión: %w", err)
 	}
 	return toUser(u), nil
+}
+
+// setChallengeCookie envía la cookie del desafío del 2FA, con la misma protección que la de sesión.
+func (s *Service) setChallengeCookie(w http.ResponseWriter, token string, expires time.Time) {
+	c := s.cookie(token, expires)
+	c.Name = ChallengeCookieName
+	http.SetCookie(w, c)
+}
+
+// clearChallengeCookie le pide al navegador que borre la cookie del desafío.
+func (s *Service) clearChallengeCookie(w http.ResponseWriter) {
+	c := s.cookie("", time.Unix(0, 0))
+	c.Name = ChallengeCookieName
+	c.MaxAge = -1
+	http.SetCookie(w, c)
 }
 
 // cookie arma la cookie de sesión:

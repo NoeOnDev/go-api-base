@@ -184,3 +184,22 @@ func Recover(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// SecurityHeaders agrega a todas las respuestas X-Content-Type-Options: nosniff, que le impide
+// al navegador interpretar una respuesta como otro tipo de contenido (por ejemplo, un JSON
+// como HTML o JavaScript).
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// NoStore agrega Cache-Control: no-store, para que ni el navegador ni un proxy guarden la
+// respuesta. Se usa en las rutas que devuelven secretos o datos personales (todo /auth).
+func NoStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}

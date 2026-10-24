@@ -77,10 +77,12 @@ func NewHandler(d Deps) http.Handler {
 
 	// Orden:
 	//   - RequestID primero, para que el resto ya tenga el logger con request_id.
+	//   - SecurityHeaders afuera de todo lo que puede responder, así también lo llevan los errores.
 	//   - Recover dentro de Logger, para que la respuesta 500 de un panic también quede registrada.
 	//   - CORS antes de la protección CSRF, para responder los preflight de los orígenes permitidos.
 	return httpx.Chain(csrfProtection(mux, d.Config.CORSAllowedOrigins),
 		httpx.RequestID(d.Logger),
+		httpx.SecurityHeaders,
 		httpx.Logger,
 		httpx.Recover,
 		httpx.CORS(d.Config.CORSAllowedOrigins),

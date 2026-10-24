@@ -133,4 +133,30 @@ func TestLoginRateLimit(t *testing.T) {
 	if last.Header().Get("Retry-After") == "" {
 		t.Error("falta Retry-After")
 	}
+	// El 429 del límite por IP también lleva los encabezados de /auth.
+	if last.Header().Get("Cache-Control") != "no-store" || last.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("encabezados del 429: %v", last.Header())
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	api := newAPI(t)
+
+	for _, tt := range []struct {
+		path    string
+		noStore bool
+	}{
+		{"/auth/me", true}, // 401 sin sesión: igual no se guarda
+		{"/products", false},
+		{"/no-existe", false},
+	} {
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tt.path, nil))
+		if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("%s: X-Content-Type-Options = %q", tt.path, got)
+		}
+		if got := w.Header().Get("Cache-Control") == "no-store"; got != tt.noStore {
+			t.Errorf("%s: Cache-Control = %q", tt.path, w.Header().Get("Cache-Control"))
+		}
+	}
 }

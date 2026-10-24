@@ -104,9 +104,15 @@ func Logger(next http.Handler) http.Handler {
 			"path", r.URL.Path,
 			"status", rec.status,
 			"bytes", rec.bytes,
-			"duration", time.Since(start),
+			"duration_ms", Milliseconds(time.Since(start)),
 		)
 	})
+}
+
+// Milliseconds convierte una duración a milisegundos con tres decimales.
+// slog registraría un time.Duration en nanosegundos en JSON, que es difícil de leer.
+func Milliseconds(d time.Duration) float64 {
+	return float64(d.Microseconds()) / 1000
 }
 
 // statusRecorder guarda el status y los bytes escritos para poder registrarlos.

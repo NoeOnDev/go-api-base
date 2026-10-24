@@ -68,7 +68,7 @@ func run() error {
 	}
 
 	// Apagado limpio: deja de aceptar conexiones y espera a que terminen las peticiones en curso.
-	logger.Info("apagando servidor", "timeout", cfg.ShutdownTimeout)
+	logger.Info("apagando servidor", "timeout", cfg.ShutdownTimeout.String())
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 

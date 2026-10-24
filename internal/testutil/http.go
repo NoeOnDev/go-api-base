@@ -45,7 +45,7 @@ func NewAPI(pool *pgxpool.Pool, opts ...Option) http.Handler {
 	d := server.Deps{
 		Logger: slog.New(slog.DiscardHandler),
 		DB:     pool,
-		Config: config.Config{FrontendURL: "https://app.test"},
+		Config: config.Config{FrontendURL: "https://app.test", AppName: "App de Prueba", EncryptionKey: EncryptionKey},
 		Mailer: &mail.Recorder{},
 	}
 	for _, opt := range opts {

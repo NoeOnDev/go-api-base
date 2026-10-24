@@ -28,33 +28,6 @@ func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCo
 	return result.RowsAffected(), nil
 }
 
-const countRecoveryCodes = `-- name: CountRecoveryCodes :one
-SELECT count(*) FROM user_recovery_codes
-WHERE user_id = $1
-`
-
-func (q *Queries) CountRecoveryCodes(ctx context.Context, userID int64) (int64, error) {
-	row := q.db.QueryRow(ctx, countRecoveryCodes, userID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const createRecoveryCode = `-- name: CreateRecoveryCode :exec
-INSERT INTO user_recovery_codes (code_hash, user_id)
-VALUES ($1, $2)
-`
-
-type CreateRecoveryCodeParams struct {
-	CodeHash []byte
-	UserID   int64
-}
-
-func (q *Queries) CreateRecoveryCode(ctx context.Context, arg CreateRecoveryCodeParams) error {
-	_, err := q.db.Exec(ctx, createRecoveryCode, arg.CodeHash, arg.UserID)
-	return err
-}
-
 const deleteRecoveryCodes = `-- name: DeleteRecoveryCodes :exec
 DELETE FROM user_recovery_codes
 WHERE user_id = $1
@@ -62,5 +35,25 @@ WHERE user_id = $1
 
 func (q *Queries) DeleteRecoveryCodes(ctx context.Context, userID int64) error {
 	_, err := q.db.Exec(ctx, deleteRecoveryCodes, userID)
+	return err
+}
+
+const replaceRecoveryCodes = `-- name: ReplaceRecoveryCodes :exec
+WITH deleted AS (
+    DELETE FROM user_recovery_codes WHERE user_id = $2
+)
+INSERT INTO user_recovery_codes (code_hash, user_id)
+SELECT unnest($1::bytea[]), $2
+`
+
+type ReplaceRecoveryCodesParams struct {
+	CodeHashes [][]byte
+	UserID     int64
+}
+
+// ReplaceRecoveryCodes borra los códigos del usuario e inserta los nuevos en una sola
+// sentencia, así que es atómico: nunca quedan los viejos y los nuevos a la vez.
+func (q *Queries) ReplaceRecoveryCodes(ctx context.Context, arg ReplaceRecoveryCodesParams) error {
+	_, err := q.db.Exec(ctx, replaceRecoveryCodes, arg.CodeHashes, arg.UserID)
 	return err
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/notes"
 	"github.com/NoeOnDev/go-api-base/internal/products"
+	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -36,12 +38,25 @@ func NewHandler(d Deps) http.Handler {
 
 	queries := store.New(d.DB)
 
+	// Sin ENCRYPTION_KEY (por ejemplo, en algunos tests) el 2FA queda no disponible.
+	// En la aplicación real config.Load exige la clave, así que siempre está.
+	var box *secretbox.Box
+	if len(d.Config.EncryptionKey) > 0 {
+		b, err := secretbox.New(d.Config.EncryptionKey)
+		if err != nil {
+			panic(fmt.Sprintf("ENCRYPTION_KEY inválida: %v", err)) // config.Load ya la validó
+		}
+		box = b
+	}
+
 	authService := auth.NewService(queries, auth.Options{
 		SessionTTL:           d.Config.SessionTTL,
 		CookieSecure:         d.Config.CookieSecure,
 		Mailer:               d.Mailer,
 		FrontendURL:          d.Config.FrontendURL,
 		RequireVerifiedEmail: d.Config.RequireEmailVerification,
+		Box:                  box,
+		Issuer:               d.Config.AppName,
 	})
 	// Intentos: 5 seguidos por IP y luego uno cada 12 segundos (5 por minuto).
 	// Correos: 3 seguidos por IP y luego uno cada 5 minutos.

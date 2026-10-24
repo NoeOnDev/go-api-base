@@ -34,6 +34,12 @@ func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	mux.Handle("POST /auth/password/forgot", limits.Emails(httpx.Handle(s.forgotPassword)))
 	mux.Handle("POST /auth/password/reset", limits.Attempts(httpx.Handle(s.resetPassword)))
 
+	// 2FA con app de autenticación (voluntario para cada usuario).
+	mux.Handle("POST /auth/two-factor/setup", s.RequireUser(httpx.Handle(s.setupTwoFactor)))
+	mux.Handle("POST /auth/two-factor/enable", limits.Attempts(s.RequireUser(httpx.Handle(s.enableTwoFactor))))
+	mux.Handle("POST /auth/two-factor/disable", limits.Attempts(s.RequireUser(httpx.Handle(s.disableTwoFactor))))
+	mux.Handle("POST /auth/two-factor/recovery-codes", limits.Attempts(s.RequireUser(httpx.Handle(s.regenerateRecoveryCodes))))
+
 	// Verificar el email (obligatorio solo con REQUIRE_EMAIL_VERIFICATION=true).
 	mux.Handle("POST /auth/email/verify", limits.Attempts(httpx.Handle(s.verifyEmail)))
 	mux.Handle("POST /auth/email/resend", limits.Emails(s.requireSession(httpx.Handle(s.resendVerification))))

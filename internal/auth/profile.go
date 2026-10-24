@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -61,36 +62,55 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	user := MustUser(r.Context())
-	stored, err := s.q.GetUserByID(r.Context(), user.ID)
-	if err != nil {
-		return fmt.Errorf("buscar usuario %d: %w", user.ID, err)
-	}
-
-	ok, err := VerifyPassword(in.CurrentPassword, stored.PasswordHash)
-	if err != nil {
-		return fmt.Errorf("verificar contraseña del usuario %d: %w", user.ID, err)
-	}
-	if !ok {
-		return httpx.Validation(map[string]string{"current_password": "es incorrecta"})
+	if err := s.checkPassword(r.Context(), user.ID, in.CurrentPassword, "current_password"); err != nil {
+		return err
 	}
 
 	if err := s.setPassword(r, user.ID, in.Password); err != nil {
 		return err
 	}
 
-	// Se cierran las demás sesiones; la de esta petición sigue activa.
+	if err := s.endOtherSessions(r, user.ID); err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusNoContent, nil)
+	return nil
+}
+
+// checkPassword confirma la contraseña actual del usuario antes de una acción sensible.
+// Si no coincide, devuelve un error de validación en el campo indicado.
+func (s *Service) checkPassword(ctx context.Context, userID int64, password, field string) error {
+	if password == "" {
+		return httpx.Validation(map[string]string{field: "es obligatoria"})
+	}
+	stored, err := s.q.GetUserByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("buscar usuario %d: %w", userID, err)
+	}
+	ok, err := VerifyPassword(password, stored.PasswordHash)
+	if err != nil {
+		return fmt.Errorf("verificar contraseña del usuario %d: %w", userID, err)
+	}
+	if !ok {
+		return httpx.Validation(map[string]string{field: "es incorrecta"})
+	}
+	return nil
+}
+
+// endOtherSessions cierra todas las sesiones del usuario salvo la de esta petición.
+// Se usa después de un cambio de seguridad (contraseña, 2FA).
+func (s *Service) endOtherSessions(r *http.Request, userID int64) error {
 	c, err := r.Cookie(CookieName)
 	if err != nil {
 		return fmt.Errorf("leer la cookie de sesión: %w", err)
 	}
 	if err := s.q.DeleteOtherSessions(r.Context(), store.DeleteOtherSessionsParams{
-		UserID:    user.ID,
+		UserID:    userID,
 		TokenHash: hashToken(c.Value),
 	}); err != nil {
 		return fmt.Errorf("cerrar otras sesiones: %w", err)
 	}
-
-	httpx.Write(w, http.StatusNoContent, nil)
 	return nil
 }
 

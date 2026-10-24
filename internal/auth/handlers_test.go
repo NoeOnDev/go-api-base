@@ -32,7 +32,7 @@ func newAPI(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	api := server.NewHandler(server.Deps{
 		Logger: slog.New(slog.DiscardHandler),
 		DB:     pool,
-		Config: config.Config{SessionTTL: time.Hour},
+		Config: config.Config{SessionTTL: time.Hour, EncryptionKey: testutil.EncryptionKey},
 	})
 	return api, pool
 }

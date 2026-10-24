@@ -16,6 +16,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
+	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -36,8 +37,9 @@ type User struct {
 	Email string `json:"email"`
 	Role  string `json:"role"`
 	// EmailVerifiedAt es null mientras el usuario no confirme su email.
-	EmailVerifiedAt *time.Time `json:"email_verified_at"`
-	CreatedAt       time.Time  `json:"created_at"`
+	EmailVerifiedAt  *time.Time `json:"email_verified_at"`
+	TwoFactorEnabled bool       `json:"two_factor_enabled"`
+	CreatedAt        time.Time  `json:"created_at"`
 }
 
 // EmailVerified indica si el usuario confirmó su email.
@@ -48,12 +50,13 @@ func (u User) IsAdmin() bool { return u.Role == RoleAdmin }
 
 func toUser(u store.User) User {
 	return User{
-		ID:              u.ID,
-		Name:            u.Name,
-		Email:           u.Email,
-		Role:            u.Role,
-		EmailVerifiedAt: u.EmailVerifiedAt,
-		CreatedAt:       u.CreatedAt,
+		ID:               u.ID,
+		Name:             u.Name,
+		Email:            u.Email,
+		Role:             u.Role,
+		EmailVerifiedAt:  u.EmailVerifiedAt,
+		TwoFactorEnabled: u.TOTPEnabledAt != nil,
+		CreatedAt:        u.CreatedAt,
 	}
 }
 
@@ -70,6 +73,10 @@ type Options struct {
 	FrontendURL string
 	// RequireVerifiedEmail exige el email verificado en RequireUser y RequireAdmin.
 	RequireVerifiedEmail bool
+	// Box cifra el secreto del 2FA y protege los códigos de recuperación. Sin él, el 2FA no está disponible.
+	Box *secretbox.Box
+	// Issuer es el nombre de la aplicación que muestra la app de autenticación.
+	Issuer string
 }
 
 // Service agrupa la lógica de autenticación y sus dependencias.
@@ -88,6 +95,9 @@ func NewService(q *store.Queries, opts Options) *Service {
 	}
 	if opts.FrontendURL == "" {
 		opts.FrontendURL = "http://localhost:5173"
+	}
+	if opts.Issuer == "" {
+		opts.Issuer = "Mi App"
 	}
 	return &Service{q: q, opts: opts}
 }

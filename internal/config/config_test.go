@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -30,15 +31,27 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ShutdownTimeout != 10*time.Second {
 		t.Errorf("ShutdownTimeout = %v, se esperaba %v", cfg.ShutdownTimeout, 10*time.Second)
 	}
+	if cfg.SessionTTL != 168*time.Hour {
+		t.Errorf("SessionTTL = %v", cfg.SessionTTL)
+	}
+	if cfg.CookieSecure {
+		t.Error("CookieSecure debería ser false en desarrollo")
+	}
+	if cfg.TrustProxy || len(cfg.CORSAllowedOrigins) != 0 {
+		t.Errorf("TrustProxy = %v, CORSAllowedOrigins = %v", cfg.TrustProxy, cfg.CORSAllowedOrigins)
+	}
 }
 
 func TestLoadCustomValues(t *testing.T) {
 	cfg, err := load(envFrom(map[string]string{
-		"APP_ENV":          "production",
-		"HTTP_ADDR":        "127.0.0.1:9000",
-		"DATABASE_URL":     "postgres://localhost/db",
-		"LOG_LEVEL":        "debug",
-		"SHUTDOWN_TIMEOUT": "30s",
+		"APP_ENV":              "production",
+		"HTTP_ADDR":            "127.0.0.1:9000",
+		"DATABASE_URL":         "postgres://localhost/db",
+		"LOG_LEVEL":            "debug",
+		"SHUTDOWN_TIMEOUT":     "30s",
+		"SESSION_TTL":          "24h",
+		"TRUST_PROXY":          "true",
+		"CORS_ALLOWED_ORIGINS": " https://app.ejemplo.com/ , http://localhost:5173",
 	}))
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
@@ -55,6 +68,33 @@ func TestLoadCustomValues(t *testing.T) {
 	}
 	if cfg.ShutdownTimeout != 30*time.Second {
 		t.Errorf("ShutdownTimeout = %v", cfg.ShutdownTimeout)
+	}
+	if cfg.SessionTTL != 24*time.Hour {
+		t.Errorf("SessionTTL = %v", cfg.SessionTTL)
+	}
+	if !cfg.CookieSecure {
+		t.Error("CookieSecure debería ser true por defecto en producción")
+	}
+	if !cfg.TrustProxy {
+		t.Error("TrustProxy = false")
+	}
+	want := []string{"https://app.ejemplo.com", "http://localhost:5173"}
+	if fmt.Sprint(cfg.CORSAllowedOrigins) != fmt.Sprint(want) {
+		t.Errorf("CORSAllowedOrigins = %v, se esperaba %v", cfg.CORSAllowedOrigins, want)
+	}
+}
+
+func TestCookieSecureOverride(t *testing.T) {
+	cfg, err := load(envFrom(map[string]string{
+		"APP_ENV":       "production",
+		"DATABASE_URL":  "x",
+		"COOKIE_SECURE": "false",
+	}))
+	if err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+	if cfg.CookieSecure {
+		t.Error("COOKIE_SECURE=false debería desactivarla aun en producción")
 	}
 }
 

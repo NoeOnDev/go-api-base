@@ -42,6 +42,35 @@ func NotFound(message string) *Error {
 	return &Error{Status: http.StatusNotFound, Code: "not_found", Message: message}
 }
 
+// Unauthorized indica que la petición necesita una sesión válida.
+func Unauthorized(message string) *Error {
+	return &Error{Status: http.StatusUnauthorized, Code: "unauthorized", Message: message}
+}
+
+// Forbidden indica que hay sesión, pero el usuario no tiene permiso para esta acción.
+func Forbidden(message string) *Error {
+	return &Error{Status: http.StatusForbidden, Code: "forbidden", Message: message}
+}
+
+// Conflict indica que la operación choca con el estado actual (por ejemplo, un valor único repetido).
+// field es opcional: si se indica, el mensaje también va en fields para que el frontend lo muestre en el campo.
+func Conflict(message, field string) *Error {
+	e := &Error{Status: http.StatusConflict, Code: "conflict", Message: message}
+	if field != "" {
+		e.Fields = map[string]string{field: message}
+	}
+	return e
+}
+
+// TooManyRequests indica que el cliente superó el límite de peticiones.
+func TooManyRequests() *Error {
+	return &Error{
+		Status:  http.StatusTooManyRequests,
+		Code:    "too_many_requests",
+		Message: "demasiados intentos, esperá un momento y volvé a probar",
+	}
+}
+
 // Validation indica que los datos son correctos como JSON pero no cumplen las reglas.
 // fields asocia cada campo con su mensaje de error.
 func Validation(fields map[string]string) *Error {

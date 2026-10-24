@@ -166,3 +166,28 @@ func TestRateLimiterGroupsIPv6Block(t *testing.T) {
 		t.Errorf("otro /64: status = %d, se esperaba 200", code)
 	}
 }
+
+func TestRateLimiterRemembersUntilRefilled(t *testing.T) {
+	// 3 intentos que se recargan de a uno cada 20 minutos: tarda 1 hora en llenarse.
+	rl := NewRateLimiter(20*time.Minute, 3, false)
+	for range 3 {
+		rl.Allow("ana")
+	}
+	if rl.Allow("ana") {
+		t.Fatal("el cuarto intento debería rechazarse")
+	}
+
+	// Pasaron 15 minutos sin intentos (más que visitorTTL) y toca la limpieza:
+	// la clave no se olvida, porque todavía no se recargó.
+	rl.mu.Lock()
+	rl.visitors["ana"].lastSeen = time.Now().Add(-15 * time.Minute)
+	rl.lastCleanup = time.Now().Add(-2 * time.Minute)
+	rl.mu.Unlock()
+	if rl.Allow("ana") {
+		t.Error("la clave se olvidó antes de recargarse y recuperó todos sus intentos")
+	}
+
+	if rl := NewRateLimiter(12*time.Second, 5, false); rl.ttl != visitorTTL {
+		t.Errorf("con recarga rápida debería usar visitorTTL: %v", rl.ttl)
+	}
+}

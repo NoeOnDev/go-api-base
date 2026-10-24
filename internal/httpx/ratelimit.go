@@ -20,6 +20,7 @@ type RateLimiter struct {
 	every      time.Duration
 	burst      int
 	trustProxy bool
+	ttl        time.Duration // cuánto se recuerda una clave inactiva
 
 	mu          sync.Mutex
 	visitors    map[string]*visitor
@@ -31,7 +32,9 @@ type visitor struct {
 	lastSeen time.Time
 }
 
-// visitorTTL es cuánto se recuerda una IP inactiva antes de olvidarla.
+// visitorTTL es cuánto se recuerda, como mínimo, una clave inactiva antes de olvidarla.
+// Si el limitador tarda más en recargarse (every × burst), se la recuerda hasta entonces:
+// olvidarla antes le devolvería todos los intentos de golpe.
 const visitorTTL = 10 * time.Minute
 
 // NewRateLimiter crea un limitador que permite burst peticiones seguidas por IP
@@ -42,22 +45,24 @@ func NewRateLimiter(every time.Duration, burst int, trustProxy bool) *RateLimite
 		every:       every,
 		burst:       burst,
 		trustProxy:  trustProxy,
+		ttl:         max(visitorTTL, every*time.Duration(burst)),
 		visitors:    map[string]*visitor{},
 		lastCleanup: time.Now(),
 	}
 }
 
-// Allow indica si la clave (una IP, o un bloque /64 para IPv6) puede hacer otra petición ahora.
+// Allow indica si la clave puede hacer otra petición ahora. En el middleware la clave es la IP
+// (o su bloque /64 en IPv6); también sirve para otras claves, como un usuario o un destinatario.
 func (rl *RateLimiter) Allow(ip string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
 	now := time.Now()
 
-	// Limpieza de IPs inactivas, como mucho una vez por minuto, para que el mapa no crezca sin límite.
+	// Limpieza de claves inactivas, como mucho una vez por minuto, para que el mapa no crezca sin límite.
 	if now.Sub(rl.lastCleanup) > time.Minute {
 		for k, v := range rl.visitors {
-			if now.Sub(v.lastSeen) > visitorTTL {
+			if now.Sub(v.lastSeen) > rl.ttl {
 				delete(rl.visitors, k)
 			}
 		}

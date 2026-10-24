@@ -23,6 +23,9 @@ var forgotMessage = map[string]string{
 // forgotPassword responde POST /auth/password/forgot. Si el email existe, envía un enlace de un
 // solo uso para elegir una contraseña nueva. Responde siempre lo mismo (202), exista o no,
 // para no revelar qué emails están registrados; el correo se envía en segundo plano.
+//
+// Si ya se le enviaron varios enlaces al usuario (ver allowEmail), no envía otro ni invalida
+// el anterior, pero responde lo mismo: así nadie puede llenarle la bandeja ni anularle el enlace.
 func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 	var in forgotPasswordInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -40,6 +43,11 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 	}
 	if err != nil {
 		return fmt.Errorf("buscar usuario: %w", err)
+	}
+	if !s.allowEmail(purposePasswordReset, u.ID) {
+		httpx.LoggerFrom(r.Context()).Warn("recuperación no enviada: límite de correos del usuario", "user_id", u.ID)
+		httpx.Write(w, http.StatusAccepted, forgotMessage)
+		return nil
 	}
 
 	token, err := s.issueToken(r.Context(), u.ID, purposePasswordReset, passwordResetTTL)

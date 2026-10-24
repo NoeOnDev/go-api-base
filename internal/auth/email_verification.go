@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
@@ -46,12 +47,21 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) error {
 }
 
 // resendVerification responde POST /auth/email/resend: envía otro enlace al usuario de la sesión.
-// Si el email ya está verificado no envía nada y responde 204.
+// Si el email ya está verificado no envía nada y responde 204. Después de varios envíos
+// (ver allowEmail) responde 429: el que pide es el propio usuario, así que no hay nada que ocultar.
 func (s *Service) resendVerification(w http.ResponseWriter, r *http.Request) error {
 	u := MustUser(r.Context())
 	if u.EmailVerified() {
 		httpx.Write(w, http.StatusNoContent, nil)
 		return nil
+	}
+	if !s.allowEmail(purposeEmailVerification, u.ID) {
+		w.Header().Set("Retry-After", strconv.Itoa(int(emailLimitEvery.Seconds())))
+		return &httpx.Error{
+			Status:  http.StatusTooManyRequests,
+			Code:    "too_many_requests",
+			Message: "ya te enviamos varios enlaces; revisá tu correo o esperá unos minutos",
+		}
 	}
 
 	if err := s.sendVerificationEmail(r.Context(), u); err != nil {

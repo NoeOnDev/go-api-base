@@ -49,6 +49,21 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const deleteUser = `-- name: DeleteUser :execrows
+DELETE FROM users
+WHERE id = $1
+`
+
+// DeleteUser borra el usuario. Sus sesiones, tokens, notas, notificaciones y códigos de
+// recuperación se borran solos (ON DELETE CASCADE).
+func (q *Queries) DeleteUser(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUser, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const disableTOTP = `-- name: DisableTOTP :exec
 UPDATE users
 SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL, updated_at = now()
@@ -154,6 +169,35 @@ func (q *Queries) ListUsersWithTOTPSecret(ctx context.Context) ([]ListUsersWithT
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockAdmins = `-- name: LockAdmins :many
+SELECT id FROM users
+WHERE role = 'admin'
+ORDER BY id
+FOR UPDATE
+`
+
+// LockAdmins devuelve los admins y bloquea sus filas hasta el final de la transacción: así dos
+// admins que borran su cuenta a la vez no pueden dejar la API sin ninguno.
+func (q *Queries) LockAdmins(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, lockAdmins)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -48,6 +48,7 @@ func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	// Cuenta del usuario.
 	handle("GET /auth/me", s.requireSession(httpx.Handle(s.me)))
 	handle("PUT /auth/me", s.requireSession(httpx.Handle(s.updateProfile)))
+	handle("DELETE /auth/me", s.requireSession(account(httpx.Handle(s.deleteAccount))))
 	handle("PUT /auth/password", s.RequireUser(account(httpx.Handle(s.changePassword))))
 
 	// Sesiones por dispositivo: verlas y cerrar las que no se reconocen.

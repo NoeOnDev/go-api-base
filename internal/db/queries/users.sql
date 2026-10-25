@@ -77,3 +77,17 @@ UPDATE users
 SET email = $2, email_verified_at = now(), updated_at = now()
 WHERE id = $1
 RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at;
+
+-- LockAdmins devuelve los admins y bloquea sus filas hasta el final de la transacción: así dos
+-- admins que borran su cuenta a la vez no pueden dejar la API sin ninguno.
+-- name: LockAdmins :many
+SELECT id FROM users
+WHERE role = 'admin'
+ORDER BY id
+FOR UPDATE;
+
+-- DeleteUser borra el usuario. Sus sesiones, tokens, notas, notificaciones y códigos de
+-- recuperación se borran solos (ON DELETE CASCADE).
+-- name: DeleteUser :execrows
+DELETE FROM users
+WHERE id = $1;

@@ -106,10 +106,15 @@ func (s *Service) EndSession(ctx context.Context, w http.ResponseWriter, r *http
 		}
 	}
 
+	s.clearSessionCookie(w)
+	return nil
+}
+
+// clearSessionCookie le pide al navegador que borre la cookie de sesión.
+func (s *Service) clearSessionCookie(w http.ResponseWriter) {
 	expired := s.cookie("", time.Unix(0, 0))
 	expired.MaxAge = -1
 	http.SetCookie(w, expired)
-	return nil
 }
 
 // SessionKey identifica la sesión de la petición, o devuelve "" si no hay cookie. Es el hash

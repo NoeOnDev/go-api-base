@@ -13,6 +13,7 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
+	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 )
 
@@ -32,6 +33,11 @@ type Option func(*server.Deps)
 // para poder leer los correos enviados en el test.
 func WithMailer(m mail.Sender) Option {
 	return func(d *server.Deps) { d.Mailer = m }
+}
+
+// WithBroker usa el broker indicado, para publicar eventos desde el test.
+func WithBroker(b *realtime.Broker) Option {
+	return func(d *server.Deps) { d.Broker = b }
 }
 
 // WithConfig permite cambiar la configuración, por ejemplo para activar la verificación de email.

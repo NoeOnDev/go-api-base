@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/config"
+	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
@@ -158,5 +160,29 @@ func TestSecurityHeaders(t *testing.T) {
 		if got := w.Header().Get("Cache-Control") == "no-store"; got != tt.noStore {
 			t.Errorf("%s: Cache-Control = %q", tt.path, w.Header().Get("Cache-Control"))
 		}
+	}
+}
+
+func TestEventsEndToEnd(t *testing.T) {
+	pool := testutil.NewDB(t)
+	broker := realtime.NewBroker()
+	srv := testutil.NewServer(t, pool, testutil.WithBroker(broker))
+
+	// Sin sesión no se puede escuchar.
+	resp, err := srv.Client().Get(srv.URL + "/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("sin sesión: status = %d", resp.StatusCode)
+	}
+
+	// Con sesión, a través de todos los middlewares de la API, el evento llega.
+	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", "user")
+	events := testutil.OpenEvents(t, srv, cookie, "")
+	broker.PublishToUser(t.Context(), u.ID, realtime.Event{Type: "notification", Data: "hola"})
+	if ev := events.Next(t, 2*time.Second); ev.Type != "notification" || ev.Data != `"hola"` {
+		t.Errorf("evento: %+v", ev)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/jobs"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
+	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 	"github.com/NoeOnDev/go-api-base/internal/store"
@@ -101,12 +102,17 @@ func run() error {
 	// La app no envía los correos: los encola, y los envía un worker (con reintentos).
 	mailer := jobs.NewMailSender(jobsClient, box)
 
+	broker := realtime.NewBroker()
+
 	srv := server.New(cfg.HTTPAddr, server.NewHandler(server.Deps{
 		Logger: logger,
 		DB:     pool,
 		Config: cfg,
 		Mailer: mailer,
+		Broker: broker,
 	}), logger)
+	// Al apagar se cierran los streams SSE; si no, Shutdown esperaría hasta el timeout.
+	srv.RegisterOnShutdown(broker.Close)
 
 	// El servidor corre en otra goroutine para que esta pueda esperar la señal de apagado.
 	serverErr := make(chan error, 1)

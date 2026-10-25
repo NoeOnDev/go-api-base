@@ -50,7 +50,7 @@ func (s *Service) requireSession(next http.Handler) http.Handler {
 		// Desde acá, cada línea de log de la petición (incluida la final) incluye el usuario.
 		httpx.AddLogAttrs(r.Context(), "user_id", u.ID)
 
-		ctx := context.WithValue(r.Context(), ctxKey{}, u)
+		ctx := WithUser(r.Context(), u)
 		next.ServeHTTP(w, r.WithContext(ctx))
 		return nil
 	})
@@ -71,7 +71,7 @@ func (s *Service) OptionalUser(next http.Handler) http.Handler {
 		}
 
 		httpx.AddLogAttrs(r.Context(), "user_id", u.ID)
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, u)))
+		next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), u)))
 		return nil
 	})
 }
@@ -85,6 +85,12 @@ func (s *Service) RequireAdmin(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		return nil
 	}))
+}
+
+// WithUser devuelve un contexto con el usuario autenticado. Lo usan los middlewares; también
+// sirve para probar un handler protegido sin pasar por el login.
+func WithUser(ctx context.Context, u User) context.Context {
+	return context.WithValue(ctx, ctxKey{}, u)
 }
 
 // UserFrom devuelve el usuario autenticado de la petición, si lo hay.

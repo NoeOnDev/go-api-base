@@ -16,6 +16,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/notes"
 	"github.com/NoeOnDev/go-api-base/internal/products"
+	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
@@ -28,6 +29,9 @@ type Deps struct {
 	// Mailer envía los correos. En main es un jobs.MailSender (los encola en River);
 	// en los tests, un mail.Recorder.
 	Mailer mail.Sender
+	// Broker reparte los eventos en tiempo real (GET /events). Si es nil se crea uno;
+	// main lo pasa para cerrarlo al apagar.
+	Broker *realtime.Broker
 }
 
 // NewHandler registra todas las rutas y les aplica los middlewares comunes.
@@ -37,6 +41,11 @@ func NewHandler(d Deps) http.Handler {
 	mux.Handle("GET /healthz", health(d.DB))
 
 	queries := store.New(d.DB)
+
+	broker := d.Broker
+	if broker == nil {
+		broker = realtime.NewBroker()
+	}
 
 	// Sin ENCRYPTION_KEY (por ejemplo, en algunos tests) el 2FA queda no disponible.
 	// En la aplicación real config.Load exige la clave, así que siempre está.
@@ -64,6 +73,9 @@ func NewHandler(d Deps) http.Handler {
 	attempts := httpx.NewRateLimiter(12*time.Second, 5, d.Config.TrustProxy)
 	emails := httpx.NewRateLimiter(5*time.Minute, 3, d.Config.TrustProxy)
 	auth.Register(mux, authService, auth.Limits{Attempts: attempts.Middleware, Emails: emails.Middleware})
+
+	// Tiempo real: un stream SSE con los eventos del usuario y de los temas que pida.
+	mux.Handle("GET /events", authService.RequireUser(broker.Handler()))
 
 	// Recursos de la API. Cada recurso nuevo se registra acá.
 	notes.Register(mux, notes.NewHandler(queries), authService)

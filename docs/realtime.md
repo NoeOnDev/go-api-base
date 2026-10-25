@@ -73,26 +73,27 @@ function connect(topics = []) {
 
 **Abrí la conexión cuando el usuario ya pueda usar la app.** `GET /events` está detrás de `RequireUser`, así que con `REQUIRE_EMAIL_VERIFICATION=true` responde `403 email_not_verified` mientras el email no esté confirmado. Llamá a `connect()` después del login, solo si `email_verified_at` no es `null` (o si la verificación no es obligatoria).
 
-**Cuando la conexión no se puede abrir**, el `EventSource` deja de reintentar y queda con `readyState === EventSource.CLOSED`. Pasa con la sesión cerrada (`401`), con el email sin verificar (`403`), con demasiadas conexiones abiertas (`429`) o con la API reiniciándose (`503`). El navegador no deja saber cuál fue, así que conviene preguntarle a la API:
+**Cuando la conexión no se puede abrir**, el `EventSource` deja de reintentar y queda con `readyState === EventSource.CLOSED`. Pasa con la sesión cerrada (`401`), con el email sin verificar cuando la verificación es obligatoria (`403`), con demasiadas conexiones abiertas (`429`) o con la API reiniciándose (`503`). El navegador no deja saber cuál fue, así que conviene preguntarle a la API con una ruta que pase por los mismos controles que `/events` (`RequireUser`), como `/notifications`:
 
 ```js
 async function handleClosed(topics) {
   if (events.readyState !== EventSource.CLOSED) return; // un corte de red: se reconecta solo
 
-  const res = await fetch("/api/auth/me", { credentials: "include" });
+  const res = await fetch("/api/notifications?limit=1", { credentials: "include" });
   if (res.status === 401) {
     redirectToLogin(); // la sesión se cerró
     return;
   }
-  const user = await res.json();
-  if (user.email_verified_at === null) {
+  if (res.status === 403 && (await res.json()).error.code === "email_not_verified") {
     showVerifyEmailNotice(); // no reintentar: va a seguir fallando hasta que confirme el email
     return;
   }
-  // Demasiadas conexiones o la API reiniciándose: reintentar más tarde, con sus listeners.
+  // La sesión y el email están bien: eran demasiadas conexiones o la API reiniciándose.
   setTimeout(() => connect(topics), 10_000);
 }
 ```
+
+Así el frontend no necesita saber si la verificación es obligatoria: la respuesta ya lo dice. Si quitaste las notificaciones, sirve cualquier otra ruta con `RequireUser`, como `/notes`.
 
 Un tema sin permiso no llega acá: se informa en `ready` y la conexión sigue abierta.
 

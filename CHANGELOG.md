@@ -9,6 +9,14 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.4.4] - 2026-10-24
+
+Solo documentación.
+
+### Corregido
+
+- **El ejemplo de `handleClosed` en `docs/realtime.md`** mostraba el aviso de verificar el email (y no reintentaba) a cualquier usuario sin verificar, aunque la verificación no fuera obligatoria y el corte fuera por un `429` o un `503`. Ahora pregunta a `/notifications`, que pasa por los mismos controles que `/events`: el `403 email_not_verified` solo aparece cuando la verificación es obligatoria.
+
 ## [v0.4.3] - 2026-10-24
 
 Solo documentación.

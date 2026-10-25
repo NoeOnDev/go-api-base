@@ -73,6 +73,7 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) error {
 	if err := s.endOtherSessions(r, user.ID); err != nil {
 		return err
 	}
+	s.notify(r.Context(), user.ID, NotifyPasswordChanged, "Se cambió la contraseña de tu cuenta. Si no fuiste vos, recuperala cuanto antes.")
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil

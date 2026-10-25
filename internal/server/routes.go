@@ -15,6 +15,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/notes"
+	"github.com/NoeOnDev/go-api-base/internal/notifications"
 	"github.com/NoeOnDev/go-api-base/internal/products"
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
@@ -58,6 +59,9 @@ func NewHandler(d Deps) http.Handler {
 		box = b
 	}
 
+	// Notificaciones dentro del sistema: se guardan y se envían en vivo por GET /events.
+	notificationsService := notifications.NewService(queries, broker)
+
 	authService := auth.NewService(queries, auth.Options{
 		SessionTTL:           d.Config.SessionTTL,
 		CookieSecure:         d.Config.CookieSecure,
@@ -67,6 +71,7 @@ func NewHandler(d Deps) http.Handler {
 		Box:                  box,
 		Issuer:               d.Config.AppName,
 		TrustProxy:           d.Config.TrustProxy,
+		Notifier:             notificationsService,
 	})
 	// Intentos: 5 seguidos por IP y luego uno cada 12 segundos (5 por minuto).
 	// Correos: 3 seguidos por IP y luego uno cada 5 minutos.
@@ -76,6 +81,8 @@ func NewHandler(d Deps) http.Handler {
 
 	// Tiempo real: un stream SSE con los eventos del usuario y de los temas que pida.
 	mux.Handle("GET /events", authService.RequireUser(broker.Handler()))
+
+	notifications.Register(mux, notificationsService, authService)
 
 	// Recursos de la API. Cada recurso nuevo se registra acá.
 	notes.Register(mux, notes.NewHandler(queries), authService)

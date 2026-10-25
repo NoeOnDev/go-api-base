@@ -30,3 +30,6 @@ sql:
             go_type:
               type: "time.Time"
               pointer: true
+          # jsonb se genera como json.RawMessage: se guarda y se devuelve tal cual, sin decodificar.
+          - db_type: "jsonb"
+            go_type: "encoding/json.RawMessage"

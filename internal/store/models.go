@@ -6,6 +6,7 @@ package store
 
 import (
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -77,6 +78,15 @@ type Note struct {
 	UpdatedAt time.Time
 }
 
+type Notification struct {
+	ID        int64
+	UserID    int64
+	Kind      string
+	Data      json.RawMessage
+	ReadAt    *time.Time
+	CreatedAt time.Time
+}
+
 type Product struct {
 	ID          int64
 	CategoryID  int64
@@ -100,11 +110,11 @@ type RiverJob struct {
 	FinalizedAt  *time.Time
 	ScheduledAt  time.Time
 	Priority     int16
-	Args         []byte
+	Args         json.RawMessage
 	AttemptedBy  []string
-	Errors       [][]byte
+	Errors       []json.RawMessage
 	Kind         string
-	Metadata     []byte
+	Metadata     json.RawMessage
 	Queue        string
 	Tags         []string
 	UniqueKey    []byte
@@ -128,7 +138,7 @@ type RiverNotification struct {
 type RiverQueue struct {
 	Name      string
 	CreatedAt time.Time
-	Metadata  []byte
+	Metadata  json.RawMessage
 	PausedAt  *time.Time
 	UpdatedAt time.Time
 }

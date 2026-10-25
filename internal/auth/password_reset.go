@@ -109,6 +109,7 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.loginLimiter.Reset(loginLimitKey(u.Email))
 	s.twoFactorLimiter.Reset(twoFactorLimitKey(userID))
+	s.notify(r.Context(), userID, NotifyPasswordChanged, "Se cambió la contraseña de tu cuenta con un enlace de recuperación.")
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil

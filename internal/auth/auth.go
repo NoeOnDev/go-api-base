@@ -80,6 +80,33 @@ type Options struct {
 	// TrustProxy toma la IP del cliente de X-Forwarded-For (detrás de Caddy o Nginx).
 	// Se usa en el correo que avisa de códigos del 2FA incorrectos.
 	TrustProxy bool
+	// Notifier recibe los avisos de seguridad de la cuenta (contraseña cambiada, 2FA activado
+	// o desactivado). Es opcional: si es nil, auth no notifica. En la plantilla lo implementa
+	// internal/notifications, así auth no depende de ese módulo.
+	Notifier Notifier
+}
+
+// Notifier envía una notificación a un usuario (ver internal/notifications).
+type Notifier interface {
+	Notify(ctx context.Context, userID int64, kind string, data any) error
+}
+
+// Tipos de las notificaciones de seguridad que envía auth.
+const (
+	NotifyPasswordChanged   = "password_changed"
+	NotifyTwoFactorEnabled  = "two_factor_enabled"
+	NotifyTwoFactorDisabled = "two_factor_disabled"
+)
+
+// notify avisa al usuario de un cambio de seguridad en su cuenta. Si falla, solo se registra:
+// el cambio ya se hizo, y no tiene sentido responder un error por el aviso.
+func (s *Service) notify(ctx context.Context, userID int64, kind, message string) {
+	if s.opts.Notifier == nil {
+		return
+	}
+	if err := s.opts.Notifier.Notify(ctx, userID, kind, map[string]string{"message": message}); err != nil {
+		httpx.LoggerFrom(ctx).Warn("no se pudo enviar la notificación", "user_id", userID, "kind", kind, "error", err)
+	}
 }
 
 // Service agrupa la lógica de autenticación y sus dependencias.

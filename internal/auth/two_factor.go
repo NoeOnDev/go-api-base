@@ -135,6 +135,7 @@ func (s *Service) enableTwoFactor(w http.ResponseWriter, r *http.Request) error 
 	if err := s.endOtherSessions(r, user.ID); err != nil {
 		return err
 	}
+	s.notify(r.Context(), user.ID, NotifyTwoFactorEnabled, "Se activó la verificación en dos pasos en tu cuenta.")
 
 	httpx.Write(w, http.StatusOK, recoveryCodesResponse{RecoveryCodes: codes})
 	return nil
@@ -166,6 +167,7 @@ func (s *Service) disableTwoFactor(w http.ResponseWriter, r *http.Request) error
 	if err := s.endOtherSessions(r, user.ID); err != nil {
 		return err
 	}
+	s.notify(r.Context(), user.ID, NotifyTwoFactorDisabled, "Se desactivó la verificación en dos pasos en tu cuenta. Si no fuiste vos, cambiá tu contraseña.")
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil

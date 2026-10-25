@@ -165,8 +165,13 @@ func (rec *statusRecorder) Unwrap() http.ResponseWriter { return rec.ResponseWri
 
 // Recover captura los panics de los handlers, los registra con su stack trace y responde 500,
 // para que un error inesperado no deje la conexión sin respuesta.
+//
+// Si la respuesta ya había empezado (por ejemplo, a mitad de un stream SSE), no se puede
+// responder un 500: el JSON quedaría mezclado con lo que ya se envió. En ese caso se registra
+// el error y se corta la conexión, con http.ErrAbortHandler.
 func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sw := &startedWriter{ResponseWriter: w}
 		defer func() {
 			v := recover()
 			if v == nil {
@@ -176,14 +181,38 @@ func Recover(next http.Handler) http.Handler {
 				// Señal intencional de net/http para abortar la respuesta: no es un error.
 				panic(v)
 			}
-			LoggerFrom(r.Context()).Error("panic recuperado", "panic", v, "stack", string(debug.Stack()))
+			log := LoggerFrom(r.Context())
+			if sw.started {
+				log.Error("panic con la respuesta ya empezada; se corta la conexión", "panic", v, "stack", string(debug.Stack()))
+				panic(http.ErrAbortHandler)
+			}
+			log.Error("panic recuperado", "panic", v, "stack", string(debug.Stack()))
 			Write(w, http.StatusInternalServerError, map[string]*Error{
 				"error": Internal(fmt.Errorf("panic: %v", v)),
 			})
 		}()
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(sw, r)
 	})
 }
+
+// startedWriter anota si la respuesta ya empezó (se envió el status o algún byte).
+type startedWriter struct {
+	http.ResponseWriter
+	started bool
+}
+
+func (w *startedWriter) WriteHeader(status int) {
+	w.started = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *startedWriter) Write(b []byte) (int, error) {
+	w.started = true
+	return w.ResponseWriter.Write(b)
+}
+
+// Unwrap deja que http.ResponseController llegue al writer original (Flush, plazos de escritura).
+func (w *startedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // SecurityHeaders agrega a todas las respuestas X-Content-Type-Options: nosniff, que le impide
 // al navegador interpretar una respuesta como otro tipo de contenido (por ejemplo, un JSON

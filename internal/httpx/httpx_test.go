@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -206,4 +208,52 @@ func TestWriteUnencodableResponse(t *testing.T) {
 	if !strings.Contains(logs, "codificar la respuesta") || !strings.Contains(logs, "request_id="+w.Header().Get("X-Request-ID")) {
 		t.Errorf("el error no quedó en el log con el request_id:\n%s", logs)
 	}
+}
+
+// Un panic con la respuesta ya empezada (por ejemplo, a mitad de un stream SSE) no puede
+// agregar un JSON de error al final de lo que ya se envió: se corta la conexión.
+func TestRecoverAfterResponseStarted(t *testing.T) {
+	var buf bytes.Buffer
+	var mu sync.Mutex
+	logger := slog.New(slog.NewTextHandler(&lockedWriter{w: &buf, mu: &mu}, nil))
+	srv := httptest.NewServer(Chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: parte\n\n"))
+		_ = http.NewResponseController(w).Flush()
+		panic("falla a mitad del stream")
+	}), RequestID(logger), Logger, Recover))
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if strings.Contains(string(body), "internal_error") {
+		t.Errorf("el JSON de error se mezcló con el stream: %q", body)
+	}
+	if readErr == nil {
+		t.Error("la conexión debería cortarse en lugar de terminar la respuesta normalmente")
+	}
+	mu.Lock()
+	logs := buf.String()
+	mu.Unlock()
+	if !strings.Contains(logs, "falla a mitad del stream") || !strings.Contains(logs, "request_id="+resp.Header.Get("X-Request-ID")) {
+		t.Errorf("el panic no quedó en el log con el request_id:\n%s", logs)
+	}
+}
+
+// lockedWriter protege el buffer del log, que escriben el handler y el servidor.
+type lockedWriter struct {
+	w  io.Writer
+	mu *sync.Mutex
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
 }

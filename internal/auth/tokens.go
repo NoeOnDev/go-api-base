@@ -35,35 +35,68 @@ var errInvalidToken = httpx.Validation(map[string]string{
 
 // issueToken crea un token de un solo uso para el usuario y lo devuelve para enviarlo por correo.
 // Invalida los anteriores del mismo propósito: solo sirve el último enlace enviado.
+//
+// Va en una transacción que bloquea la fila del usuario. La transacción sola no alcanza: con el
+// aislamiento por defecto, dos pedidos simultáneos podían borrar los dos "nada" y crear cada uno
+// su token, y quedaban dos enlaces válidos. Con el bloqueo, el segundo espera al primero.
 func (s *Service) issueToken(ctx context.Context, userID int64, purpose string, ttl time.Duration) (string, error) {
-	if err := s.q.DeleteUserTokens(ctx, store.DeleteUserTokensParams{UserID: userID, Purpose: purpose}); err != nil {
-		return "", fmt.Errorf("borrar tokens anteriores: %w", err)
-	}
-
 	token, hash, err := newToken()
 	if err != nil {
 		return "", err
 	}
 
-	if err := s.q.CreateUserToken(ctx, store.CreateUserTokenParams{
-		TokenHash: hash,
-		UserID:    userID,
-		Purpose:   purpose,
-		ExpiresAt: time.Now().Add(ttl),
-	}); err != nil {
-		return "", fmt.Errorf("crear token: %w", err)
+	err = pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		if err := q.LockUser(ctx, userID); err != nil {
+			return fmt.Errorf("bloquear usuario %d: %w", userID, err)
+		}
+		if err := q.DeleteUserTokens(ctx, store.DeleteUserTokensParams{UserID: userID, Purpose: purpose}); err != nil {
+			return fmt.Errorf("borrar tokens anteriores: %w", err)
+		}
+		if err := q.CreateUserToken(ctx, store.CreateUserTokenParams{
+			TokenHash: hash,
+			UserID:    userID,
+			Purpose:   purpose,
+			ExpiresAt: time.Now().Add(ttl),
+		}); err != nil {
+			return fmt.Errorf("crear token: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
 	}
 	return token, nil
 }
 
+// checkToken comprueba que el token sea válido, sin gastarlo. Sirve para no hacer trabajo caro
+// (como calcular un hash de argon2) con un enlace inventado o vencido; después hay que
+// consumirlo con consumeToken, que lo vuelve a comprobar.
+func (s *Service) checkToken(ctx context.Context, token, purpose string) error {
+	if token == "" {
+		return errInvalidToken
+	}
+	// Los tokens que se envían por correo no usan intentos (attempts queda en 0): el máximo
+	// es el del desafío del 2FA, que acá no limita nada.
+	_, err := s.q.GetUserTokenUser(ctx, store.GetUserTokenUserParams{TokenHash: hashToken(token), Purpose: purpose, MaxAttempts: maxChallengeAttempts})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errInvalidToken
+	}
+	if err != nil {
+		return fmt.Errorf("buscar token: %w", err)
+	}
+	return nil
+}
+
 // consumeToken valida el token y lo borra en la misma operación, así que no se puede usar dos veces.
-// Devuelve el usuario al que pertenece, o errInvalidToken.
-func (s *Service) consumeToken(ctx context.Context, token, purpose string) (int64, error) {
+// Usa las consultas q, que pueden ser las de una transacción: si la transacción se deshace, el
+// token vuelve a servir. Devuelve el usuario al que pertenece, o errInvalidToken.
+func consumeToken(ctx context.Context, q *store.Queries, token, purpose string) (int64, error) {
 	if token == "" {
 		return 0, errInvalidToken
 	}
 
-	userID, err := s.q.ConsumeUserToken(ctx, store.ConsumeUserTokenParams{TokenHash: hashToken(token), Purpose: purpose})
+	userID, err := q.ConsumeUserToken(ctx, store.ConsumeUserTokenParams{TokenHash: hashToken(token), Purpose: purpose})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, errInvalidToken
 	}

@@ -68,7 +68,7 @@ func NewHandler(d Deps) http.Handler {
 	// Notificaciones dentro del sistema: se guardan y se envían en vivo por GET /events.
 	notificationsService := notifications.NewService(queries, broker)
 
-	authService := auth.NewService(queries, auth.Options{
+	authService := auth.NewService(d.DB, auth.Options{
 		SessionTTL:           d.Config.SessionTTL,
 		CookieSecure:         d.Config.CookieSecure,
 		Mailer:               d.Mailer,

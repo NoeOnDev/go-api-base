@@ -8,7 +8,6 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
-	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
@@ -80,7 +79,7 @@ func TestResetPassword(t *testing.T) {
 	}
 
 	// La contraseña cambió y el email quedó verificado (el usuario recibió el correo).
-	service := auth.NewService(store.New(pool), auth.Options{})
+	service := auth.NewService(pool, auth.Options{})
 	u, err := service.Authenticate(t.Context(), "ana@ejemplo.com", newPassword)
 	if err != nil {
 		t.Fatalf("login con la contraseña nueva: %v", err)

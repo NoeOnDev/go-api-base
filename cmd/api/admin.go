@@ -15,7 +15,6 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
-	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
 // runCreateAdmin crea un usuario con rol admin:
@@ -57,7 +56,7 @@ func runCreateAdmin(args []string) error {
 		return err
 	}
 
-	service := auth.NewService(store.New(pool), auth.Options{})
+	service := auth.NewService(pool, auth.Options{})
 	u, err := service.CreateUser(ctx, auth.RegisterInput{Name: *name, Email: *email, Password: password}, auth.RoleAdmin)
 	if err != nil {
 		return describe(err)

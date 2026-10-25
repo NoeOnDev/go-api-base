@@ -10,7 +10,6 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
-	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
@@ -21,7 +20,7 @@ func serviceWithKeys(t *testing.T, pool *pgxpool.Pool, current []byte, previous 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return auth.NewService(store.New(pool), auth.Options{Box: box}), box
+	return auth.NewService(pool, auth.Options{Box: box}), box
 }
 
 func TestRotateKeys(t *testing.T) {

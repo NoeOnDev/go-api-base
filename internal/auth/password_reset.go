@@ -89,23 +89,41 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 		return httpx.Validation(map[string]string{"password": msg})
 	}
 
-	userID, err := s.consumeToken(r.Context(), in.Token, purposePasswordReset)
+	// Antes de calcular el hash (argon2, caro) se comprueba que el enlace sirva, sin gastarlo.
+	// El hash se calcula fuera de la transacción, para no tener una conexión de la base
+	// ocupada mientras espera su turno.
+	if err := s.checkToken(r.Context(), in.Token, purposePasswordReset); err != nil {
+		return err
+	}
+	hash, err := HashPassword(r.Context(), in.Password)
+	if err != nil {
+		return fmt.Errorf("hashear contraseña: %w", err)
+	}
+
+	// Todo o nada: si un paso falla, el enlace sigue sirviendo y nada cambió.
+	var userID int64
+	err = pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		id, err := consumeToken(r.Context(), q, in.Token, purposePasswordReset)
+		if err != nil {
+			return err
+		}
+		if err := savePassword(r.Context(), q, id, hash); err != nil {
+			return err
+		}
+		if err := q.MarkEmailVerified(r.Context(), id); err != nil {
+			return fmt.Errorf("marcar email verificado: %w", err)
+		}
+		if err := q.DeleteUserSessions(r.Context(), id); err != nil {
+			return fmt.Errorf("cerrar sesiones: %w", err)
+		}
+		userID = id
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-
-	if err := s.setPassword(r, userID, in.Password); err != nil {
-		return err
-	}
-	if err := s.q.MarkEmailVerified(r.Context(), userID); err != nil {
-		return fmt.Errorf("marcar email verificado: %w", err)
-	}
-	if err := s.q.DeleteUserSessions(r.Context(), userID); err != nil {
-		return fmt.Errorf("cerrar sesiones: %w", err)
-	}
-	if s.opts.SessionWatcher != nil {
-		s.opts.SessionWatcher.UserSessionsEnded(r.Context(), userID, "")
-	}
+	s.sessionsEnded(r.Context(), userID, "")
 	u, err := s.q.GetUserByID(r.Context(), userID)
 	if err != nil {
 		return fmt.Errorf("buscar usuario %d: %w", userID, err)

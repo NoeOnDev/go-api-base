@@ -43,9 +43,12 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// Si el correo no se puede encolar, la cuenta igual quedó creada y es válida: se responde 201,
+	// y el usuario puede pedir otro enlace con POST /auth/email/resend. Responder un error acá
+	// confundiría, porque un reintento del registro daría 409 (el email ya existe).
 	if s.opts.RequireVerifiedEmail {
 		if err := s.sendVerificationEmail(r.Context(), u); err != nil {
-			return err
+			httpx.LoggerFrom(r.Context()).Error("no se pudo enviar el correo de verificación del registro", "user_id", u.ID, "error", err)
 		}
 	}
 

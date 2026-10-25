@@ -15,7 +15,6 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/server"
-	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
@@ -208,7 +207,7 @@ func TestSessionTokenIsStoredHashed(t *testing.T) {
 
 func TestRequireAdmin(t *testing.T) {
 	pool := testutil.NewDB(t)
-	service := auth.NewService(store.New(pool), auth.Options{})
+	service := auth.NewService(pool, auth.Options{})
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /admin", service.RequireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

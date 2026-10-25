@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
-	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
@@ -16,7 +15,7 @@ import (
 func newSession(t *testing.T, pool *pgxpool.Pool, userID int64) *http.Cookie {
 	t.Helper()
 	w := httptest.NewRecorder()
-	if err := auth.NewService(store.New(pool), auth.Options{}).StartSession(t.Context(), w, userID); err != nil {
+	if err := auth.NewService(pool, auth.Options{}).StartSession(t.Context(), w, userID); err != nil {
 		t.Fatalf("iniciar sesión: %v", err)
 	}
 	return sessionCookie(t, w)
@@ -88,7 +87,7 @@ func TestChangePassword(t *testing.T) {
 	}
 
 	// Solo funciona la contraseña nueva (se comprueba directo, sin gastar intentos del límite).
-	service := auth.NewService(store.New(pool), auth.Options{})
+	service := auth.NewService(pool, auth.Options{})
 	if _, err := service.Authenticate(t.Context(), "ana@ejemplo.com", "una-clave-nueva"); err != nil {
 		t.Errorf("login con la contraseña nueva: %v", err)
 	}

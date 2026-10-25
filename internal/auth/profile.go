@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/validate"
@@ -67,13 +69,28 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := s.setPassword(r, user.ID, in.Password); err != nil {
-		return err
+	// El hash (argon2, lento) se calcula antes de abrir la transacción, para no tener una
+	// conexión de la base ocupada mientras espera su turno.
+	hash, err := HashPassword(r.Context(), in.Password)
+	if err != nil {
+		return fmt.Errorf("hashear contraseña: %w", err)
 	}
 
-	if err := s.endOtherSessions(r, user.ID); err != nil {
+	// La contraseña nueva y el cierre de las demás sesiones van juntos: o pasan los dos, o ninguno.
+	var keep string
+	err = pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		if err := savePassword(r.Context(), q, user.ID, hash); err != nil {
+			return err
+		}
+		var err error
+		keep, err = s.deleteOtherSessions(r, q, user.ID)
+		return err
+	})
+	if err != nil {
 		return err
 	}
+	s.sessionsEnded(r.Context(), user.ID, keep)
 	s.notify(r.Context(), user.ID, NotifyPasswordChanged, "Se cambió la contraseña de tu cuenta. Si no fuiste vos, recuperala cuanto antes.")
 
 	httpx.Write(w, http.StatusNoContent, nil)
@@ -100,37 +117,52 @@ func (s *Service) checkPassword(ctx context.Context, userID int64, password, fie
 	return nil
 }
 
-// endOtherSessions cierra todas las sesiones del usuario salvo la de esta petición.
-// Se usa después de un cambio de seguridad (contraseña, 2FA).
+// endOtherSessions cierra todas las sesiones del usuario salvo la de esta petición, y avisa al
+// SessionWatcher. Se usa después de un cambio de seguridad que no va en una transacción (2FA).
 func (s *Service) endOtherSessions(r *http.Request, userID int64) error {
-	c, err := r.Cookie(s.cookieName(CookieName))
+	keep, err := s.deleteOtherSessions(r, s.q, userID)
 	if err != nil {
-		return fmt.Errorf("leer la cookie de sesión: %w", err)
+		return err
 	}
-	hash := hashToken(c.Value)
-	if err := s.q.DeleteOtherSessions(r.Context(), store.DeleteOtherSessionsParams{
-		UserID:    userID,
-		TokenHash: hash,
-	}); err != nil {
-		return fmt.Errorf("cerrar otras sesiones: %w", err)
-	}
-	if s.opts.SessionWatcher != nil {
-		s.opts.SessionWatcher.UserSessionsEnded(r.Context(), userID, hex.EncodeToString(hash))
-	}
+	s.sessionsEnded(r.Context(), userID, keep)
 	return nil
 }
 
-// setPassword hashea y guarda una contraseña nueva. También borra los desafíos del 2FA
-// pendientes: se obtuvieron con la contraseña anterior, que pudo haber conocido otra persona.
-func (s *Service) setPassword(r *http.Request, userID int64, password string) error {
-	hash, err := HashPassword(r.Context(), password)
+// deleteOtherSessions borra todas las sesiones del usuario salvo la de esta petición, con las
+// consultas q (pueden ser las de una transacción). Devuelve la clave de la sesión que sigue,
+// para avisar con sessionsEnded después del commit.
+func (s *Service) deleteOtherSessions(r *http.Request, q *store.Queries, userID int64) (string, error) {
+	c, err := r.Cookie(s.cookieName(CookieName))
 	if err != nil {
-		return fmt.Errorf("hashear contraseña: %w", err)
+		return "", fmt.Errorf("leer la cookie de sesión: %w", err)
 	}
-	if err := s.q.UpdateUserPassword(r.Context(), store.UpdateUserPasswordParams{ID: userID, PasswordHash: hash}); err != nil {
+	hash := hashToken(c.Value)
+	if err := q.DeleteOtherSessions(r.Context(), store.DeleteOtherSessionsParams{
+		UserID:    userID,
+		TokenHash: hash,
+	}); err != nil {
+		return "", fmt.Errorf("cerrar otras sesiones: %w", err)
+	}
+	return hex.EncodeToString(hash), nil
+}
+
+// sessionsEnded avisa al SessionWatcher que se cerraron las sesiones del usuario salvo keep
+// (vacío: todas), para cortar los streams abiertos con ellas. Va después del commit: si fuera
+// antes, un stream cortado podría reconectarse con una sesión que todavía no se borró.
+func (s *Service) sessionsEnded(ctx context.Context, userID int64, keep string) {
+	if s.opts.SessionWatcher != nil {
+		s.opts.SessionWatcher.UserSessionsEnded(ctx, userID, keep)
+	}
+}
+
+// savePassword guarda el hash de una contraseña nueva con las consultas q (pueden ser las de
+// una transacción). También borra los desafíos del 2FA pendientes: se obtuvieron con la
+// contraseña anterior, que pudo haber conocido otra persona.
+func savePassword(ctx context.Context, q *store.Queries, userID int64, hash string) error {
+	if err := q.UpdateUserPassword(ctx, store.UpdateUserPasswordParams{ID: userID, PasswordHash: hash}); err != nil {
 		return fmt.Errorf("guardar contraseña del usuario %d: %w", userID, err)
 	}
-	if err := s.q.DeleteUserTokens(r.Context(), store.DeleteUserTokensParams{UserID: userID, Purpose: purposeTwoFactorLogin}); err != nil {
+	if err := q.DeleteUserTokens(ctx, store.DeleteUserTokensParams{UserID: userID, Purpose: purposeTwoFactorLogin}); err != nil {
 		return fmt.Errorf("borrar desafíos del 2FA pendientes: %w", err)
 	}
 	return nil

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
@@ -124,6 +125,7 @@ func (s *Service) notify(ctx context.Context, userID int64, kind, message string
 
 // Service agrupa la lógica de autenticación y sus dependencias.
 type Service struct {
+	db   *pgxpool.Pool // para las transacciones (pgx.BeginFunc)
 	q    *store.Queries
 	opts Options
 
@@ -133,8 +135,9 @@ type Service struct {
 	emailLimiter     *httpx.RateLimiter
 }
 
-// NewService crea el servicio de autenticación.
-func NewService(q *store.Queries, opts Options) *Service {
+// NewService crea el servicio de autenticación. Recibe el pool, y no solo las consultas,
+// porque algunas operaciones van en una transacción (por ejemplo, recuperar la contraseña).
+func NewService(pool *pgxpool.Pool, opts Options) *Service {
 	if opts.SessionTTL <= 0 {
 		opts.SessionTTL = DefaultSessionTTL
 	}
@@ -148,7 +151,8 @@ func NewService(q *store.Queries, opts Options) *Service {
 		opts.Issuer = "Mi App"
 	}
 	return &Service{
-		q:                q,
+		db:               pool,
+		q:                store.New(pool),
 		opts:             opts,
 		loginLimiter:     httpx.NewRateLimiter(loginLimitEvery, loginLimitBurst, false),
 		twoFactorLimiter: httpx.NewRateLimiter(twoFactorLimitEvery, twoFactorLimitBurst, false),

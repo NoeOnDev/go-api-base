@@ -63,3 +63,10 @@ SELECT id, totp_secret
 FROM users
 WHERE totp_secret IS NOT NULL
 ORDER BY id;
+
+-- LockUser bloquea la fila del usuario hasta el final de la transacción. Ordena operaciones
+-- simultáneas sobre el mismo usuario (por ejemplo, dos pedidos de enlace de recuperación).
+-- name: LockUser :exec
+SELECT id FROM users
+WHERE id = $1
+FOR UPDATE;

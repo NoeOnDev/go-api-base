@@ -161,6 +161,19 @@ func (q *Queries) ListUsersWithTOTPSecret(ctx context.Context) ([]ListUsersWithT
 	return items, nil
 }
 
+const lockUser = `-- name: LockUser :exec
+SELECT id FROM users
+WHERE id = $1
+FOR UPDATE
+`
+
+// LockUser bloquea la fila del usuario hasta el final de la transacción. Ordena operaciones
+// simultáneas sobre el mismo usuario (por ejemplo, dos pedidos de enlace de recuperación).
+func (q *Queries) LockUser(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, lockUser, id)
+	return err
+}
+
 const markEmailVerified = `-- name: MarkEmailVerified :exec
 UPDATE users
 SET email_verified_at = coalesce(email_verified_at, now()), updated_at = now()

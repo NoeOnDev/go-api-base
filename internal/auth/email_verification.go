@@ -34,7 +34,7 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	userID, err := s.consumeToken(r.Context(), in.Token, purposeEmailVerification)
+	userID, err := consumeToken(r.Context(), s.q, in.Token, purposeEmailVerification)
 	if err != nil {
 		return err
 	}

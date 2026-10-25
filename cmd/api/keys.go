@@ -10,7 +10,6 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
-	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
 // runGenerateKey imprime una clave nueva para ENCRYPTION_KEY (equivale a `php artisan key:generate`,
@@ -47,7 +46,7 @@ func runRotateKeys() error {
 	if err != nil {
 		return err
 	}
-	report, err := auth.NewService(store.New(pool), auth.Options{Box: box}).RotateKeys(ctx)
+	report, err := auth.NewService(pool, auth.Options{Box: box}).RotateKeys(ctx)
 	if err != nil {
 		return err
 	}

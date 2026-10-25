@@ -17,7 +17,6 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/server"
-	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
 // NewDB conecta a la base de pruebas (TEST_DATABASE_URL), aplica las migraciones
@@ -96,7 +95,7 @@ func Login(t *testing.T, pool *pgxpool.Pool, email, role string, opts ...Option)
 	for _, opt := range opts {
 		opt(&d)
 	}
-	service := auth.NewService(store.New(pool), auth.Options{
+	service := auth.NewService(pool, auth.Options{
 		SessionTTL:   d.Config.SessionTTL,
 		CookieSecure: d.Config.CookieSecure,
 	})

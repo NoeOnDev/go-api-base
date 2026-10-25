@@ -9,7 +9,7 @@ Plantilla de API REST en Go, liviana y lista para producción en un VPS chico. U
 
 Incluye:
 
-- **Autenticación** con sesiones en cookie `HttpOnly`, contraseñas con argon2id y roles `user`/`admin`. Incluye perfil, cambio de contraseña, recuperación por correo, verificación de email opcional y 2FA con app de autenticación y códigos de recuperación. El primer admin se crea con un comando.
+- **Autenticación** con sesiones en cookie `HttpOnly`, contraseñas con argon2id y roles `user`/`admin`. Incluye perfil, cambio de contraseña, recuperación por correo, verificación de email opcional, 2FA con app de autenticación y códigos de recuperación, sesiones por dispositivo (con vencimiento por inactividad opcional), cambio de email verificado y borrado de cuenta. El primer admin se crea con un comando.
 - **Correos** por SMTP (cualquier proveedor), con plantillas editables. Pasan por la cola, así que se reintentan si fallan. En desarrollo se usa Mailpit o el log.
 - **Trabajos en segundo plano** con River, sobre PostgreSQL (sin Redis): reintentos, trabajos programados y periódicos, y encolado dentro de una transacción. Los workers corren en el mismo binario.
 - **Tiempo real con SSE:** `GET /events` envía al navegador los eventos del usuario y de los temas que escuche (con permiso). Sirve también para transmitir la respuesta de un agente de IA.
@@ -94,6 +94,9 @@ Incluye:
 | `POST` | `/auth/logout` | Público; borra la sesión si existe y siempre borra la cookie |
 | `GET`, `PUT` | `/auth/me` | Con sesión: ver y editar el perfil |
 | `PUT` | `/auth/password` | Con sesión: cambiar la contraseña (pide la actual y cierra las demás sesiones) |
+| `DELETE` | `/auth/me` | Con sesión: borrar la cuenta (pide la contraseña) |
+| `PUT`, `POST` | `/auth/email`, `/auth/email/confirm` | Cambiar el email: se pide con la contraseña y se confirma con el enlace que llega al nuevo |
+| `GET`, `DELETE`, `POST` | `/auth/sessions`, `/auth/sessions/{id}`, `/auth/sessions/revoke-others` | Con sesión: ver las sesiones por dispositivo y cerrarlas |
 | `POST` | `/auth/password/forgot`, `/auth/password/reset` | Público: recuperar la contraseña por correo |
 | `POST` | `/auth/email/verify`, `/auth/email/resend` | Verificar el email (obligatorio con `REQUIRE_EMAIL_VERIFICATION=true`) |
 | `POST` | `/auth/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Con sesión: activar y administrar el 2FA |
@@ -140,6 +143,7 @@ Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` o `error` |
 | `SHUTDOWN_TIMEOUT` | `10s` | Espera máxima al apagar el servidor |
 | `SESSION_TTL` | `168h` | Duración de la sesión |
+| `SESSION_IDLE_TIMEOUT` | `0` | Cierra una sesión sin actividad durante ese tiempo (por ejemplo `30m`, al menos `15m`). `0` lo desactiva |
 | `COOKIE_SECURE` | `true` en producción | La cookie solo viaja por HTTPS |
 | `CORS_ALLOWED_ORIGINS` | | Orígenes del frontend si está en otro dominio |
 | `TRUST_PROXY` | `false` | Leer la IP real de `X-Forwarded-For` (con Caddy o Nginx delante). Solo se cree si la conexión viene de localhost o de una red privada |

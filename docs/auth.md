@@ -40,6 +40,12 @@ El desafío del 2FA usa una cookie con los mismos atributos: `two_factor_challen
 | `POST` | `/auth/logout` | público | | `204`, siempre (también si la sesión ya venció) |
 | `GET` | `/auth/me` | sesión | | `200` con el usuario |
 | `PUT` | `/auth/me` | sesión | `{name}` | `200` con el usuario |
+| `DELETE` | `/auth/me` | sesión | `{password}` | `204`, borra la cuenta; `422` si la contraseña es incorrecta; `409` si es el único admin |
+| `PUT` | `/auth/email` | sesión | `{email, password}` | `202`, envía el enlace al email nuevo; `409` si está en uso; `422` |
+| `POST` | `/auth/email/confirm` | público | `{token}` | `204`, cambia el email; `422` si el enlace no es válido o venció; `409` si el email lo tomó otra cuenta |
+| `GET` | `/auth/sessions` | sesión | | `200 {data: [{id, user_agent, ip, created_at, last_seen_at, current}]}` |
+| `DELETE` | `/auth/sessions/{id}` | sesión | | `204`; `404` si no es del usuario; `422` si es la actual |
+| `POST` | `/auth/sessions/revoke-others` | sesión | `{password}` | `204`, cierra todas las demás |
 | `PUT` | `/auth/password` | usuario | `{current_password, password}` | `204`; `422` si la contraseña actual es incorrecta |
 | `POST` | `/auth/password/forgot` | público | `{email}` | `202`, siempre |
 | `POST` | `/auth/password/reset` | público | `{token, password}` | `204`; `422` si el enlace no es válido o venció |
@@ -68,8 +74,36 @@ El usuario se devuelve así (nunca incluye la contraseña):
 
 ## Perfil y cambio de contraseña
 
-- **`PUT /auth/me`** cambia el nombre. El email no se cambia por acá: cambiarlo exige verificar la dirección nueva, y todavía no está incluido.
+- **`PUT /auth/me`** cambia el nombre. El email se cambia aparte (ver "Cambiar el email"), porque hay que verificar la dirección nueva.
 - **`PUT /auth/password`** pide la contraseña actual, así alguien que encuentre la sesión abierta no puede cambiarla. Al cambiarla se **cierran todas las demás sesiones** del usuario y la actual sigue activa.
+
+## Sesiones por dispositivo
+
+Cada sesión guarda el navegador (user-agent), la IP con la que se inició y su última actividad, que se actualiza como mucho cada 5 minutos para no escribir en la base en cada petición.
+
+- **`GET /auth/sessions`** las lista, de la más reciente a la más vieja, y marca la de este dispositivo (`current`). El user-agent llega tal cual: para mostrarlo legible ("Firefox en Windows"), el frontend puede usar una librería como `ua-parser-js`.
+- **`DELETE /auth/sessions/{id}`** cierra una, por ejemplo la de un dispositivo que el usuario no reconoce. Se cortan en el acto sus streams de `GET /events`. La actual se cierra con `POST /auth/logout`.
+- **`POST /auth/sessions/revoke-others`** con `{password}` cierra todas las demás. Pide la contraseña, como Laravel Jetstream, porque es masivo: así alguien con una sesión robada no puede echar al dueño de todos sus dispositivos.
+
+**Vencimiento por inactividad (opcional):** con `SESSION_IDLE_TIMEOUT` (por ejemplo `30m`), una sesión sin actividad durante ese tiempo deja de servir, además del vencimiento fijo de `SESSION_TTL`. Tiene que ser de al menos 15 minutos, porque la actividad se guarda cada 5. Un stream de `GET /events` abierto no cuenta como actividad: una pestaña olvidada no mantiene viva la sesión.
+
+## Cambiar el email
+
+1. El frontend llama a **`PUT /auth/email`** con `{email, password}`.
+   - **Pide la contraseña:** si no, alguien con una sesión robada cambiaría el email, después recuperaría la contraseña con él y se quedaría con la cuenta.
+   - Si el email ya está en uso responde `409`, igual que el registro.
+2. La API envía un enlace a **`FRONTEND_URL/confirm-email?token=…`** a la dirección **nueva**, que vence en 1 hora, y un **aviso a la actual**, por si el pedido no lo hizo el dueño.
+3. **El email no cambia todavía.** La pantalla `/confirm-email` del frontend toma el `token` y llama a **`POST /auth/email/confirm`** con `{token}`. Recién ahí cambia, y queda verificado. Es pública, como la verificación, así funciona aunque el enlace se abra en otro dispositivo.
+
+Al confirmar se envía la notificación `email_changed`. Si mientras tanto otra cuenta tomó ese email, responde `409` y no cambia nada.
+
+## Borrar la cuenta
+
+**`DELETE /auth/me`** con `{password}` borra la cuenta y todos sus datos: sesiones, tokens, códigos de recuperación, notas y notificaciones, por `ON DELETE CASCADE`. Se cortan sus streams, se borra la cookie y se le envía un último correo ("tu cuenta fue eliminada"), por si no fue el dueño.
+
+- **No se puede borrar la única cuenta de administrador** (`409`): primero hay que nombrar otro admin. Así nadie deja la API sin administrador por error.
+- **Cada tabla de un proyecto con datos del usuario tiene que referenciarlo con `ON DELETE CASCADE`** (o `SET NULL`, si los datos deben quedar sin dueño, como una factura). Con `RESTRICT`, el borrado falla con `409` y no se borra nada.
+- Los correos que ya estaban en la cola para ese usuario se envían igual.
 
 ## Recuperar la contraseña
 
@@ -223,7 +257,9 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 - `/verify-email`, la del enlace del correo, solo con la verificación activa;
 - un aviso de "confirmá tu email" cuando una respuesta trae `email_not_verified`;
 - el segundo paso del login (el código del 2FA) cuando el login responde `202`. Si ese paso responde `401` (por ejemplo, `two_factor_locked`), volver a la pantalla de login;
-- en el perfil, activar el 2FA (QR, código y códigos de recuperación) y desactivarlo.
+- en el perfil, activar el 2FA (QR, código y códigos de recuperación) y desactivarlo;
+- en el perfil, las sesiones por dispositivo (con "cerrar" y "cerrar todas las demás"), cambiar el email y borrar la cuenta;
+- `/confirm-email`, la del enlace del correo para confirmar un email nuevo.
 
 ### Mismo dominio (recomendado)
 
@@ -295,6 +331,9 @@ Todas las rutas están en `internal/auth/routes.go`. Para quitar una función, b
 |---|---|---|
 | Registro abierto (solo admins con `create-admin`) | `POST /auth/register` | `register` en `handlers.go` |
 | Perfil y cambio de contraseña | `PUT /auth/me`, `PUT /auth/password` | `profile.go` |
+| Sesiones por dispositivo | `/auth/sessions…` | `sessions.go` |
+| Cambiar el email | `PUT /auth/email`, `/auth/email/confirm` | `email_change.go` y `emails/email_change*.txt` |
+| Borrar la cuenta | `DELETE /auth/me` | `delete_account.go` y `emails/account_deleted.txt` |
 | Recuperar la contraseña | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go` y `emails/password_reset.txt` |
 | Verificar el email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go` y `emails/verify_email.txt` (y dejá `REQUIRE_EMAIL_VERIFICATION=false`) |
 | 2FA | `/auth/two-factor/...` y el bloque `if u.TwoFactorEnabled` del login en `handlers.go` | `two_factor.go`, `two_factor_login.go` y `recovery_codes.go` (también se pueden borrar `internal/totp` y la tabla `user_recovery_codes`) |
@@ -305,7 +344,6 @@ Borrá también sus tests (`account_test.go`, `password_reset_test.go`, `email_v
 
 ## Qué no incluye
 
-- Cambiar el email.
 - 2FA obligatorio (por rol o para todos).
 - Llaves de seguridad físicas o passkeys (WebAuthn).
 - Login con Google u otros proveedores (OAuth).

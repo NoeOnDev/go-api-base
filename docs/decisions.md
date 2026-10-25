@@ -212,6 +212,15 @@ Cualquier ruta no registrada responde 404 en JSON. Un método no permitido en un
 `go.mod` pide Go 1.27.3, que incluye las correcciones de seguridad de octubre de 2026 (`crypto/x509`, `net/http`, `crypto/tls`).
 Con `GOTOOLCHAIN=auto` (el valor por defecto), una versión anterior de Go descarga la correcta automáticamente.
 
+## Funciones de cuenta
+
+Las que Laravel Jetstream suma sobre Breeze: sesiones por dispositivo, cambiar el email y borrar la cuenta.
+
+- **Pedir la contraseña** en todo lo que con una sesión robada permitiría quedarse con la cuenta o hacer daño difícil de deshacer: cambiar el email, borrar la cuenta y cerrar todas las demás sesiones. Cerrar una sola sesión no la pide.
+- **El email cambia recién al confirmarlo desde la dirección nueva**, con un aviso a la actual: así un error de tipeo no deja la cuenta inaccesible, y el dueño se entera si no fue él.
+- **La última actividad de cada sesión se guarda cada 5 minutos**, no en cada petición: sería una escritura en la base por petición. Alcanza para mostrar "activa hace un rato" y para el vencimiento por inactividad.
+- **No se puede borrar al único admin**, con las filas de los admins bloqueadas en la transacción, para que dos no se borren a la vez.
+
 ## Trabajos en segundo plano con River
 
 [River](https://riverqueue.com) guarda la cola en PostgreSQL. Se eligió frente a:
@@ -241,7 +250,6 @@ Decisiones:
 
 ## Qué no incluye
 
-- Cambiar el email.
 - 2FA obligatorio, y passkeys o WebAuthn.
 - Login con Google u otros proveedores (OAuth).
 - Permisos más finos que `user`/`admin`.

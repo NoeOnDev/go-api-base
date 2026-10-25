@@ -9,6 +9,27 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.5.0] - 2026-10-24
+
+Funciones de cuenta: las que Laravel Jetstream suma sobre Breeze.
+
+### Agregado
+
+- **Sesiones por dispositivo:** cada sesión guarda el navegador, la IP y su última actividad (como mucho cada 5 minutos).
+  - `GET /auth/sessions` las lista y marca la actual;
+  - `DELETE /auth/sessions/{id}` cierra una y corta sus streams;
+  - `POST /auth/sessions/revoke-others` con la contraseña cierra todas las demás.
+- **Vencimiento por inactividad (`SESSION_IDLE_TIMEOUT`)**, opcional: una sesión sin actividad durante ese tiempo deja de servir. Un stream SSE abierto no cuenta como actividad, y la limpieza periódica borra las inactivas.
+- **Cambiar el email:** `PUT /auth/email` con la contraseña envía un enlace al email nuevo y un aviso al actual; `POST /auth/email/confirm` lo cambia y lo deja verificado. Notificación `email_changed`.
+- **Borrar la cuenta:** `DELETE /auth/me` con la contraseña borra al usuario y todos sus datos, corta sus streams y le envía un último correo. No deja borrar al único admin.
+- Plantillas de correo `email_change.txt`, `email_change_notice.txt` y `account_deleted.txt`.
+
+### Cambiado
+
+- **`auth.Service.StartSession(w, r, userID)`** recibe la petición, para guardar el navegador y la IP.
+- **Migraciones editadas:** `00002_create_sessions.sql` (`id`, `user_agent`, `ip`, `last_seen_at`) y `00006_create_user_tokens.sql` (`email` y el propósito `email_change`). Como la plantilla todavía no tiene proyectos derivados, no hay SQL de actualización: se recrea la base.
+- "Qué no incluye" ya no lista cambiar el email.
+
 ## [v0.4.6] - 2026-10-24
 
 Correcciones de otra revisión del proyecto completo.

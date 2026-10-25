@@ -18,7 +18,7 @@ Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migra
 la cola de trabajos (River) y paquetes del equipo de Go (`golang.org/x/crypto`, `x/time`, `x/term`).
 
 Trae autenticación completa (sesiones con cookie, roles `user`/`admin`, perfil, cambio y recuperación de contraseña,
-verificación de email opcional y 2FA con TOTP; ver `docs/auth.md`), envío de correos, trabajos en segundo plano con River
+verificación de email opcional, 2FA con TOTP, sesiones por dispositivo, cambio de email y borrado de cuenta; ver `docs/auth.md`), envío de correos, trabajos en segundo plano con River
 (`docs/jobs.md`), tiempo real con SSE y notificaciones (`docs/realtime.md`), y tres **recursos de ejemplo** que sirven de modelo:
 
 | Recurso | Qué muestra |
@@ -92,6 +92,8 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - Proteger rutas en `routes.go` del recurso: `authn.RequireUser(...)` (cualquier usuario), `authn.RequireAdmin(...)`
   o `authn.OptionalUser(...)` (ruta pública que muestra más a ciertos usuarios; en el handler, `auth.UserFrom`).
 - En un handler protegido, el usuario es `auth.MustUser(r.Context())`.
+- **Datos de cada usuario:** la tabla referencia `users (id)` con `ON DELETE CASCADE` (o `SET NULL` si deben quedar sin
+  dueño); con `RESTRICT`, borrar la cuenta (`DELETE /auth/me`) falla.
 - **Pertenencia:** si los datos son de cada usuario, la tabla lleva `user_id` y **todas** las consultas filtran por él
   (`WHERE id = $1 AND user_id = $2`). Un recurso ajeno responde 404, no 403. Ver `internal/notes`.
 - No tocar la protección CSRF ni CORS de `internal/server/routes.go` sin consultarlo.

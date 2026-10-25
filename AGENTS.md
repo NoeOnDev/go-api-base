@@ -139,6 +139,9 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
   **Después**, nunca modificar una migración ya aplicada: crear una nueva con `make migrate-new`.
 - Cada migración debe tener su sección `-- +goose Down`.
 - Una fila inexistente llega como `pgx.ErrNoRows` (`:one`) o 0 filas afectadas (`:execrows`): responder `httpx.NotFound`.
+- Varias escrituras que van juntas, en una transacción con `pgx.BeginFunc` y `q.WithTx(tx)` (ver `docs/adding-a-resource.md`).
+  Nada lento adentro (argon2, llamadas externas); los avisos (eventos, `SessionWatcher`) después del commit. Si dos
+  peticiones simultáneas pueden pisarse, bloquear la fila con `SELECT … FOR UPDATE` (como `LockUser`).
 - Valor único repetido: `db.IsUniqueViolation(err)` → `httpx.Conflict`. FK inexistente o en uso:
   `db.IsForeignKeyViolation(err)` → `httpx.Validation` (al crear/editar) o `httpx.Conflict` (al borrar).
 - Filtros opcionales en sqlc: `sqlc.narg('x')::tipo IS NULL OR columna = sqlc.narg('x')`. Escapar `%` y `_` en búsquedas `ILIKE`.

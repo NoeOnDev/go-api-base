@@ -97,6 +97,23 @@ Copiá el paquete de ejemplo a `internal/orders` y adaptá cada archivo:
     | `db.IsForeignKeyViolation(err)` al borrar | `httpx.Conflict` |
     | cualquier otro | envolverlo con contexto: `fmt.Errorf("crear pedido: %w", err)` |
 
+- **Varios cambios que van juntos, en una transacción.** Si una operación hace más de una escritura y tiene que pasar todo o nada (por ejemplo, crear el pedido y descontar el stock), usá `pgx.BeginFunc` con las consultas de la transacción (`q.WithTx(tx)`). Si la función devuelve un error, se deshace todo:
+
+  ```go
+  // El handler necesita el pool (pasáselo al crearlo en routes.go).
+  err := pgx.BeginFunc(r.Context(), h.db, func(tx pgx.Tx) error {
+  	q := h.q.WithTx(tx)
+  	order, err := q.CreateOrder(r.Context(), params)
+  	if err != nil {
+  		return fmt.Errorf("crear pedido: %w", err)
+  	}
+  	return q.DecrementStock(r.Context(), store.DecrementStockParams{ProductID: order.ProductID, Quantity: order.Quantity})
+  })
+  ```
+
+  - **Nada lento adentro:** calculá antes lo que tarda (un hash con `auth.HashPassword`, una llamada a otra API). Mientras la transacción está abierta, ocupa una conexión de la base y puede bloquear filas.
+  - **Avisos después del commit:** publicar un evento (`broker.Publish`) o encolar un trabajo fuera de la transacción va después del `BeginFunc`. Para encolar dentro de la misma transacción, usá `InsertTx` (ver [docs/jobs.md](jobs.md)).
+  - **Si dos peticiones simultáneas pueden pisarse** (leer, decidir y escribir), bloqueá la fila al empezar con `SELECT … FOR UPDATE`, como hace `issueToken` con `LockUser`.
 - **`routes.go`:** las rutas, con la protección que corresponda:
 
   ```go

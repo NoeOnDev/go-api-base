@@ -194,6 +194,10 @@ Cada línea de una petición lleva su `request_id`, que también se devuelve en 
 `ReadHeaderTimeout` 5 s, `ReadTimeout` 15 s, `WriteTimeout` 30 s, `IdleTimeout` 60 s.
 Sin ellos, un cliente lento puede mantener conexiones abiertas indefinidamente.
 
+Los streams SSE no tienen `WriteTimeout` (los cortaría a los 30 segundos), pero **cada escritura tiene un plazo de 10 segundos**: un cliente que deja de leer sin cerrar la conexión se desconecta, en lugar de trabar el handler y seguir ocupando su lugar.
+
+**Al apagar**, el servidor HTTP y los trabajos en segundo plano se detienen al mismo tiempo, cada uno con `SHUTDOWN_TIMEOUT` (10 segundos por defecto). Si alguna petición no terminó a tiempo, se corta. Hay que tenerlo en cuenta con el gestor de procesos: `docker stop` espera 10 segundos antes de matar el proceso, así que con Docker conviene darle un poco más (`docker stop -t 15`, o `stop_grace_period` en Compose); systemd espera 90 por defecto.
+
 ## Rutas inexistentes
 
 Cualquier ruta no registrada responde 404 en JSON. Un método no permitido en una ruta existente (por ejemplo `POST /healthz`) también responde 404, porque la ruta comodín `/` tiene prioridad sobre el 405 de `net/http`. Es una simplificación aceptada.

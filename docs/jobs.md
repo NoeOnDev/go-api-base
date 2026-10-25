@@ -138,7 +138,7 @@ river.NewPeriodicJob(
 
 ## Al apagar
 
-La API deja de recibir peticiones, y después los workers tienen hasta `SHUTDOWN_TIMEOUT` para terminar lo que están haciendo.
+La API deja de recibir peticiones y, al mismo tiempo, los workers tienen hasta `SHUTDOWN_TIMEOUT` para terminar lo que están haciendo. Que se detengan a la vez es seguro: si una petición que todavía está terminando encola un trabajo, queda en la base y se ejecuta al arrancar.
 
 - **Los trabajos pendientes, o que estaban esperando un reintento,** siguen en la base y se retoman al arrancar.
 - **Uno que quedó cortado a mitad de camino** tampoco se pierde: River lo reintenta cuando lleva una hora "en curso". Por eso un worker tiene que poder ejecutarse dos veces sin romper nada (por ejemplo, comprobando si el reporte ya existe).

@@ -9,6 +9,25 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.4.5] - 2026-10-24
+
+Correcciones de una revisión nueva del proyecto completo.
+
+### Corregido
+
+- **Un cliente SSE que dejaba de leer trababa su stream.** `Open` quitaba el `WriteTimeout` y no ponía otro plazo: la escritura se bloqueaba con los buffers de TCP llenos, el handler no veía ni el logout ni el apagado, y la conexión seguía contando para los límites. Ahora cada escritura tiene un plazo de 10 segundos.
+- **Si el apagado se pasaba del tiempo, River no se detenía.** `run` salía antes de detener los trabajos, y uno cortado se reintentaba recién a la hora. Ahora el servidor HTTP y River se detienen en paralelo, cada uno con el timeout completo, y las peticiones que quedan se cortan.
+- **Recuperar la contraseña no era atómico:** el enlace se gastaba antes de guardar la contraseña. Ahora consumir el token, guardar la contraseña, marcar el email y cerrar las sesiones van en una transacción. Lo mismo al cambiarla desde el perfil.
+- **Dos pedidos simultáneos de enlace dejaban dos enlaces válidos.** `issueToken` ahora va en una transacción que bloquea la fila del usuario.
+- **Si no se podía encolar el correo de verificación, el registro respondía `500`** aunque la cuenta ya existía (y un reintento daba `409`). Ahora responde `201`, y el usuario puede pedir otro enlace.
+- **`httpx.Write` enviaba el status antes de codificar el JSON:** si la codificación fallaba, el cliente recibía un `200` con el cuerpo cortado y el error quedaba en el log sin el `request_id`. Ahora codifica antes y, si falla, `Recover` responde `500` y lo registra con el `request_id`.
+
+### Cambiado
+
+- **`auth.NewService` recibe el pool** (`*pgxpool.Pool`) en lugar de las consultas, para poder abrir transacciones.
+- **Sin `TEST_DATABASE_URL`, los tests de integración fallan en CI** (`CI=true`) en lugar de saltearse en silencio, y `make test` lo avisa al empezar.
+- `docs/adding-a-resource.md` muestra el patrón de transacción con `pgx.BeginFunc`, y `docs/decisions.md` explica el apagado con Docker y systemd.
+
 ## [v0.4.4] - 2026-10-24
 
 Solo documentación.

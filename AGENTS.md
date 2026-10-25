@@ -14,11 +14,12 @@ Instrucciones para agentes de código (Claude Code, Codex, Copilot) que trabajen
 > migración nueva.
 
 `go-api-base` es una plantilla de API REST en Go para proyectos chicos y medianos que corren en un VPS.
-Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migraciones (goose), consultas tipadas (sqlc)
-y paquetes del equipo de Go (`golang.org/x/crypto`, `x/time`, `x/term`).
+Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migraciones (goose), consultas tipadas (sqlc),
+la cola de trabajos (River) y paquetes del equipo de Go (`golang.org/x/crypto`, `x/time`, `x/term`).
 
 Trae autenticación completa (sesiones con cookie, roles `user`/`admin`, perfil, cambio y recuperación de contraseña,
-verificación de email opcional y 2FA con TOTP; ver `docs/auth.md`), envío de correos y tres **recursos de ejemplo** que sirven de modelo:
+verificación de email opcional y 2FA con TOTP; ver `docs/auth.md`), envío de correos, trabajos en segundo plano con River
+(`docs/jobs.md`), tiempo real con SSE y notificaciones (`docs/realtime.md`), y tres **recursos de ejemplo** que sirven de modelo:
 
 | Recurso | Qué muestra |
 |---|---|
@@ -38,6 +39,7 @@ verificación de email opcional y 2FA con TOTP; ver `docs/auth.md`), envío de c
 | `make migrate-up` / `migrate-down` / `migrate-status` | Manejar migraciones en desarrollo |
 | `make create-admin email=… name=…` | Crear un administrador (contraseña por `ADMIN_PASSWORD` o por la terminal) |
 | `make key` / `make rotate-keys` | Generar una `ENCRYPTION_KEY` / terminar una rotación (ver `docs/encryption.md`) |
+| `make river-migration version=N` | SQL de una migración nueva de River, al actualizarlo (ver `docs/jobs.md`) |
 | `make build` | Binario estático en `bin/api` |
 
 `make` carga `.env` automáticamente. Las herramientas (sqlc, goose, govulncheck) se ejecutan con `go run paquete@versión`,
@@ -53,7 +55,10 @@ internal/httpx/       JSON, errores, paginación, middlewares, CORS, límite de 
 internal/server/      http.Server con timeouts, rutas, CSRF y orden de middlewares (routes.go)
 internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/RequireAdmin, perfil,
                       recuperación y verificación; plantillas de correo en emails/*.txt
-internal/mail/        envío de correos: LogSender, SMTPSender, Queue (en segundo plano) y Recorder (tests)
+internal/mail/        envío de correos: LogSender, SMTPSender y Recorder (tests)
+internal/jobs/        trabajos en segundo plano con River: cliente, workers (workers.go), periódicos, MailSender
+internal/realtime/    tiempo real con SSE: Stream, Broker (canales y temas) y GET /events
+internal/notifications/ notificaciones guardadas y enviadas en vivo; auth las usa para los avisos de seguridad
 internal/totp/        códigos TOTP del 2FA (RFC 6238), solo librería estándar
 internal/secretbox/   llavero: cifrado AES-256-GCM y HMAC con la clave actual y las anteriores (rotación)
 internal/db/          pool de pgx, migraciones, errores de PostgreSQL y consultas SQL (queries/*.sql)
@@ -107,9 +112,24 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 
 **Correos**
 - Enviarlos con un `mail.Sender` (en `auth`, con `s.sendEmail` y una plantilla de `internal/auth/emails`). Nunca bloquear la respuesta
-  esperando el envío: en producción el sender es un `mail.Queue`.
+  esperando el envío: en producción el sender es un `jobs.MailSender`, que los encola con reintentos.
 - Los enlaces de los correos apuntan al frontend (`FRONTEND_URL`). Los tokens que viajan por correo son de un solo uso, vencen
   y se guardan hasheados (ver `internal/auth/tokens.go`).
+
+**Trabajos en segundo plano** (ver `docs/jobs.md`)
+- Cada trabajo es un struct de argumentos con `Kind()` y un worker con `river.WorkerDefaults`. Registrar el worker en
+  `registerWorkers` y los periódicos en `periodicJobs` (`internal/jobs/workers.go`). No cambiar un `Kind` ya desplegado.
+- Si el trabajo depende de datos que se guardan en la misma petición, encolarlo con `InsertTx` dentro de la transacción.
+- Los argumentos se guardan sin cifrar: preferir ids, y cifrar con `secretbox` cualquier secreto o dato personal (como `SendEmailArgs`).
+- Un worker puede ejecutarse dos veces (reintentos, rescate de trabajos cortados): tiene que tolerarlo.
+- `internal/store` trae tipos de las tablas de River (`RiverJob`…): no usarlos; a River se le habla con su cliente.
+
+**Tiempo real** (ver `docs/realtime.md`)
+- Publicar con `broker.PublishToUser` (datos del usuario) o `broker.Publish` en un tema (datos compartidos), **después**
+  de guardar (y del `Commit`). Para una notificación que quede guardada, `notifications.Service.Notify`.
+- Cada tipo de tema nuevo necesita `broker.Authorize("tipo", …)` con el control de permiso; sin eso, se rechaza.
+- Para transmitir una respuesta larga (un agente de IA), `realtime.Open` y `stream.Send`. Después de `Open` los errores
+  van como evento, no como JSON.
 
 **Base de datos**
 - Todo el SQL vive en `internal/db/queries/*.sql`. Después de cambiarlo, correr `make sqlc`.
@@ -133,6 +153,9 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
   con `testutil.Do`. Para más, o para simular varias IPs, usar `testutil.DoFromIP`.
 - Si la API del test cambia la configuración de la cookie (`WithConfig` con `CookieSecure`), pasarle las mismas
   opciones a `testutil.Login` para que la cookie coincida.
+- Eventos en tiempo real: `testutil.NewServer` (un servidor HTTP real) y `testutil.OpenEvents`, que devuelve un lector con
+  `Next`, `NextComment` y `Nothing`. Para publicar desde el test, `testutil.WithBroker`. Ver `internal/notes/events_test.go`.
+- Workers: `rivertest.NewWorker` y `rivertest.RequireInserted`. Ver `internal/jobs/email_test.go`.
 - Los tests que usan la base no llevan `t.Parallel()`, y los paquetes corren en serie (`-p 1`, ya incluido en `make test`).
 - Cubrir siempre: el caso feliz, validación (422), no encontrado (404), sin sesión (401) y, si aplica, sin permiso (403) o pertenencia.
 

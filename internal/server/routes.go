@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/categories"
@@ -33,6 +35,10 @@ type Deps struct {
 	// Broker reparte los eventos en tiempo real (GET /events). Si es nil se crea uno;
 	// main lo pasa para cerrarlo al apagar.
 	Broker *realtime.Broker
+	// Jobs encola trabajos en segundo plano (es un jobs.Client; ver docs/jobs.md). Pasalo a los
+	// recursos que encolen; en los tests puede ser nil, o un cliente de jobs.New sin Start.
+	// Se declara con el tipo de River para que server no importe jobs (jobs usa testutil en sus tests).
+	Jobs *river.Client[pgx.Tx]
 }
 
 // NewHandler registra todas las rutas y les aplica los middlewares comunes.

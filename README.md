@@ -4,12 +4,16 @@ Plantilla de API REST en Go, liviana y lista para producción en un VPS chico. U
 - **PostgreSQL con pgx**
 - **migraciones con goose**
 - **consultas tipadas con sqlc**
+- **la cola de trabajos River**, también sobre PostgreSQL
 - paquetes oficiales del equipo de Go para las contraseñas y el límite de peticiones
 
 Incluye:
 
 - **Autenticación** con sesiones en cookie `HttpOnly`, contraseñas con argon2id y roles `user`/`admin`. Incluye perfil, cambio de contraseña, recuperación por correo, verificación de email opcional y 2FA con app de autenticación y códigos de recuperación. El primer admin se crea con un comando.
-- **Correos** por SMTP (cualquier proveedor), enviados en segundo plano, con plantillas editables. En desarrollo se usa Mailpit o el log.
+- **Correos** por SMTP (cualquier proveedor), con plantillas editables. Pasan por la cola, así que se reintentan si fallan. En desarrollo se usa Mailpit o el log.
+- **Trabajos en segundo plano** con River, sobre PostgreSQL (sin Redis): reintentos, trabajos programados y periódicos, y encolado dentro de una transacción. Los workers corren en el mismo binario.
+- **Tiempo real con SSE:** `GET /events` envía al navegador los eventos del usuario y de los temas que escuche (con permiso). Sirve también para transmitir la respuesta de un agente de IA.
+- **Notificaciones** dentro del sistema, guardadas y enviadas en vivo. Auth las usa para avisar de cambios de seguridad.
 - **Seguridad:** protección CSRF, CORS configurable, límites de intentos (por IP, por cuenta en el login y el 2FA, y por destinatario en los correos), argon2 con tope de concurrencia, cookies `__Host-` en producción, encabezados `nosniff` y `no-store`, y timeouts del servidor.
 - **Base de la API:**
   - formato único de errores en JSON
@@ -94,6 +98,9 @@ Incluye:
 | `POST` | `/auth/email/verify`, `/auth/email/resend` | Verificar el email (obligatorio con `REQUIRE_EMAIL_VERIFICATION=true`) |
 | `POST` | `/auth/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Con sesión: activar y administrar el 2FA |
 | `POST` | `/auth/two-factor/challenge` | Segundo paso del login cuando el usuario tiene 2FA |
+| `GET` | `/events?topics=` | Con sesión: stream SSE con los eventos en tiempo real (ver [docs/realtime.md](docs/realtime.md)) |
+| `GET` | `/notifications?unread=` | Con sesión: las notificaciones del usuario y cuántas hay sin leer |
+| `POST` | `/notifications/{id}/read`, `/notifications/read-all` | Con sesión: marcarlas como leídas |
 | `GET`, `POST` | `/notes` | Con sesión; cada usuario ve solo sus notas |
 | `GET`, `PUT`, `DELETE` | `/notes/{id}` | Con sesión; la nota de otro usuario responde `404` |
 | `GET` | `/categories`, `/categories/{id}` | Público |
@@ -144,6 +151,7 @@ Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene
 | `APP_NAME` | `Mi App` | Nombre que muestra la app de autenticación del 2FA |
 | `ENCRYPTION_KEY` | (obligatoria) | Clave para cifrar el secreto del 2FA. Generala con `make key` (ver [docs/encryption.md](docs/encryption.md)) |
 | `ENCRYPTION_PREVIOUS_KEYS` | | Claves anteriores, solo durante una rotación |
+| `JOBS_MAX_WORKERS` | `10` | Trabajos en segundo plano que corren a la vez (los correos tienen su propia cola de 4) |
 | `GOMEMLIMIT` | (sin límite) | Variable del propio Go, no de la plantilla. Con ella, el recolector de basura libera memoria antes de llegar a ese valor. En producción conviene cerca del 70 % de la RAM del servidor (con 1 GB, `700MiB`) |
 
 Los valores con espacios van entre comillas: `APP_NAME="Mi App"`.
@@ -174,6 +182,7 @@ Ejecutá `make` para ver la lista completa. Los principales:
 | `make create-admin email=…` | Crea un administrador |
 | `make key` | Genera una clave para `ENCRYPTION_KEY` |
 | `make rotate-keys` | Termina una rotación de `ENCRYPTION_KEY` (ver [docs/encryption.md](docs/encryption.md)) |
+| `make river-migration version=N` | SQL de una migración nueva de River, al actualizarlo (ver [docs/jobs.md](docs/jobs.md)) |
 | `make build` | Binario estático en `bin/api` |
 
 ## Estructura
@@ -184,7 +193,10 @@ internal/config/     variables de entorno
 internal/httpx/      JSON, errores, paginación, middlewares, CORS y límite de peticiones
 internal/server/     servidor, rutas y protección CSRF
 internal/auth/       usuarios, sesiones, roles, perfil, recuperación y verificación (y sus plantillas de correo)
-internal/mail/       envío de correos (log, SMTP, en segundo plano)
+internal/mail/       envío de correos (log y SMTP)
+internal/jobs/       trabajos en segundo plano (River): workers, periódicos y la cola de correos
+internal/realtime/   tiempo real con SSE: streams, canales y temas
+internal/notifications/ notificaciones guardadas y enviadas en vivo
 internal/totp/       códigos TOTP del 2FA (RFC 6238)
 internal/secretbox/  cifrado (AES-256-GCM) y HMAC con un llavero de claves rotables
 internal/db/         conexión, migraciones, errores de PostgreSQL y consultas SQL
@@ -221,12 +233,15 @@ git init
 Después:
 - Conservá la autenticación.
 - Quedate con los ejemplos que se parezcan a tu proyecto y borrá el resto (su paquete, sus consultas, sus migraciones y su registro en `internal/server/routes.go`).
+- Si no necesitás la cola de trabajos o el tiempo real, [docs/jobs.md](docs/jobs.md) y [docs/realtime.md](docs/realtime.md) explican cómo quitarlos.
 - Agregá tus recursos siguiendo [docs/adding-a-resource.md](docs/adding-a-resource.md).
 
 ## Documentación
 
 - [Autenticación](docs/auth.md): cómo funciona y cómo usarla desde React.
 - [Cifrado y `ENCRYPTION_KEY`](docs/encryption.md): qué protege, cómo guardarla y cómo rotarla.
+- [Trabajos en segundo plano](docs/jobs.md): crear trabajos, encolar en una transacción, periódicos y reintentos.
+- [Tiempo real](docs/realtime.md): eventos con SSE desde React, temas con permiso y streams para agentes de IA.
 - [Cómo agregar un recurso](docs/adding-a-resource.md)
 - [Decisiones de diseño](docs/decisions.md)
 - [AGENTS.md](AGENTS.md): convenciones para agentes de código (Claude Code, Codex, Copilot).

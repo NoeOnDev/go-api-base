@@ -69,12 +69,9 @@ JWT conviene cuando varios servicios validan sesiones sin acceso a la base, o pa
 ## Correos en segundo plano y por SMTP
 
 - **SMTP con `net/smtp` de la librería estándar**, en lugar del SDK de un proveedor: funciona con cualquiera (Resend, Brevo, Amazon SES, Mailgun, el correo del hosting) y con Mailpit en desarrollo, y cambiar de proveedor es cambiar cuatro variables.
-- **Se envían en segundo plano** (`mail.Queue`), por dos motivos:
-  - la respuesta no espera al servidor de correo;
-  - "olvidé mi contraseña" tarda lo mismo exista o no el email.
-- **Como mucho 4 envíos a la vez:** cada uno abre su propia conexión SMTP, y los proveedores rechazan muchas conexiones simultáneas. Los demás esperan su turno.
-- **Si el envío falla**, queda en el log; al apagar la API se esperan los pendientes.
-- **No hay reintentos ni cola persistente.** Para correos críticos o de mucho volumen, conviene una cola en la base o un servicio dedicado.
+- **Pasan por la cola de trabajos** (`jobs.MailSender`): la respuesta no espera al servidor de correo, y si el SMTP falla o la API se reinicia, el correo no se pierde. Se reintenta hasta 5 veces, con una espera cada vez más larga.
+- **El correo encolado va cifrado** con `secretbox`: los de recuperación llevan un enlace con token, y la tabla de la cola guarda los trabajos terminados 24 horas.
+- **Como mucho 4 envíos a la vez** (la cola `email`): cada uno abre su propia conexión SMTP, y los proveedores rechazan muchas conexiones simultáneas.
 - **Plantillas en texto plano**, embebidas en el binario. Se leen bien en cualquier cliente y no tienen problemas de compatibilidad con HTML.
 
 ## Tokens de un solo uso por correo
@@ -206,11 +203,38 @@ Cualquier ruta no registrada responde 404 en JSON. Un método no permitido en un
 `go.mod` pide Go 1.27.3, que incluye las correcciones de seguridad de octubre de 2026 (`crypto/x509`, `net/http`, `crypto/tls`).
 Con `GOTOOLCHAIN=auto` (el valor por defecto), una versión anterior de Go descarga la correcta automáticamente.
 
+## Trabajos en segundo plano con River
+
+[River](https://riverqueue.com) guarda la cola en PostgreSQL. Se eligió frente a:
+- **Una cola propia** (con `SELECT … FOR UPDATE SKIP LOCKED`): parece simple, pero los reintentos, los trabajos trabados, los periódicos sin duplicados y el apagado ordenado son cientos de líneas difíciles de probar. River lo resuelve y es una dependencia chica (usa el mismo pgx).
+- **Redis** (con Asynq, por ejemplo): suma otro servicio que instalar, respaldar y vigilar en el VPS. Además, PostgreSQL permite encolar dentro de la misma transacción que los datos, algo que con Redis no se puede.
+
+Decisiones:
+- **Los workers corren dentro del proceso de la API.** Un solo binario y un solo servicio; se pueden separar si un proyecto lo necesita (ver `docs/jobs.md`).
+- **Su esquema entra como migración de goose** (exportado con su CLI), no con el migrador de River: goose sigue siendo la única fuente del esquema.
+- **La limpieza de sesiones y tokens vencidos es un trabajo periódico**, en lugar de hacerse en cada login.
+- **No se incluye River UI**, su interfaz web: suma otra dependencia y necesita su propia autenticación.
+
+## Tiempo real con SSE
+
+Server-Sent Events, con la librería estándar, en lugar de WebSockets:
+- **Cubren los casos habituales:** notificaciones, ver en vivo los cambios de otros (tipo Jira), cambios de estado y la respuesta de un agente de IA mientras se genera. En todos, el navegador envía poco (por REST) y el servidor avisa.
+- **Sin dependencias ni protocolo nuevo:** es HTTP normal. Usa la misma cookie de sesión, pasa por los mismos middlewares y por cualquier proxy, y el navegador se reconecta solo.
+- **Los WebSockets hacen falta** cuando el navegador envía mucho y muy seguido (un dibujo colaborativo). Ese caso necesita además resolver ediciones simultáneas, que depende de cada proyecto, así que se agregan ahí.
+
+Decisiones:
+- **Los temas necesitan un autorizador:** un tema sin autorizador se rechaza, así no se puede escuchar lo ajeno inventando un nombre.
+- **No se reenvían los eventos perdidos.** Al reconectarse, el frontend pide el estado por REST: es más simple y no pierde nada, porque la fuente de verdad es la base.
+- **El stream quita el `WriteTimeout` solo para su petición**, y al apagar la API se cierran todos (`RegisterOnShutdown`); si no, el apagado esperaría hasta el timeout.
+- **Límites de 10 conexiones por usuario y 1000 en total**, porque cada una es un socket y una goroutine abiertos. Cada conexión ocupa unos 11 KB.
+- **El broker vive en memoria:** alcanza para una instancia. Con varias, se reparte con `LISTEN/NOTIFY` (ver `docs/realtime.md`).
+
 ## Qué no incluye
 
 - Cambiar el email.
 - 2FA obligatorio, y passkeys o WebAuthn.
 - Login con Google u otros proveedores (OAuth).
 - Permisos más finos que `user`/`admin`.
+- WebSockets (ver "Tiempo real con SSE").
 
 No es una lista de pendientes: son funciones que dependen de cada proyecto, y se agregan en el proyecto que las necesite.

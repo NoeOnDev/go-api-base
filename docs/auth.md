@@ -150,8 +150,8 @@ Un código incorrecto responde `422` y deja reintentar. Cada desafío admite **5
 | `FRONTEND_URL` | Base de los enlaces de los correos |
 
 **Cómo se envían:**
-- **En segundo plano** (`mail.Queue`): la respuesta HTTP no espera al servidor de correo. Al apagar la API se esperan los envíos pendientes.
-- **Si un envío falla**, queda registrado en el log.
+- **Por la cola de trabajos** (`jobs.MailSender`, ver [docs/jobs.md](jobs.md)): la respuesta HTTP no espera al servidor de correo, y el correo se guarda cifrado en la base hasta que sale.
+- **Si un envío falla**, se reintenta hasta 5 veces, con una espera cada vez más larga, y cada error queda en el log. Una caída del SMTP o un reinicio de la API no pierden correos.
 - **Conexión cifrada:** con el puerto 465 se usa TLS desde el inicio; con los demás, STARTTLS, que es obligatorio salvo contra `localhost`.
 
 **En desarrollo** se recomienda **Mailpit**, un servidor SMTP falso que muestra los correos en `http://localhost:8025`:

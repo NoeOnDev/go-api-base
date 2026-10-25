@@ -83,7 +83,7 @@ func (b *Broker) Handler() http.Handler {
 
 // parseTopics lee la lista de temas, sin repetidos.
 func parseTopics(raw string) ([]string, error) {
-	var topics []string
+	topics := []string{} // vacía, no nil: el evento ready envía [] y no null
 	for t := range strings.SplitSeq(raw, ",") {
 		t = strings.TrimSpace(t)
 		if t != "" && !slices.Contains(topics, t) {

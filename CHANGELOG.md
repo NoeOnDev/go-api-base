@@ -9,6 +9,40 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.4.0] - 2026-10-24
+
+Trabajos en segundo plano, tiempo real y notificaciones: lo que en Laravel resuelven las colas, el scheduler, Reverb y las notificaciones.
+
+### Agregado
+
+- **Trabajos en segundo plano con River** (`internal/jobs`, ver `docs/jobs.md`), sobre PostgreSQL y sin Redis:
+  - los trabajos sobreviven a un reinicio y se reintentan si fallan;
+  - trabajos programados y periódicos (el scheduler), únicos por período;
+  - encolado dentro de una transacción (`InsertTx`);
+  - los workers corren en el mismo binario y se apagan en orden, después del servidor HTTP;
+  - el esquema de River entra como migración de goose; `make river-migration` para actualizarlo;
+  - `JOBS_MAX_WORKERS`.
+- **Trabajo periódico `cleanup`:** cada hora borra las sesiones y los tokens vencidos.
+- **Tiempo real con SSE** (`internal/realtime`, ver `docs/realtime.md`):
+  - `GET /events` con el canal del usuario y temas con autorización (`?topics=project:42`);
+  - `realtime.Stream` para transmitir respuestas largas, como la de un agente de IA;
+  - quita el `WriteTimeout` solo para el stream, envía latidos y se cierra al apagar la API;
+  - límites de 10 conexiones por usuario y 1000 en total; cada una ocupa unos 11 KB.
+- **Notificaciones** (`internal/notifications`): `GET /notifications` (con `?unread` y el contador), `POST /notifications/{id}/read` y `POST /notifications/read-all`. Llegan en vivo por `GET /events`.
+- **Avisos de seguridad:** auth notifica cuando se cambia la contraseña y cuando se activa o desactiva el 2FA (`auth.Options.Notifier`, opcional).
+- **`notes` publica sus cambios en vivo** (`note.created`, `note.updated`, `note.deleted`), como ejemplo.
+- **testutil:** `NewServer`, `OpenEvents`, `WithBroker`; y `auth.WithUser` para probar handlers protegidos.
+
+### Cambiado
+
+- **Los correos pasan por la cola:** se guardan cifrados (llevan enlaces con token), se envían como mucho 4 a la vez y se reintentan hasta 5 veces. Una caída del SMTP o un reinicio de la API ya no pierden correos.
+- La limpieza de sesiones y tokens vencidos ya no se hace en cada login.
+- sqlc genera las columnas `jsonb` como `json.RawMessage`.
+
+### Quitado
+
+- `mail.Queue`, reemplazada por `jobs.MailSender`.
+
 ## [v0.3.8] - 2026-10-24
 
 Últimos detalles de la revisión final.

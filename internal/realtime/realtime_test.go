@@ -147,7 +147,9 @@ func TestEventsHandler(t *testing.T) {
 		t.Fatalf("primer evento: %+v", ev)
 	}
 	_, luis := connect(t, srv, 2, "")
-	luis.Next(t, time.Second) // ready
+	if ev := luis.Next(t, time.Second); ev.Data != `{"topics":[]}` {
+		t.Errorf("ready sin temas: %+v", ev)
+	}
 
 	// Pasado el WriteTimeout, el stream sigue vivo, con latidos.
 	time.Sleep(300 * time.Millisecond)

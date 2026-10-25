@@ -110,6 +110,7 @@ func run() error {
 		Config: cfg,
 		Mailer: mailer,
 		Broker: broker,
+		Jobs:   jobsClient,
 	}), logger)
 	// Al apagar se cierran los streams SSE; si no, Shutdown esperaría hasta el timeout.
 	srv.RegisterOnShutdown(broker.Close)
@@ -141,9 +142,10 @@ func run() error {
 	}
 
 	// Los trabajos en curso (incluidos los correos) tienen hasta el mismo timeout para terminar.
-	// Si no llegan, quedan en la base y River los vuelve a intentar al arrancar: no se pierden.
+	// Los pendientes y los que fallaron siguen en la base y se retoman al arrancar. Uno cortado a
+	// mitad de camino tampoco se pierde: River lo reintenta cuando lleva una hora "en curso".
 	if err := jobsClient.Stop(shutdownCtx); err != nil {
-		logger.Warn("quedaron trabajos en curso al apagar; se reintentarán", "error", err)
+		logger.Warn("quedaron trabajos a medio hacer al apagar; River los reintentará en una hora", "error", err)
 	}
 
 	logger.Info("servidor detenido")

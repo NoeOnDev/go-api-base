@@ -148,7 +148,7 @@ func (s *Service) sessionFromRequest(r *http.Request) (session, error) {
 	}
 
 	hash := hashToken(c.Value)
-	row, err := s.q.GetSessionUser(r.Context(), hash)
+	row, err := s.q.GetSessionUser(r.Context(), store.GetSessionUserParams{TokenHash: hash, ActiveSince: s.activeSince()})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return session{}, errNoSession
 	}
@@ -162,6 +162,15 @@ func (s *Service) sessionFromRequest(r *http.Request) (session, error) {
 func (s *Service) userFromRequest(r *http.Request) (User, error) {
 	sess, err := s.sessionFromRequest(r)
 	return sess.user, err
+}
+
+// activeSince es desde cuándo tiene que haber actividad para que una sesión siga sirviendo.
+// Sin vencimiento por inactividad, una fecha mínima.
+func (s *Service) activeSince() time.Time {
+	if s.opts.SessionIdleTimeout <= 0 {
+		return time.Time{}
+	}
+	return time.Now().Add(-s.opts.SessionIdleTimeout)
 }
 
 // touch actualiza la última actividad de la sesión, como mucho cada touchInterval. Si falla,

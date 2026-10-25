@@ -32,6 +32,9 @@ type Config struct {
 
 	// SessionTTL es cuánto dura una sesión desde el login.
 	SessionTTL time.Duration
+	// SessionIdleTimeout cierra una sesión sin actividad durante ese tiempo, además del
+	// vencimiento de SessionTTL. 0 lo desactiva.
+	SessionIdleTimeout time.Duration
 	// CookieSecure hace que la cookie de sesión solo viaje por HTTPS.
 	CookieSecure bool
 	// CORSAllowedOrigins son los orígenes (por ejemplo https://app.cliente.com) desde los que
@@ -140,6 +143,13 @@ func load(rawGetenv func(string) string) (Config, error) {
 
 	if cfg.SessionTTL, err = positiveDuration(getenv("SESSION_TTL"), "168h"); err != nil {
 		errs = append(errs, fmt.Errorf("SESSION_TTL %w", err))
+	}
+
+	// La última actividad se guarda cada 5 minutos, así que un vencimiento más corto que 15
+	// minutos sería impreciso.
+	if cfg.SessionIdleTimeout, err = time.ParseDuration(valueOr(getenv("SESSION_IDLE_TIMEOUT"), "0")); err != nil ||
+		cfg.SessionIdleTimeout < 0 || (cfg.SessionIdleTimeout > 0 && cfg.SessionIdleTimeout < 15*time.Minute) {
+		errs = append(errs, errors.New("SESSION_IDLE_TIMEOUT debe ser 0 (desactivado) o una duración de al menos 15m"))
 	}
 
 	// En producción la cookie viaja solo por HTTPS salvo que se indique lo contrario.

@@ -2,12 +2,15 @@
 INSERT INTO sessions (token_hash, user_id, expires_at, user_agent, ip)
 VALUES ($1, $2, $3, $4, $5);
 
--- GetSessionUser busca la sesión vigente del token, con su usuario.
+-- GetSessionUser busca la sesión vigente del token, con su usuario. active_since es el
+-- vencimiento por inactividad: una sesión sin actividad desde entonces ya no sirve
+-- (sin vencimiento, una fecha mínima).
 -- name: GetSessionUser :one
 SELECT sqlc.embed(u), s.id AS session_id, s.last_seen_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
-WHERE s.token_hash = $1 AND s.expires_at > now();
+WHERE s.token_hash = sqlc.arg('token_hash') AND s.expires_at > now()
+  AND s.last_seen_at > sqlc.arg('active_since')::timestamptz;
 
 -- name: TouchSession :exec
 UPDATE sessions
@@ -31,9 +34,11 @@ RETURNING token_hash;
 DELETE FROM sessions
 WHERE token_hash = $1;
 
+-- DeleteExpiredSessions borra las vencidas y las inactivas desde antes de inactive_before
+-- (sin vencimiento por inactividad, una fecha mínima).
 -- name: DeleteExpiredSessions :execrows
 DELETE FROM sessions
-WHERE expires_at <= now();
+WHERE expires_at <= now() OR last_seen_at <= sqlc.arg('inactive_before')::timestamptz;
 
 -- name: DeleteUserSessions :exec
 DELETE FROM sessions

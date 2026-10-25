@@ -36,11 +36,13 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 
 const deleteExpiredSessions = `-- name: DeleteExpiredSessions :execrows
 DELETE FROM sessions
-WHERE expires_at <= now()
+WHERE expires_at <= now() OR last_seen_at <= $1::timestamptz
 `
 
-func (q *Queries) DeleteExpiredSessions(ctx context.Context) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteExpiredSessions)
+// DeleteExpiredSessions borra las vencidas y las inactivas desde antes de inactive_before
+// (sin vencimiento por inactividad, una fecha mínima).
+func (q *Queries) DeleteExpiredSessions(ctx context.Context, inactiveBefore time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredSessions, inactiveBefore)
 	if err != nil {
 		return 0, err
 	}
@@ -108,7 +110,13 @@ SELECT u.id, u.name, u.email, u.password_hash, u.role, u.email_verified_at, u.to
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1 AND s.expires_at > now()
+  AND s.last_seen_at > $2::timestamptz
 `
+
+type GetSessionUserParams struct {
+	TokenHash   []byte
+	ActiveSince time.Time
+}
 
 type GetSessionUserRow struct {
 	User       User
@@ -116,9 +124,11 @@ type GetSessionUserRow struct {
 	LastSeenAt time.Time
 }
 
-// GetSessionUser busca la sesión vigente del token, con su usuario.
-func (q *Queries) GetSessionUser(ctx context.Context, tokenHash []byte) (GetSessionUserRow, error) {
-	row := q.db.QueryRow(ctx, getSessionUser, tokenHash)
+// GetSessionUser busca la sesión vigente del token, con su usuario. active_since es el
+// vencimiento por inactividad: una sesión sin actividad desde entonces ya no sirve
+// (sin vencimiento, una fecha mínima).
+func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error) {
+	row := q.db.QueryRow(ctx, getSessionUser, arg.TokenHash, arg.ActiveSince)
 	var i GetSessionUserRow
 	err := row.Scan(
 		&i.User.ID,

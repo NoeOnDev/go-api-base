@@ -245,3 +245,18 @@ func TestTrustedProxies(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionIdleTimeout(t *testing.T) {
+	for value, want := range map[string]time.Duration{"": 0, "0": 0, "30m": 30 * time.Minute, "2h": 2 * time.Hour} {
+		cfg, err := load(envFrom(map[string]string{"DATABASE_URL": "x", "SESSION_IDLE_TIMEOUT": value}))
+		if err != nil || cfg.SessionIdleTimeout != want {
+			t.Errorf("SESSION_IDLE_TIMEOUT=%q: %v (%v)", value, cfg.SessionIdleTimeout, err)
+		}
+	}
+	// La actividad se guarda cada 5 minutos: menos de 15 sería impreciso.
+	for _, value := range []string{"5m", "-1h", "media hora"} {
+		if _, err := load(envFrom(map[string]string{"DATABASE_URL": "x", "SESSION_IDLE_TIMEOUT": value})); err == nil {
+			t.Errorf("SESSION_IDLE_TIMEOUT=%q debería ser un error", value)
+		}
+	}
+}

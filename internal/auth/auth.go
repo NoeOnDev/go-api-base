@@ -65,6 +65,8 @@ func toUser(u store.User) User {
 type Options struct {
 	// SessionTTL es cuánto dura una sesión. Si es 0 se usa DefaultSessionTTL.
 	SessionTTL time.Duration
+	// SessionIdleTimeout cierra una sesión sin actividad durante ese tiempo. 0 lo desactiva.
+	SessionIdleTimeout time.Duration
 	// CookieSecure hace que la cookie solo viaje por HTTPS. Debe ser true en producción.
 	CookieSecure bool
 	// Mailer envía los correos (recuperar contraseña, verificar email). Si es nil,

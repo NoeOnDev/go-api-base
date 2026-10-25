@@ -70,6 +70,7 @@ func NewHandler(d Deps) http.Handler {
 
 	authService := auth.NewService(d.DB, auth.Options{
 		SessionTTL:           d.Config.SessionTTL,
+		SessionIdleTimeout:   d.Config.SessionIdleTimeout,
 		CookieSecure:         d.Config.CookieSecure,
 		Mailer:               d.Mailer,
 		FrontendURL:          d.Config.FrontendURL,

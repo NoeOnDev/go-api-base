@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
@@ -220,4 +221,32 @@ func lastSeenAgo(t *testing.T, pool *pgxpool.Pool, userID int64) time.Duration {
 		t.Fatal(err)
 	}
 	return time.Duration(seconds * float64(time.Second))
+}
+
+func TestSessionIdleTimeout(t *testing.T) {
+	pool := testutil.NewDB(t)
+	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	setLastSeen := func(ago string) {
+		t.Helper()
+		if _, err := pool.Exec(t.Context(), "UPDATE sessions SET last_seen_at = now() - $1::interval WHERE user_id = $2", ago, u.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Sin vencimiento por inactividad (por defecto), una sesión quieta hace una hora sigue sirviendo.
+	setLastSeen("1 hour")
+	if w := testutil.Do(t, testutil.NewAPI(pool), cookie, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
+		t.Fatalf("sin vencimiento: status = %d", w.Code)
+	}
+
+	idle := testutil.WithConfig(func(c *config.Config) { c.SessionIdleTimeout = 30 * time.Minute })
+	api := testutil.NewAPI(pool, idle)
+
+	// Con 30 minutos: activa hace 10, sirve; quieta hace una hora, no.
+	setLastSeen("10 minutes")
+	if w := testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
+		t.Errorf("activa hace 10 minutos: status = %d", w.Code)
+	}
+	setLastSeen("1 hour")
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
 }

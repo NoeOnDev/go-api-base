@@ -19,12 +19,15 @@ type Deps struct {
 	Mailer mail.Sender
 	// Box descifra los correos encolados (ver SendEmailArgs).
 	Box *secretbox.Box
+	// SessionIdleTimeout: la limpieza borra también las sesiones inactivas desde hace más
+	// que esto. 0, solo las vencidas.
+	SessionIdleTimeout time.Duration
 }
 
 // registerWorkers registra todos los workers. Cada trabajo nuevo se agrega acá,
 // como las rutas en server/routes.go.
 func registerWorkers(workers *river.Workers, deps Deps) error {
-	if err := river.AddWorkerSafely(workers, &cleanupWorker{q: deps.Queries, logger: deps.Logger}); err != nil {
+	if err := river.AddWorkerSafely(workers, &cleanupWorker{q: deps.Queries, logger: deps.Logger, idle: deps.SessionIdleTimeout}); err != nil {
 		return err
 	}
 	if err := river.AddWorkerSafely(workers, &sendEmailWorker{sender: deps.Mailer, box: deps.Box}); err != nil {

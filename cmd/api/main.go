@@ -92,6 +92,8 @@ func run() error {
 		Logger:  logger,
 		Mailer:  sender,
 		Box:     box,
+		// Para que la limpieza borre también las sesiones inactivas.
+		SessionIdleTimeout: cfg.SessionIdleTimeout,
 	})
 	if err != nil {
 		return err

@@ -144,6 +144,8 @@ Si un proyecto necesita evitar ese bloqueo, la técnica habitual son las *device
 
 La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, y aun así **solo si la conexión viene de localhost o de una red privada**, que es donde está el proxy: en el mismo servidor (`127.0.0.1`) o en una red de Docker (`172.x`). Si el puerto de la API quedara abierto a internet por error, quien se conecte directo no puede inventar su IP para esquivar los límites. Es el mismo criterio que usa Rails por defecto. Un proxy en otro servidor con IP pública no se cree: si un proyecto lo necesita, se agrega una lista de IPs de confianza.
 
+La regla tiene un límite: confía en cualquier conexión desde una red privada. Con Docker y el puerto publicado a todas las interfaces, en algunas configuraciones (por ejemplo, IPv6 sin `ip6tables`) Docker reenvía las conexiones de afuera con `docker-proxy`, y la API las ve llegar desde el gateway (`172.17.0.1`), que es privado. Para la API, esa conexión es igual a la del proxy legítimo, así que el código no puede distinguirlas. Por eso el puerto de la API no debe quedar expuesto: sin publicarlo, o publicado solo en `127.0.0.1` (ver "Antes de producción" en el README).
+
 Las IPv6 se agrupan por bloque `/64`: un proveedor le asigna a cada cliente un `/64` entero, así que contar por dirección exacta permitiría esquivar el límite rotando direcciones.
 
 ## La plantilla no es una dependencia

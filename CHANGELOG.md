@@ -9,6 +9,14 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.3.7] - 2026-10-24
+
+Solo documentación.
+
+### Cambiado
+
+- **`TRUST_PROXY` con Docker** (README, `.env.example` y `docs/decisions.md`): no publicar el puerto de la API, o publicarlo solo en localhost (`-p 127.0.0.1:8080:8080`). En algunas configuraciones, Docker reenvía las conexiones de afuera desde su gateway privado, y la API volvería a creer un `X-Forwarded-For` inventado.
+
 ## [v0.3.6] - 2026-10-24
 
 Protección de `TRUST_PROXY` y una lista de configuración para producción.

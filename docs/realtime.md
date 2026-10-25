@@ -16,12 +16,12 @@ Cubre los casos más comunes:
 - **`GET /events`** (con sesión) abre el stream. Cada conexión escucha:
   - **el canal del usuario**, siempre: sus notificaciones y los cambios en sus datos;
   - **los temas que pida**, como `/events?topics=project:42,board:7`, si tiene permiso.
-- El primer evento es **`ready`**, con los temas que escucha: `{"topics": ["project:42"]}`.
+- El primer evento es **`ready`**, con los temas que escucha y los que se rechazaron por falta de permiso: `{"topics": ["board:7"], "rejected": ["project:42"]}`. Un tema rechazado no corta la conexión: el usuario sigue recibiendo su canal y los demás temas.
 - Cada 25 segundos llega un latido (un comentario SSE, que el navegador ignora), para que el proxy no corte la conexión.
 - **El stream se corta cuando se cierra su sesión:**
   - en el acto, con el logout de esa sesión, o cuando se cierran las demás sesiones del usuario (al cambiar o recuperar la contraseña y al activar o desactivar el 2FA). Así, quien tenga una sesión robada deja de recibir eventos antes del aviso de "se cambió tu contraseña";
   - en el próximo latido (25 segundos como mucho), si la sesión venció o se borró por otro lado;
-  - y a los 15 minutos de todos modos. El navegador se reconecta solo, y en la reconexión se vuelven a revisar la sesión y los permisos de cada tema.
+  - y a los 15 minutos de todos modos (entre 13 y 17, al azar, para que después de un reinicio no se renueven todas las pestañas a la vez). El navegador se reconecta solo, y en la reconexión se vuelven a revisar la sesión y los permisos de cada tema.
 - **No se reenvían los eventos perdidos.** Si la conexión se corta, el navegador se reconecta solo y vuelve a recibir `ready`: ahí el frontend tiene que pedir el estado por REST. La fuente de verdad es siempre la base; los eventos solo avisan que algo cambió.
 
 ### Lo que ya publica la plantilla
@@ -42,8 +42,12 @@ Las notificaciones de seguridad (`password_changed`, `two_factor_enabled`, `two_
 const events = new EventSource("/api/events", { withCredentials: true });
 
 // Se dispara al conectarse y cada vez que se reconecta: pedí el estado de nuevo.
-events.addEventListener("ready", () => {
+events.addEventListener("ready", (e) => {
   queryClient.invalidateQueries(); // con TanStack Query, o el refetch que uses
+
+  // Temas que ya no puede escuchar (por ejemplo, lo sacaron del proyecto que está mirando).
+  const { rejected } = JSON.parse(e.data);
+  if (rejected.length > 0) showLostAccess(rejected);
 });
 
 events.addEventListener("notification", (e) => {
@@ -59,15 +63,22 @@ events.addEventListener("note.updated", (e) => {
 
 `withCredentials: true` hace falta solo si el frontend está en otro dominio (con CORS configurado). En el mismo dominio, la cookie viaja sola.
 
-**Si la sesión se cerró**, la reconexión recibe `401` y el `EventSource` deja de intentar: queda con `readyState === EventSource.CLOSED`. Ahí conviene mandar al usuario al login:
+**Cuando la conexión no se puede abrir**, el `EventSource` deja de reintentar y queda con `readyState === EventSource.CLOSED`. Pasa con la sesión cerrada (`401`), con demasiadas conexiones abiertas (`429`) o con la API reiniciándose (`503`). El navegador no deja saber cuál fue, así que conviene preguntarle a la API:
 
 ```js
-events.onerror = () => {
-  if (events.readyState === EventSource.CLOSED) {
-    redirectToLogin();
+events.onerror = async () => {
+  if (events.readyState !== EventSource.CLOSED) return; // un corte de red: se reconecta solo
+
+  const res = await fetch("/api/auth/me", { credentials: "include" });
+  if (res.status === 401) {
+    redirectToLogin(); // la sesión se cerró
+  } else {
+    setTimeout(connect, 10_000); // demasiadas conexiones o la API reiniciándose: reintentar más tarde
   }
 };
 ```
+
+Un tema sin permiso no llega acá: se informa en `ready` y la conexión sigue abierta.
 
 **Para escuchar un tema**, abrí la conexión con `?topics=`. Si el usuario entra a otro tablero, cerrá la conexión (`events.close()`) y abrí otra con el tema nuevo.
 
@@ -90,7 +101,7 @@ h.broker.Publish(r.Context(), "project:42", realtime.Event{Type: "task.moved", D
 
 ## Temas con permiso
 
-Cada tipo de tema necesita un `Authorizer` que diga quién puede escucharlo. Un tema sin autorizador se rechaza con `403`, así nadie puede escuchar datos ajenos inventando un nombre. Se registra donde se registran las rutas del recurso:
+Cada tipo de tema necesita un `Authorizer` que diga quién puede escucharlo. Un tema sin autorizador, o que el autorizador no permite, se rechaza: llega en `rejected` del evento `ready` y no se escucha. Así nadie puede escuchar datos ajenos inventando un nombre. Se registra donde se registran las rutas del recurso:
 
 ```go
 // internal/projects/routes.go
@@ -105,7 +116,7 @@ broker.Authorize("project", func(ctx context.Context, userID int64, id string) (
 
 El canal del usuario (`user:<id>`) no se puede pedir como tema: cada uno escucha solo el suyo.
 
-**Al quitarle a alguien el acceso** (por ejemplo, sacarlo de un proyecto), llamá a `broker.DisconnectUser(ctx, userID)`: se reconecta solo, y como ya no tiene permiso, el tema se rechaza. Si no lo hacés, deja de escucharlo igual a los 15 minutos, cuando su stream se renueva.
+**Al quitarle a alguien el acceso** (por ejemplo, sacarlo de un proyecto), llamá a `broker.DisconnectUser(ctx, userID)`: se reconecta solo, y como ya no tiene permiso, el tema llega en `rejected`, mientras sigue recibiendo sus notificaciones. Si no lo hacés, deja de escucharlo igual en unos 15 minutos, cuando su stream se renueva.
 
 ## Transmitir la respuesta de un agente de IA
 

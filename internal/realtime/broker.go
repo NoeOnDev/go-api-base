@@ -21,8 +21,6 @@ const (
 var (
 	// ErrTooManyConnections indica que se superó el límite de conexiones (del usuario o total).
 	ErrTooManyConnections = errors.New("realtime: demasiadas conexiones abiertas")
-	// ErrForbiddenTopic indica que el tema no existe o que el usuario no puede escucharlo.
-	ErrForbiddenTopic = errors.New("realtime: tema no permitido")
 	// ErrClosed indica que el broker se cerró (la API se está apagando).
 	ErrClosed = errors.New("realtime: el servidor se está apagando")
 )
@@ -170,25 +168,30 @@ func (b *Broker) Close() {
 	}
 }
 
-// authorizeTopics comprueba que el usuario pueda escuchar cada tema.
-func (b *Broker) authorizeTopics(ctx context.Context, userID int64, topics []string) error {
+// authorizeTopics separa los temas que el usuario puede escuchar de los rechazados: los que no
+// tienen autorizador, están mal escritos o el autorizador no permite.
+func (b *Broker) authorizeTopics(ctx context.Context, userID int64, topics []string) (allowed, rejected []string, err error) {
+	allowed, rejected = []string{}, []string{} // vacías, no nil: el evento ready envía [] y no null
 	for _, topic := range topics {
 		kind, id, ok := strings.Cut(topic, ":")
 		b.mu.Lock()
 		fn := b.authorizers[kind]
 		b.mu.Unlock()
 		if !ok || id == "" || fn == nil {
-			return ErrForbiddenTopic
+			rejected = append(rejected, topic)
+			continue
 		}
-		allowed, err := fn(ctx, userID, id)
+		permitted, err := fn(ctx, userID, id)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
-		if !allowed {
-			return ErrForbiddenTopic
+		if permitted {
+			allowed = append(allowed, topic)
+		} else {
+			rejected = append(rejected, topic)
 		}
 	}
-	return nil
+	return allowed, rejected, nil
 }
 
 // subscribe abre una conexión del usuario con la sesión indicada, que escucha su canal y los

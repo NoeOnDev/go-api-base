@@ -9,6 +9,19 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.4.2] - 2026-10-24
+
+Ajustes de la revisión de v0.4.1.
+
+### Cambiado
+
+- **Un tema sin permiso ya no rechaza toda la conexión de `GET /events` con `403`.** Se informa en el evento `ready` (`{"topics": […], "rejected": […]}`) y el usuario sigue recibiendo su canal y los demás temas. Antes, a alguien a quien sacaban de un proyecto se le cortaba también el canal de sus notificaciones, y el frontend no podía saber qué tema había perdido.
+- **La vida de un stream varía al azar entre 13 y 17 minutos**, en lugar de 15 fijos, para que después de un reinicio no se renueven todas las pestañas a la vez.
+
+### Corregido
+
+- **El ejemplo de `onerror` en `docs/realtime.md`** mandaba al login con cualquier conexión cerrada, aunque fuera por demasiadas conexiones. Ahora pregunta a `GET /auth/me`: con `401` va al login; si no, reintenta más tarde.
+
 ## [v0.4.1] - 2026-10-24
 
 Correcciones de la revisión de v0.4.0.

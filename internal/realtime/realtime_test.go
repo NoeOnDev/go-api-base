@@ -178,11 +178,11 @@ func TestEventsHandler(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	if ev := ana.Next(t, time.Second); ev.Type != "ready" || ev.Data != `{"topics":["project:42"]}` {
+	if ev := ana.Next(t, time.Second); ev.Type != "ready" || ev.Data != `{"topics":["project:42"],"rejected":[]}` {
 		t.Fatalf("primer evento: %+v", ev)
 	}
 	_, luis := connect(t, srv, 2, "")
-	if ev := luis.Next(t, time.Second); ev.Data != `{"topics":[]}` {
+	if ev := luis.Next(t, time.Second); ev.Data != `{"topics":[],"rejected":[]}` {
 		t.Errorf("ready sin temas: %+v", ev)
 	}
 
@@ -204,27 +204,58 @@ func TestEventsHandler(t *testing.T) {
 	luis.Nothing(t, 100*time.Millisecond)
 }
 
-func TestEventsHandlerRejects(t *testing.T) {
+func TestEventsHandlerRejectedTopics(t *testing.T) {
 	b := NewBroker()
-	b.maxPerUser = 1
-	b.Authorize("project", func(context.Context, int64, string) (bool, error) { return false, nil })
+	b.Authorize("project", func(_ context.Context, _ int64, id string) (bool, error) { return id == "1", nil })
 	srv := testServer(t, b, 0)
 
-	for name, query := range map[string]string{
-		"tema no autorizado":     "?topics=project:42",
-		"tipo de tema sin dueño": "?topics=invoice:1",
-		"canal de otro usuario":  "?topics=user:2",
-		"tema sin id":            "?topics=project",
-	} {
-		if resp, _ := connect(t, srv, 1, query); resp.StatusCode != http.StatusForbidden {
-			t.Errorf("%s: status = %d, se esperaba 403", name, resp.StatusCode)
-		}
+	// Un tema sin permiso no corta la conexión: se informa en ready, y el resto sigue andando.
+	resp, r := connect(t, srv, 1, "?topics=project:1,project:42,invoice:1,user:2,project")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
 	}
+	want := `{"topics":["project:1"],"rejected":["project:42","invoice:1","user:2","project"]}`
+	if ev := r.Next(t, time.Second); ev.Type != "ready" || ev.Data != want {
+		t.Fatalf("ready = %+v, se esperaba %s", ev, want)
+	}
+
+	// Recibe su canal y el tema permitido; nada de los rechazados.
+	b.Publish(t.Context(), "project:42", Event{Type: "ajeno"})
+	b.Publish(t.Context(), "user:2", Event{Type: "ajeno"})
+	b.PublishToUser(t.Context(), 1, Event{Type: "notification"})
+	b.Publish(t.Context(), "project:1", Event{Type: "task.moved"})
+	if ev := r.Next(t, time.Second); ev.Type != "notification" {
+		t.Errorf("evento del usuario: %+v", ev)
+	}
+	if ev := r.Next(t, time.Second); ev.Type != "task.moved" {
+		t.Errorf("evento del tema permitido: %+v", ev)
+	}
+	r.Nothing(t, 100*time.Millisecond)
+}
+
+func TestEventsHandlerConnectionLimit(t *testing.T) {
+	b := NewBroker()
+	b.maxPerUser = 1
+	srv := testServer(t, b, 0)
 
 	connect(t, srv, 1, "")
 	resp, _ := connect(t, srv, 1, "")
 	if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Retry-After") == "" {
 		t.Errorf("segunda conexión con límite 1: status = %d", resp.StatusCode)
+	}
+}
+
+func TestStreamLifetimeVaries(t *testing.T) {
+	seen := map[time.Duration]bool{}
+	for range 100 {
+		d := streamLifetime()
+		if d < 13*time.Minute || d > 17*time.Minute {
+			t.Fatalf("vida del stream fuera de 13 a 17 minutos: %v", d)
+		}
+		seen[d] = true
+	}
+	if len(seen) < 50 {
+		t.Errorf("la vida del stream casi no varía: %d valores distintos en 100", len(seen))
 	}
 }
 

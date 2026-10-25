@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"errors"
+	"math/rand/v2"
 	"net/http"
 	"slices"
 	"strings"
@@ -16,10 +17,18 @@ import (
 // queda bien por debajo.
 var heartbeatInterval = 25 * time.Second
 
-// maxStreamLifetime es cuánto dura como mucho un stream. Al cortarse, el navegador se reconecta
+// maxStreamLifetime es cuánto dura, en promedio, un stream. Al cortarse, el navegador se reconecta
 // solo, y en la reconexión se vuelven a revisar la sesión y los permisos de cada tema: así, a
 // quien le quitaron el acceso a un tema deja de escucharlo aunque nadie lo desconecte.
 var maxStreamLifetime = 15 * time.Minute
+
+// streamLifetime devuelve la vida de un stream: maxStreamLifetime ± 2/15 al azar (entre 13 y 17
+// minutos). Después de un reinicio todas las pestañas se conectan juntas; con la variación, sus
+// renovaciones se reparten en lugar de llegar todas a la vez a pedir su estado.
+func streamLifetime() time.Duration {
+	spread := maxStreamLifetime * 2 / 15
+	return maxStreamLifetime - spread + rand.N(2*spread+1)
+}
 
 // Sessions es lo que el stream necesita de auth (lo implementa auth.Service): saber con qué
 // sesión se abrió, y revisar con cada latido que siga vigente (no se cerró ni venció).
@@ -32,10 +41,13 @@ type Sessions interface {
 const maxTopics = 20
 
 // Handler responde GET /events: abre un stream SSE con los eventos del usuario y de los temas
-// de ?topics=project:42,board:7 (que tienen que estar autorizados). Va detrás de RequireUser.
+// de ?topics=project:42,board:7 que tenga permiso para escuchar. Va detrás de RequireUser.
 //
-// El primer evento es "ready", con los temas que se escuchan. Al reconectarse, el frontend
-// tiene que volver a pedir el estado por REST: los eventos de mientras no se reenvían.
+// El primer evento es "ready": {"topics": [los que escucha], "rejected": [los que no tiene
+// permiso de escuchar]}. Un tema rechazado no corta la conexión: el usuario sigue recibiendo su
+// canal, y el frontend sabe qué tema perdió (por ejemplo, porque lo sacaron de un proyecto).
+// Al reconectarse, el frontend tiene que volver a pedir el estado por REST: los eventos de
+// mientras no se reenvían.
 //
 // El stream se corta cuando se cierra su sesión: en el acto si auth avisa (SessionEnded,
 // UserSessionsEnded), y si no, en el próximo latido. Y dura como mucho maxStreamLifetime.
@@ -47,14 +59,12 @@ func (b *Broker) Handler(sessions Sessions) http.Handler {
 		if err != nil {
 			return err
 		}
-		if err := b.authorizeTopics(r.Context(), user.ID, topics); err != nil {
-			if errors.Is(err, ErrForbiddenTopic) {
-				return httpx.Forbidden("no podés escuchar alguno de los temas pedidos")
-			}
+		allowed, rejected, err := b.authorizeTopics(r.Context(), user.ID, topics)
+		if err != nil {
 			return err
 		}
 
-		sub, err := b.subscribe(user.ID, sessions.SessionKey(r), topics)
+		sub, err := b.subscribe(user.ID, sessions.SessionKey(r), allowed)
 		switch {
 		case errors.Is(err, ErrTooManyConnections):
 			w.Header().Set("Retry-After", "30")
@@ -72,13 +82,13 @@ func (b *Broker) Handler(sessions Sessions) http.Handler {
 		if err != nil {
 			return err
 		}
-		if err := stream.Send(Event{Type: "ready", Data: map[string][]string{"topics": topics}}); err != nil {
+		if err := stream.Send(Event{Type: "ready", Data: readyData{Topics: allowed, Rejected: rejected}}); err != nil {
 			return nil // el cliente ya se fue
 		}
 
 		heartbeat := time.NewTicker(heartbeatInterval)
 		defer heartbeat.Stop()
-		lifetime := time.NewTimer(maxStreamLifetime)
+		lifetime := time.NewTimer(streamLifetime())
 		defer lifetime.Stop()
 		for {
 			select {
@@ -106,9 +116,15 @@ func (b *Broker) Handler(sessions Sessions) http.Handler {
 	})
 }
 
+// readyData es el contenido del evento ready.
+type readyData struct {
+	Topics   []string `json:"topics"`
+	Rejected []string `json:"rejected"`
+}
+
 // parseTopics lee la lista de temas, sin repetidos.
 func parseTopics(raw string) ([]string, error) {
-	topics := []string{} // vacía, no nil: el evento ready envía [] y no null
+	var topics []string
 	for t := range strings.SplitSeq(raw, ",") {
 		t = strings.TrimSpace(t)
 		if t != "" && !slices.Contains(topics, t) {

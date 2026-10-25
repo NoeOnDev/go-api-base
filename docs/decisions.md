@@ -223,7 +223,7 @@ Server-Sent Events, con la librería estándar, en lugar de WebSockets:
 - **Los WebSockets hacen falta** cuando el navegador envía mucho y muy seguido (un dibujo colaborativo). Ese caso necesita además resolver ediciones simultáneas, que depende de cada proyecto, así que se agregan ahí.
 
 Decisiones:
-- **Los temas necesitan un autorizador:** un tema sin autorizador se rechaza, así no se puede escuchar lo ajeno inventando un nombre.
+- **Los temas necesitan un autorizador:** un tema sin autorizador se rechaza, así no se puede escuchar lo ajeno inventando un nombre. Un tema rechazado no corta la conexión: se informa en el evento `ready`, y el usuario sigue recibiendo su canal. Así, si lo sacan de un proyecto, no pierde sus notificaciones y el frontend sabe qué tema perdió.
 - **No se reenvían los eventos perdidos.** Al reconectarse, el frontend pide el estado por REST: es más simple y no pierde nada, porque la fuente de verdad es la base.
 - **Un stream no sobrevive a su sesión:** se corta en el acto con el logout o cuando auth cierra las demás sesiones (contraseña, 2FA), se revisa la sesión con cada latido y dura como mucho 15 minutos. Sin esto, alguien con una sesión robada seguiría recibiendo eventos después de que el dueño recupera la contraseña.
 - **El stream quita el `WriteTimeout` solo para su petición**, y al apagar la API se cierran todos (`RegisterOnShutdown`); si no, el apagado esperaría hasta el timeout.

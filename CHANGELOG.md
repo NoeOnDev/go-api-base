@@ -9,6 +9,28 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.4.1] - 2026-10-24
+
+Correcciones de la revisión de v0.4.0.
+
+### Corregido
+
+- **Un stream de `GET /events` sobrevivía a su sesión.** La sesión se revisaba solo al conectarse, y el latido mantenía viva la conexión: alguien con una sesión robada seguía recibiendo eventos después de que el dueño recuperaba la contraseña, incluido el aviso `password_changed`. Ahora:
+  - se corta en el acto con el logout de esa sesión, y cuando auth cierra las demás sesiones del usuario (cambio o recuperación de contraseña, 2FA), antes del aviso de seguridad;
+  - se revisa la sesión con cada latido (cada 25 segundos);
+  - dura como mucho 15 minutos: al reconectarse, se vuelven a revisar la sesión y los permisos de los temas.
+
+### Agregado
+
+- `auth.Options.SessionWatcher` (lo implementa el broker), `auth.Service.SessionKey` y `CheckSession`.
+- `broker.DisconnectUser`, para quitarle a alguien el acceso a un tema al instante.
+- La limpieza periódica borra las notificaciones leídas hace más de 90 días.
+- `docs/encryption.md`: antes de quitar una clave anterior, confirmar que no queden correos en la cola.
+
+### Cambiado
+
+- `realtime.Broker.Handler` recibe la interfaz `realtime.Sessions` (en la plantilla, el servicio de auth).
+
 ## [v0.4.0] - 2026-10-24
 
 Trabajos en segundo plano, tiempo real y notificaciones: lo que en Laravel resuelven las colas, el scheduler, Reverb y las notificaciones.

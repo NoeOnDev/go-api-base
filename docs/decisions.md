@@ -225,6 +225,7 @@ Server-Sent Events, con la librería estándar, en lugar de WebSockets:
 Decisiones:
 - **Los temas necesitan un autorizador:** un tema sin autorizador se rechaza, así no se puede escuchar lo ajeno inventando un nombre.
 - **No se reenvían los eventos perdidos.** Al reconectarse, el frontend pide el estado por REST: es más simple y no pierde nada, porque la fuente de verdad es la base.
+- **Un stream no sobrevive a su sesión:** se corta en el acto con el logout o cuando auth cierra las demás sesiones (contraseña, 2FA), se revisa la sesión con cada latido y dura como mucho 15 minutos. Sin esto, alguien con una sesión robada seguiría recibiendo eventos después de que el dueño recupera la contraseña.
 - **El stream quita el `WriteTimeout` solo para su petición**, y al apagar la API se cierran todos (`RegisterOnShutdown`); si no, el apagado esperaría hasta el timeout.
 - **Límites de 10 conexiones por usuario y 1000 en total**, porque cada una es un socket y una goroutine abiertos. Cada conexión ocupa unos 11 KB.
 - **El broker vive en memoria:** alcanza para una instancia. Con varias, se reparte con `LISTEN/NOTIFY` (ver `docs/realtime.md`).

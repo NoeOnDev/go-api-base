@@ -128,6 +128,7 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - Publicar con `broker.PublishToUser` (datos del usuario) o `broker.Publish` en un tema (datos compartidos), **después**
   de guardar (y del `Commit`). Para una notificación que quede guardada, `notifications.Service.Notify`.
 - Cada tipo de tema nuevo necesita `broker.Authorize("tipo", …)` con el control de permiso; sin eso, se rechaza.
+  Al quitarle a alguien el acceso, llamar a `broker.DisconnectUser` para que deje de escuchar en el acto.
 - Para transmitir una respuesta larga (un agente de IA), `realtime.Open` y `stream.Send`. Después de `Open` los errores
   van como evento, no como JSON.
 

@@ -80,10 +80,23 @@ type Options struct {
 	// TrustProxy toma la IP del cliente de X-Forwarded-For (detrás de Caddy o Nginx).
 	// Se usa en el correo que avisa de códigos del 2FA incorrectos.
 	TrustProxy bool
+	// SessionWatcher se entera cuando auth cierra sesiones, para cortar lo que dependía de ellas.
+	// Es opcional. En la plantilla lo implementa el broker de internal/realtime, que corta los
+	// streams de GET /events abiertos con esas sesiones.
+	SessionWatcher SessionWatcher
 	// Notifier recibe los avisos de seguridad de la cuenta (contraseña cambiada, 2FA activado
 	// o desactivado). Es opcional: si es nil, auth no notifica. En la plantilla lo implementa
 	// internal/notifications, así auth no depende de ese módulo.
 	Notifier Notifier
+}
+
+// SessionWatcher recibe los cierres de sesión. sessionKey es la de Service.SessionKey.
+type SessionWatcher interface {
+	// SessionEnded avisa que se cerró una sesión (logout).
+	SessionEnded(ctx context.Context, sessionKey string)
+	// UserSessionsEnded avisa que se cerraron todas las sesiones del usuario salvo
+	// keepSessionKey (vacío: todas).
+	UserSessionsEnded(ctx context.Context, userID int64, keepSessionKey string)
 }
 
 // Notifier envía una notificación a un usuario (ver internal/notifications).

@@ -8,6 +8,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 const countNotifications = `-- name: CountNotifications :one
@@ -63,6 +64,20 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const deleteReadNotificationsBefore = `-- name: DeleteReadNotificationsBefore :execrows
+DELETE FROM notifications
+WHERE read_at < $1::timestamptz
+`
+
+// DeleteReadNotificationsBefore borra las leídas antes de la fecha (la limpieza periódica).
+func (q *Queries) DeleteReadNotificationsBefore(ctx context.Context, before time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteReadNotificationsBefore, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const listNotifications = `-- name: ListNotifications :many

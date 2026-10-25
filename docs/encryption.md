@@ -68,7 +68,12 @@ Cada dato cifrado lleva el identificador de su clave (`52bf1807:…`), así la A
 
    Si algo sigue dependiendo de la clave anterior, el comando termina con error.
 4. **Códigos de recuperación:** no se pueden volver a calcular sin el código original (por eso son seguros). Los usuarios que el reporte indique tienen que **regenerarlos desde su perfil** (`POST /auth/two-factor/recovery-codes`). Mientras tanto, sus códigos viejos siguen funcionando.
-5. **Cuando el reporte diga "Listo"**, quitá la clave de `ENCRYPTION_PREVIOUS_KEYS` y reiniciá.
+5. **Cuando el reporte diga "Listo"**, quitá la clave de `ENCRYPTION_PREVIOUS_KEYS` y reiniciá. Antes, confirmá que no queden correos esperando en la cola: se guardan cifrados, y uno cifrado con la clave que quitás ya no se puede enviar (se cancela). Normalmente salen en segundos; si el SMTP estuvo caído, puede haber alguno reintentándose:
+
+   ```sql
+   SELECT count(*) FROM river_job
+   WHERE kind = 'send_email' AND state IN ('available', 'retryable', 'scheduled', 'running');
+   ```
 
 Si no podés esperar a que todos regeneren sus códigos (por ejemplo, porque la clave se filtró), podés quitarla igual. Esos usuarios pierden sus códigos de recuperación viejos, pero **su app de autenticación sigue funcionando**, porque su secreto ya está con la clave nueva. Pueden generar códigos nuevos desde su perfil.
 

@@ -29,3 +29,8 @@ RETURNING id, user_id, kind, data, read_at, created_at;
 UPDATE notifications
 SET read_at = now()
 WHERE user_id = $1 AND read_at IS NULL;
+
+-- DeleteReadNotificationsBefore borra las leídas antes de la fecha (la limpieza periódica).
+-- name: DeleteReadNotificationsBefore :execrows
+DELETE FROM notifications
+WHERE read_at < sqlc.arg('before')::timestamptz;

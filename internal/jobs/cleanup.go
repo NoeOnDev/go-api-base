@@ -11,10 +11,14 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
-// CleanupArgs es el trabajo que borra las sesiones y los tokens vencidos. Corre cada hora
-// (ver periodicJobs). Los vencidos ya no sirven, porque las consultas filtran por expires_at;
-// borrarlos solo evita que las tablas crezcan sin límite.
+// CleanupArgs es el trabajo que borra lo que ya no sirve, para que las tablas no crezcan sin
+// límite. Corre cada hora (ver periodicJobs):
+//   - las sesiones y los tokens vencidos (las consultas ya los ignoran, por expires_at);
+//   - las notificaciones leídas hace más de notificationRetention. Las no leídas no se tocan.
 type CleanupArgs struct{}
+
+// notificationRetention es cuánto se guarda una notificación después de leída.
+const notificationRetention = 90 * 24 * time.Hour
 
 func (CleanupArgs) Kind() string { return "cleanup" }
 
@@ -38,8 +42,12 @@ func (w *cleanupWorker) Work(ctx context.Context, job *river.Job[CleanupArgs]) e
 	if err != nil {
 		return fmt.Errorf("borrar tokens vencidos: %w", err)
 	}
-	if sessions+tokens > 0 {
-		w.logger.Info("limpieza", "sesiones", sessions, "tokens", tokens)
+	notifications, err := w.q.DeleteReadNotificationsBefore(ctx, time.Now().Add(-notificationRetention))
+	if err != nil {
+		return fmt.Errorf("borrar notificaciones viejas: %w", err)
+	}
+	if sessions+tokens+notifications > 0 {
+		w.logger.Info("limpieza", "sesiones", sessions, "tokens", tokens, "notificaciones", notifications)
 	}
 	return nil
 }

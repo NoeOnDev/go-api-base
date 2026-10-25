@@ -103,6 +103,9 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	if err := s.q.DeleteUserSessions(r.Context(), userID); err != nil {
 		return fmt.Errorf("cerrar sesiones: %w", err)
 	}
+	if s.opts.SessionWatcher != nil {
+		s.opts.SessionWatcher.UserSessionsEnded(r.Context(), userID, "")
+	}
 	u, err := s.q.GetUserByID(r.Context(), userID)
 	if err != nil {
 		return fmt.Errorf("buscar usuario %d: %w", userID, err)

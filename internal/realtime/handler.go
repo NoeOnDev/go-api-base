@@ -11,9 +11,22 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
 
-// heartbeatInterval es cada cuánto se envía un latido. Los proxies suelen cortar una conexión
-// sin tráfico al minuto (Nginx, por defecto); 25 segundos queda bien por debajo.
+// heartbeatInterval es cada cuánto se envía un latido y se revisa que la sesión siga vigente.
+// Los proxies suelen cortar una conexión sin tráfico al minuto (Nginx, por defecto); 25 segundos
+// queda bien por debajo.
 var heartbeatInterval = 25 * time.Second
+
+// maxStreamLifetime es cuánto dura como mucho un stream. Al cortarse, el navegador se reconecta
+// solo, y en la reconexión se vuelven a revisar la sesión y los permisos de cada tema: así, a
+// quien le quitaron el acceso a un tema deja de escucharlo aunque nadie lo desconecte.
+var maxStreamLifetime = 15 * time.Minute
+
+// Sessions es lo que el stream necesita de auth (lo implementa auth.Service): saber con qué
+// sesión se abrió, y revisar con cada latido que siga vigente (no se cerró ni venció).
+type Sessions interface {
+	SessionKey(r *http.Request) string
+	CheckSession(r *http.Request) error
+}
 
 // maxTopics es cuántos temas puede escuchar una conexión.
 const maxTopics = 20
@@ -23,7 +36,10 @@ const maxTopics = 20
 //
 // El primer evento es "ready", con los temas que se escuchan. Al reconectarse, el frontend
 // tiene que volver a pedir el estado por REST: los eventos de mientras no se reenvían.
-func (b *Broker) Handler() http.Handler {
+//
+// El stream se corta cuando se cierra su sesión: en el acto si auth avisa (SessionEnded,
+// UserSessionsEnded), y si no, en el próximo latido. Y dura como mucho maxStreamLifetime.
+func (b *Broker) Handler(sessions Sessions) http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		user := auth.MustUser(r.Context())
 
@@ -38,7 +54,7 @@ func (b *Broker) Handler() http.Handler {
 			return err
 		}
 
-		sub, err := b.subscribe(user.ID, topics)
+		sub, err := b.subscribe(user.ID, sessions.SessionKey(r), topics)
 		switch {
 		case errors.Is(err, ErrTooManyConnections):
 			w.Header().Set("Retry-After", "30")
@@ -62,17 +78,26 @@ func (b *Broker) Handler() http.Handler {
 
 		heartbeat := time.NewTicker(heartbeatInterval)
 		defer heartbeat.Stop()
+		lifetime := time.NewTimer(maxStreamLifetime)
+		defer lifetime.Stop()
 		for {
 			select {
 			case <-r.Context().Done():
 				return nil // el cliente cerró la conexión
 			case <-sub.closed:
-				return nil // cliente lento, o la API se apaga: el navegador se reconecta solo
+				return nil // sesión cerrada, cliente lento o la API se apaga
+			case <-lifetime.C:
+				return nil // el navegador se reconecta, y ahí se revisa todo de nuevo
 			case ev := <-sub.events:
 				if err := stream.Send(ev); err != nil {
 					return nil
 				}
 			case <-heartbeat.C:
+				// Una sesión cerrada o vencida corta el stream. Al reconectarse recibe 401, y el
+				// EventSource del navegador deja de intentar (el frontend lo ve en onerror).
+				if err := sessions.CheckSession(r); err != nil {
+					return nil
+				}
 				if err := stream.Comment("ping"); err != nil {
 					return nil
 				}

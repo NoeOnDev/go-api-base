@@ -14,7 +14,7 @@ La plantilla usa [River](https://riverqueue.com), una cola de trabajos guardada 
 | Trabajo | Cola | Qué hace |
 |---|---|---|
 | `send_email` | `email` | Envía los correos. Hasta 5 intentos, con el contenido cifrado (ver abajo) |
-| `cleanup` | `default` | Cada hora borra las sesiones y los tokens vencidos |
+| `cleanup` | `default` | Cada hora borra las sesiones y los tokens vencidos, y las notificaciones leídas hace más de 90 días |
 
 Hay dos colas, cada una con su propio límite de workers, así un trabajo lento en una no frena a la otra:
 

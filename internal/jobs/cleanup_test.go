@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
@@ -33,6 +34,17 @@ func TestCleanupDeletesOnlyExpired(t *testing.T) {
 		}
 	}
 
+	// Notificaciones: leída hace 100 días (se borra), leída hace 10 días y sin leer de hace un año.
+	for _, n := range []struct {
+		readAt  string
+		created string
+	}{{"now() - interval '100 days'", "now() - interval '100 days'"}, {"now() - interval '10 days'", "now()"}, {"NULL", "now() - interval '365 days'"}} {
+		sql := fmt.Sprintf("INSERT INTO notifications (user_id, kind, read_at, created_at) VALUES ($1, 'x', %s, %s)", n.readAt, n.created)
+		if _, err := pool.Exec(t.Context(), sql, u.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	driver := riverpgxv5.New(pool)
 	worker := rivertest.NewWorker(t, driver, &river.Config{}, &cleanupWorker{q: q, logger: slog.New(slog.DiscardHandler)})
 	tx, err := pool.Begin(t.Context())
@@ -56,6 +68,9 @@ func TestCleanupDeletesOnlyExpired(t *testing.T) {
 	}
 	if n := count("user_tokens"); n != 1 {
 		t.Errorf("quedaron %d tokens, se esperaba solo el vigente", n)
+	}
+	if n := count("notifications"); n != 2 {
+		t.Errorf("quedaron %d notificaciones, se esperaban la leída reciente y la no leída", n)
 	}
 }
 

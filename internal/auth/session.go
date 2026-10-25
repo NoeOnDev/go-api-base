@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -82,8 +83,12 @@ func (s *Service) StartSession(ctx context.Context, w http.ResponseWriter, userI
 // EndSession borra la sesión de la petición (si hay) y le indica al navegador que borre la cookie.
 func (s *Service) EndSession(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	if c, err := r.Cookie(s.cookieName(CookieName)); err == nil {
-		if err := s.q.DeleteSession(ctx, hashToken(c.Value)); err != nil {
+		hash := hashToken(c.Value)
+		if err := s.q.DeleteSession(ctx, hash); err != nil {
 			return fmt.Errorf("borrar sesión: %w", err)
+		}
+		if s.opts.SessionWatcher != nil {
+			s.opts.SessionWatcher.SessionEnded(ctx, hex.EncodeToString(hash))
 		}
 	}
 
@@ -91,6 +96,25 @@ func (s *Service) EndSession(ctx context.Context, w http.ResponseWriter, r *http
 	expired.MaxAge = -1
 	http.SetCookie(w, expired)
 	return nil
+}
+
+// SessionKey identifica la sesión de la petición, o devuelve "" si no hay cookie. Es el hash
+// del token (el mismo que se guarda en la base), así que no sirve para iniciar sesión.
+// La usan los streams de GET /events para cortarse cuando se cierra su sesión.
+func (s *Service) SessionKey(r *http.Request) string {
+	c, err := r.Cookie(s.cookieName(CookieName))
+	if err != nil {
+		return ""
+	}
+	return hex.EncodeToString(hashToken(c.Value))
+}
+
+// CheckSession comprueba que la sesión de la petición siga vigente: que no se haya cerrado ni
+// vencido, y que el usuario exista. Sirve para las conexiones largas, que pasaron por
+// RequireUser al abrirse pero siguen abiertas después (ver internal/realtime).
+func (s *Service) CheckSession(r *http.Request) error {
+	_, err := s.userFromRequest(r)
+	return err
 }
 
 // userFromRequest busca el usuario de la sesión enviada en la cookie.

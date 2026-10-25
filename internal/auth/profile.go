@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -106,11 +107,15 @@ func (s *Service) endOtherSessions(r *http.Request, userID int64) error {
 	if err != nil {
 		return fmt.Errorf("leer la cookie de sesión: %w", err)
 	}
+	hash := hashToken(c.Value)
 	if err := s.q.DeleteOtherSessions(r.Context(), store.DeleteOtherSessionsParams{
 		UserID:    userID,
-		TokenHash: hashToken(c.Value),
+		TokenHash: hash,
 	}); err != nil {
 		return fmt.Errorf("cerrar otras sesiones: %w", err)
+	}
+	if s.opts.SessionWatcher != nil {
+		s.opts.SessionWatcher.UserSessionsEnded(r.Context(), userID, hex.EncodeToString(hash))
 	}
 	return nil
 }

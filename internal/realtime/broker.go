@@ -54,11 +54,12 @@ type Broker struct {
 
 // subscription es una conexión abierta de GET /events.
 type subscription struct {
-	userID   int64
-	channels []string
-	events   chan Event
-	closed   chan struct{}
-	once     sync.Once
+	userID     int64
+	sessionKey string // la sesión con la que se abrió (ver auth.Service.SessionKey)
+	channels   []string
+	events     chan Event
+	closed     chan struct{}
+	once       sync.Once
 }
 
 func (s *subscription) close() { s.once.Do(func() { close(s.closed) }) }
@@ -112,6 +113,41 @@ func (b *Broker) PublishToUser(ctx context.Context, userID int64, ev Event) {
 	b.Publish(ctx, UserChannel(userID), ev)
 }
 
+// SessionEnded corta los streams abiertos con esa sesión. Auth lo llama en el logout
+// (el broker implementa auth.SessionWatcher).
+func (b *Broker) SessionEnded(_ context.Context, sessionKey string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, subs := range b.channels {
+		for sub := range subs {
+			if sub.sessionKey == sessionKey {
+				sub.close()
+			}
+		}
+	}
+}
+
+// UserSessionsEnded corta los streams del usuario abiertos con otras sesiones que no sean
+// keepSessionKey (vacío: todas). Auth lo llama cuando cierra sesiones del usuario: al cambiar o
+// recuperar la contraseña y al activar o desactivar el 2FA. Así, quien tenía una sesión robada
+// deja de recibir eventos en el acto, antes del aviso de "se cambió tu contraseña".
+func (b *Broker) UserSessionsEnded(_ context.Context, userID int64, keepSessionKey string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for sub := range b.channels[UserChannel(userID)] {
+		if keepSessionKey == "" || sub.sessionKey != keepSessionKey {
+			sub.close()
+		}
+	}
+}
+
+// DisconnectUser corta todos los streams del usuario. Sirve para quitarle el acceso a un tema
+// al instante (por ejemplo, al sacarlo de un proyecto): el navegador se reconecta solo, y en la
+// reconexión se vuelven a revisar sus permisos.
+func (b *Broker) DisconnectUser(ctx context.Context, userID int64) {
+	b.UserSessionsEnded(ctx, userID, "")
+}
+
 // Done se cierra cuando el broker se cierra (al apagar la API). Un stream largo que no use el
 // broker, como la respuesta de un agente de IA, puede escucharlo para terminar a tiempo.
 func (b *Broker) Done() <-chan struct{} { return b.done }
@@ -155,9 +191,9 @@ func (b *Broker) authorizeTopics(ctx context.Context, userID int64, topics []str
 	return nil
 }
 
-// subscribe abre una conexión del usuario, que escucha su canal y los temas indicados
-// (ya autorizados).
-func (b *Broker) subscribe(userID int64, topics []string) (*subscription, error) {
+// subscribe abre una conexión del usuario con la sesión indicada, que escucha su canal y los
+// temas indicados (ya autorizados).
+func (b *Broker) subscribe(userID int64, sessionKey string, topics []string) (*subscription, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -171,10 +207,11 @@ func (b *Broker) subscribe(userID int64, topics []string) (*subscription, error)
 	}
 
 	sub := &subscription{
-		userID:   userID,
-		channels: append([]string{UserChannel(userID)}, topics...),
-		events:   make(chan Event, subscriptionBuffer),
-		closed:   make(chan struct{}),
+		userID:     userID,
+		sessionKey: sessionKey,
+		channels:   append([]string{UserChannel(userID)}, topics...),
+		events:     make(chan Event, subscriptionBuffer),
+		closed:     make(chan struct{}),
 	}
 	for _, ch := range sub.channels {
 		if b.channels[ch] == nil {

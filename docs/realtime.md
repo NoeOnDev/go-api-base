@@ -18,6 +18,10 @@ Cubre los casos más comunes:
   - **los temas que pida**, como `/events?topics=project:42,board:7`, si tiene permiso.
 - El primer evento es **`ready`**, con los temas que escucha: `{"topics": ["project:42"]}`.
 - Cada 25 segundos llega un latido (un comentario SSE, que el navegador ignora), para que el proxy no corte la conexión.
+- **El stream se corta cuando se cierra su sesión:**
+  - en el acto, con el logout de esa sesión, o cuando se cierran las demás sesiones del usuario (al cambiar o recuperar la contraseña y al activar o desactivar el 2FA). Así, quien tenga una sesión robada deja de recibir eventos antes del aviso de "se cambió tu contraseña";
+  - en el próximo latido (25 segundos como mucho), si la sesión venció o se borró por otro lado;
+  - y a los 15 minutos de todos modos. El navegador se reconecta solo, y en la reconexión se vuelven a revisar la sesión y los permisos de cada tema.
 - **No se reenvían los eventos perdidos.** Si la conexión se corta, el navegador se reconecta solo y vuelve a recibir `ready`: ahí el frontend tiene que pedir el estado por REST. La fuente de verdad es siempre la base; los eventos solo avisan que algo cambió.
 
 ### Lo que ya publica la plantilla
@@ -55,6 +59,16 @@ events.addEventListener("note.updated", (e) => {
 
 `withCredentials: true` hace falta solo si el frontend está en otro dominio (con CORS configurado). En el mismo dominio, la cookie viaja sola.
 
+**Si la sesión se cerró**, la reconexión recibe `401` y el `EventSource` deja de intentar: queda con `readyState === EventSource.CLOSED`. Ahí conviene mandar al usuario al login:
+
+```js
+events.onerror = () => {
+  if (events.readyState === EventSource.CLOSED) {
+    redirectToLogin();
+  }
+};
+```
+
 **Para escuchar un tema**, abrí la conexión con `?topics=`. Si el usuario entra a otro tablero, cerrá la conexión (`events.close()`) y abrí otra con el tema nuevo.
 
 ## Publicar eventos
@@ -90,6 +104,8 @@ broker.Authorize("project", func(ctx context.Context, userID int64, id string) (
 ```
 
 El canal del usuario (`user:<id>`) no se puede pedir como tema: cada uno escucha solo el suyo.
+
+**Al quitarle a alguien el acceso** (por ejemplo, sacarlo de un proyecto), llamá a `broker.DisconnectUser(ctx, userID)`: se reconecta solo, y como ya no tiene permiso, el tema se rechaza. Si no lo hacés, deja de escucharlo igual a los 15 minutos, cuando su stream se renueva.
 
 ## Transmitir la respuesta de un agente de IA
 

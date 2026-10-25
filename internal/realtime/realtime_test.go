@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,30 +48,30 @@ func TestBrokerLimits(t *testing.T) {
 	b := NewBroker()
 	b.maxPerUser, b.maxTotal = 2, 3
 
-	a1, _ := b.subscribe(1, nil)
-	if _, err := b.subscribe(1, nil); err != nil {
+	a1, _ := b.subscribe(1, "s1", nil)
+	if _, err := b.subscribe(1, "s1", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.subscribe(1, nil); !errors.Is(err, ErrTooManyConnections) {
+	if _, err := b.subscribe(1, "s1", nil); !errors.Is(err, ErrTooManyConnections) {
 		t.Errorf("tercera conexión del usuario: %v", err)
 	}
-	if _, err := b.subscribe(2, nil); err != nil {
+	if _, err := b.subscribe(2, "s2", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.subscribe(3, nil); !errors.Is(err, ErrTooManyConnections) {
+	if _, err := b.subscribe(3, "s3", nil); !errors.Is(err, ErrTooManyConnections) {
 		t.Errorf("superado el total: %v", err)
 	}
 
 	// Al cerrar una conexión se libera su lugar.
 	b.unsubscribe(a1)
-	if _, err := b.subscribe(3, nil); err != nil {
+	if _, err := b.subscribe(3, "s3", nil); err != nil {
 		t.Errorf("después de liberar un lugar: %v", err)
 	}
 }
 
 func TestBrokerClosesSlowSubscriber(t *testing.T) {
 	b := NewBroker()
-	sub, _ := b.subscribe(1, nil)
+	sub, _ := b.subscribe(1, "s1", nil)
 
 	// Nadie lee: al llenarse el buffer, la conexión se cierra en lugar de frenar a los demás.
 	for range subscriptionBuffer + 1 {
@@ -85,7 +86,7 @@ func TestBrokerClosesSlowSubscriber(t *testing.T) {
 
 func TestBrokerClose(t *testing.T) {
 	b := NewBroker()
-	sub, _ := b.subscribe(1, nil)
+	sub, _ := b.subscribe(1, "s1", nil)
 	b.Close()
 	b.Close() // cerrar dos veces no falla
 
@@ -94,16 +95,45 @@ func TestBrokerClose(t *testing.T) {
 	default:
 		t.Error("Close debería cerrar las conexiones abiertas")
 	}
-	if _, err := b.subscribe(1, nil); !errors.Is(err, ErrClosed) {
+	if _, err := b.subscribe(1, "s1", nil); !errors.Is(err, ErrClosed) {
 		t.Errorf("después de Close: %v", err)
 	}
 }
 
+// fakeSessions reemplaza a auth: la sesión es el encabezado X-Test-Session, y las que estén en
+// ended se consideran cerradas.
+type fakeSessions struct {
+	mu    sync.Mutex
+	ended map[string]bool
+}
+
+func (f *fakeSessions) SessionKey(r *http.Request) string { return r.Header.Get("X-Test-Session") }
+
+func (f *fakeSessions) CheckSession(r *http.Request) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ended[f.SessionKey(r)] {
+		return errors.New("sesión cerrada")
+	}
+	return nil
+}
+
+func (f *fakeSessions) end(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ended[key] = true
+}
+
 // testServer levanta el handler en un servidor HTTP real, con el WriteTimeout indicado.
-// El usuario se elige con el encabezado X-Test-User (en la app lo pone RequireUser).
-func testServer(t *testing.T, b *Broker, writeTimeout time.Duration) *httptest.Server {
+// El usuario se elige con el encabezado X-Test-User (en la app lo pone RequireUser), y la
+// sesión con X-Test-Session (por defecto, "s<usuario>").
+func testServer(t *testing.T, b *Broker, writeTimeout time.Duration, sessions ...*fakeSessions) *httptest.Server {
 	t.Helper()
-	h := b.Handler()
+	fs := &fakeSessions{ended: map[string]bool{}}
+	if len(sessions) > 0 {
+		fs = sessions[0]
+	}
+	h := b.Handler(fs)
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, _ := strconv.ParseInt(r.Header.Get("X-Test-User"), 10, 64)
 		h.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), auth.User{ID: id})))
@@ -115,10 +145,15 @@ func testServer(t *testing.T, b *Broker, writeTimeout time.Duration) *httptest.S
 	return srv
 }
 
-func connect(t *testing.T, srv *httptest.Server, userID int64, query string) (*http.Response, *ssetest.Reader) {
+func connect(t *testing.T, srv *httptest.Server, userID int64, query string, session ...string) (*http.Response, *ssetest.Reader) {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/events"+query, nil)
 	req.Header.Set("X-Test-User", strconv.FormatInt(userID, 10))
+	key := "s" + strconv.FormatInt(userID, 10)
+	if len(session) > 0 {
+		key = session[0]
+	}
+	req.Header.Set("X-Test-Session", key)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -211,5 +246,79 @@ func TestShutdownClosesStreams(t *testing.T) {
 	}
 	if !r.Closed(time.Second) {
 		t.Error("el stream debería haberse cerrado al apagar")
+	}
+}
+
+func TestStreamsEndWithTheirSession(t *testing.T) {
+	b := NewBroker()
+	srv := testServer(t, b, 0)
+
+	// Ana tiene dos sesiones (dos dispositivos), y Luis una.
+	_, phone := connect(t, srv, 1, "", "telefono")
+	_, laptop := connect(t, srv, 1, "", "laptop")
+	_, luis := connect(t, srv, 2, "")
+	for _, r := range []*ssetest.Reader{phone, laptop, luis} {
+		r.Next(t, time.Second) // ready
+	}
+
+	// Logout en el teléfono: se corta solo ese stream.
+	b.SessionEnded(t.Context(), "telefono")
+	if !phone.Closed(time.Second) {
+		t.Error("el stream del teléfono debería cortarse con el logout")
+	}
+	if laptop.Closed(100 * time.Millisecond) {
+		t.Error("el stream de la laptop no debería cortarse")
+	}
+
+	// Ana cambia la contraseña desde la laptop: se cortan las demás sesiones, no la suya.
+	_, other := connect(t, srv, 1, "", "sesion-robada")
+	other.Next(t, time.Second)
+	b.UserSessionsEnded(t.Context(), 1, "laptop")
+	if !other.Closed(time.Second) {
+		t.Error("el stream de la otra sesión debería cortarse")
+	}
+	if laptop.Closed(100 * time.Millisecond) {
+		t.Error("el stream de la sesión que sigue no debería cortarse")
+	}
+
+	// Recuperar la contraseña cierra todas.
+	b.UserSessionsEnded(t.Context(), 1, "")
+	if !laptop.Closed(time.Second) {
+		t.Error("recuperar la contraseña debería cortar todos los streams del usuario")
+	}
+	if luis.Closed(100 * time.Millisecond) {
+		t.Error("los streams de otro usuario no se tocan")
+	}
+}
+
+func TestHeartbeatChecksSession(t *testing.T) {
+	old := heartbeatInterval
+	heartbeatInterval = 50 * time.Millisecond
+	t.Cleanup(func() { heartbeatInterval = old })
+
+	b := NewBroker()
+	sessions := &fakeSessions{ended: map[string]bool{}}
+	srv := testServer(t, b, 0, sessions)
+	_, r := connect(t, srv, 1, "")
+	r.Next(t, time.Second)
+
+	// La sesión se cerró sin avisar al broker (por ejemplo, venció o se borró con SQL):
+	// el próximo latido lo detecta y corta el stream.
+	sessions.end("s1")
+	if !r.Closed(time.Second) {
+		t.Error("el stream debería cortarse en el latido siguiente")
+	}
+}
+
+func TestStreamMaxLifetime(t *testing.T) {
+	old := maxStreamLifetime
+	maxStreamLifetime = 100 * time.Millisecond
+	t.Cleanup(func() { maxStreamLifetime = old })
+
+	srv := testServer(t, NewBroker(), 0)
+	_, r := connect(t, srv, 1, "")
+	r.Next(t, time.Second)
+	if !r.Closed(time.Second) {
+		t.Error("el stream debería cortarse al llegar a su vida máxima")
 	}
 }

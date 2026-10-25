@@ -19,7 +19,7 @@ sql:
         # Las columnas que admiten NULL se generan como punteros (*string) en lugar de pgtype.Text.
         emit_pointers_for_null_types: true
         # Siglas que se escriben en mayúsculas en los nombres de Go (UserID, TOTPSecret).
-        initialisms: ["id", "totp"]
+        initialisms: ["id", "totp", "ip"]
         overrides:
           # Las fechas se generan como time.Time en lugar de pgtype.Timestamptz,
           # y como *time.Time si la columna admite NULL.

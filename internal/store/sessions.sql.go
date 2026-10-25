@@ -11,18 +11,26 @@ import (
 )
 
 const createSession = `-- name: CreateSession :exec
-INSERT INTO sessions (token_hash, user_id, expires_at)
-VALUES ($1, $2, $3)
+INSERT INTO sessions (token_hash, user_id, expires_at, user_agent, ip)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type CreateSessionParams struct {
 	TokenHash []byte
 	UserID    int64
 	ExpiresAt time.Time
+	UserAgent string
+	IP        string
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
-	_, err := q.db.Exec(ctx, createSession, arg.TokenHash, arg.UserID, arg.ExpiresAt)
+	_, err := q.db.Exec(ctx, createSession,
+		arg.TokenHash,
+		arg.UserID,
+		arg.ExpiresAt,
+		arg.UserAgent,
+		arg.IP,
+	)
 	return err
 }
 
@@ -64,6 +72,27 @@ func (q *Queries) DeleteSession(ctx context.Context, tokenHash []byte) error {
 	return err
 }
 
+const deleteUserSession = `-- name: DeleteUserSession :one
+DELETE FROM sessions
+WHERE id = $1 AND user_id = $2 AND token_hash <> $3
+RETURNING token_hash
+`
+
+type DeleteUserSessionParams struct {
+	ID        int64
+	UserID    int64
+	TokenHash []byte
+}
+
+// DeleteUserSession cierra una sesión del usuario, salvo la indicada (la de la petición).
+// Devuelve el hash del token, para cortar lo que dependía de esa sesión (los streams).
+func (q *Queries) DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, deleteUserSession, arg.ID, arg.UserID, arg.TokenHash)
+	var token_hash []byte
+	err := row.Scan(&token_hash)
+	return token_hash, err
+}
+
 const deleteUserSessions = `-- name: DeleteUserSessions :exec
 DELETE FROM sessions
 WHERE user_id = $1
@@ -75,27 +104,88 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) error {
 }
 
 const getSessionUser = `-- name: GetSessionUser :one
-SELECT u.id, u.name, u.email, u.password_hash, u.role, u.email_verified_at, u.totp_secret, u.totp_enabled_at, u.totp_last_step, u.created_at, u.updated_at
+SELECT u.id, u.name, u.email, u.password_hash, u.role, u.email_verified_at, u.totp_secret, u.totp_enabled_at, u.totp_last_step, u.created_at, u.updated_at, s.id AS session_id, s.last_seen_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1 AND s.expires_at > now()
 `
 
-func (q *Queries) GetSessionUser(ctx context.Context, tokenHash []byte) (User, error) {
+type GetSessionUserRow struct {
+	User       User
+	SessionID  int64
+	LastSeenAt time.Time
+}
+
+// GetSessionUser busca la sesión vigente del token, con su usuario.
+func (q *Queries) GetSessionUser(ctx context.Context, tokenHash []byte) (GetSessionUserRow, error) {
 	row := q.db.QueryRow(ctx, getSessionUser, tokenHash)
-	var i User
+	var i GetSessionUserRow
 	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Email,
-		&i.PasswordHash,
-		&i.Role,
-		&i.EmailVerifiedAt,
-		&i.TOTPSecret,
-		&i.TOTPEnabledAt,
-		&i.TOTPLastStep,
-		&i.CreatedAt,
-		&i.UpdatedAt,
+		&i.User.ID,
+		&i.User.Name,
+		&i.User.Email,
+		&i.User.PasswordHash,
+		&i.User.Role,
+		&i.User.EmailVerifiedAt,
+		&i.User.TOTPSecret,
+		&i.User.TOTPEnabledAt,
+		&i.User.TOTPLastStep,
+		&i.User.CreatedAt,
+		&i.User.UpdatedAt,
+		&i.SessionID,
+		&i.LastSeenAt,
 	)
 	return i, err
+}
+
+const listUserSessions = `-- name: ListUserSessions :many
+SELECT id, user_agent, ip, created_at, last_seen_at
+FROM sessions
+WHERE user_id = $1 AND expires_at > now()
+ORDER BY last_seen_at DESC, id DESC
+`
+
+type ListUserSessionsRow struct {
+	ID         int64
+	UserAgent  string
+	IP         string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+}
+
+func (q *Queries) ListUserSessions(ctx context.Context, userID int64) ([]ListUserSessionsRow, error) {
+	rows, err := q.db.Query(ctx, listUserSessions, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserSessionsRow{}
+	for rows.Next() {
+		var i ListUserSessionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserAgent,
+			&i.IP,
+			&i.CreatedAt,
+			&i.LastSeenAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const touchSession = `-- name: TouchSession :exec
+UPDATE sessions
+SET last_seen_at = now()
+WHERE token_hash = $1
+`
+
+func (q *Queries) TouchSession(ctx context.Context, tokenHash []byte) error {
+	_, err := q.db.Exec(ctx, touchSession, tokenHash)
+	return err
 }

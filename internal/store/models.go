@@ -144,10 +144,14 @@ type RiverQueue struct {
 }
 
 type Session struct {
-	TokenHash []byte
-	UserID    int64
-	ExpiresAt time.Time
-	CreatedAt time.Time
+	TokenHash  []byte
+	ID         int64
+	UserID     int64
+	UserAgent  string
+	IP         string
+	ExpiresAt  time.Time
+	LastSeenAt time.Time
+	CreatedAt  time.Time
 }
 
 type User struct {

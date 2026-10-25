@@ -220,7 +220,7 @@ func TestRequireAdmin(t *testing.T) {
 			t.Fatalf("crear usuario: %v", err)
 		}
 		w := httptest.NewRecorder()
-		if err := service.StartSession(t.Context(), w, u.ID); err != nil {
+		if err := service.StartSession(w, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/login", nil), u.ID); err != nil {
 			t.Fatalf("iniciar sesión: %v", err)
 		}
 		return sessionCookie(t, w)

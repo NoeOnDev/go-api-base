@@ -39,7 +39,7 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := s.StartSession(r.Context(), w, u.ID); err != nil {
+	if err := s.StartSession(w, r, u.ID); err != nil {
 		return err
 	}
 
@@ -82,7 +82,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 		return s.startTwoFactorChallenge(w, r, u.ID)
 	}
 
-	if err := s.StartSession(r.Context(), w, u.ID); err != nil {
+	if err := s.StartSession(w, r, u.ID); err != nil {
 		return err
 	}
 

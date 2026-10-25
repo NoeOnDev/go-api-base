@@ -15,7 +15,7 @@ import (
 func newSession(t *testing.T, pool *pgxpool.Pool, userID int64) *http.Cookie {
 	t.Helper()
 	w := httptest.NewRecorder()
-	if err := auth.NewService(pool, auth.Options{}).StartSession(t.Context(), w, userID); err != nil {
+	if err := auth.NewService(pool, auth.Options{}).StartSession(w, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/login", nil), userID); err != nil {
 		t.Fatalf("iniciar sesión: %v", err)
 	}
 	return sessionCookie(t, w)

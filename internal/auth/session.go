@@ -9,10 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -59,19 +62,30 @@ func hashToken(token string) []byte {
 	return sum[:]
 }
 
-// StartSession crea una sesión para el usuario y envía la cookie.
-// Las sesiones vencidas las borra el trabajo periódico de limpieza (internal/jobs).
-func (s *Service) StartSession(ctx context.Context, w http.ResponseWriter, userID int64) error {
+// maxUserAgentLen es cuánto del user-agent se guarda con la sesión.
+const maxUserAgentLen = 512
+
+// touchInterval es cada cuánto se actualiza la última actividad de una sesión. Actualizarla en
+// cada petición sería una escritura en la base por petición; con 5 minutos alcanza para mostrar
+// "activa hace un rato" y para el vencimiento por inactividad.
+const touchInterval = 5 * time.Minute
+
+// StartSession crea una sesión para el usuario y envía la cookie. Guarda el navegador
+// (user-agent) y la IP de la petición, para que el usuario reconozca sus dispositivos en
+// GET /auth/sessions. Las sesiones vencidas las borra la limpieza periódica (internal/jobs).
+func (s *Service) StartSession(w http.ResponseWriter, r *http.Request, userID int64) error {
 	token, hash, err := newToken()
 	if err != nil {
 		return err
 	}
 
 	expires := time.Now().Add(s.opts.SessionTTL)
-	if err := s.q.CreateSession(ctx, store.CreateSessionParams{
+	if err := s.q.CreateSession(r.Context(), store.CreateSessionParams{
 		TokenHash: hash,
 		UserID:    userID,
 		ExpiresAt: expires,
+		UserAgent: truncate(strings.ToValidUTF8(r.UserAgent(), ""), maxUserAgentLen),
+		IP:        httpx.ClientIP(r, s.opts.TrustedProxies),
 	}); err != nil {
 		return fmt.Errorf("crear sesión: %w", err)
 	}
@@ -117,22 +131,59 @@ func (s *Service) CheckSession(r *http.Request) error {
 	return err
 }
 
-// userFromRequest busca el usuario de la sesión enviada en la cookie.
+// session es la sesión de una petición.
+type session struct {
+	id        int64
+	tokenHash []byte
+	user      User
+	lastSeen  time.Time
+}
+
+// sessionFromRequest busca la sesión enviada en la cookie, con su usuario.
 // Devuelve errNoSession si no hay cookie, la sesión no existe o venció.
-func (s *Service) userFromRequest(r *http.Request) (User, error) {
+func (s *Service) sessionFromRequest(r *http.Request) (session, error) {
 	c, err := r.Cookie(s.cookieName(CookieName))
 	if err != nil {
-		return User{}, errNoSession
+		return session{}, errNoSession
 	}
 
-	u, err := s.q.GetSessionUser(r.Context(), hashToken(c.Value))
+	hash := hashToken(c.Value)
+	row, err := s.q.GetSessionUser(r.Context(), hash)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, errNoSession
+		return session{}, errNoSession
 	}
 	if err != nil {
-		return User{}, fmt.Errorf("buscar sesión: %w", err)
+		return session{}, fmt.Errorf("buscar sesión: %w", err)
 	}
-	return toUser(u), nil
+	return session{id: row.SessionID, tokenHash: hash, user: toUser(row.User), lastSeen: row.LastSeenAt}, nil
+}
+
+// userFromRequest busca el usuario de la sesión enviada en la cookie.
+func (s *Service) userFromRequest(r *http.Request) (User, error) {
+	sess, err := s.sessionFromRequest(r)
+	return sess.user, err
+}
+
+// touch actualiza la última actividad de la sesión, como mucho cada touchInterval. Si falla,
+// solo se registra: no es motivo para rechazar la petición.
+func (s *Service) touch(r *http.Request, sess session) {
+	if time.Since(sess.lastSeen) < touchInterval {
+		return
+	}
+	if err := s.q.TouchSession(r.Context(), sess.tokenHash); err != nil {
+		httpx.LoggerFrom(r.Context()).Warn("no se pudo actualizar la actividad de la sesión", "error", err)
+	}
+}
+
+// truncate corta s a como mucho n bytes, sin partir un carácter.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // setChallengeCookie envía la cookie del desafío del 2FA, con la misma protección que la de sesión.

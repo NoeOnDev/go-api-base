@@ -10,6 +10,15 @@ import (
 
 type ctxKey struct{}
 
+// sessionIDKey guarda en el contexto el id de la sesión de la petición (ver currentSessionID).
+type sessionIDKey struct{}
+
+// currentSessionID devuelve el id de la sesión de la petición, en las rutas con sesión.
+func currentSessionID(ctx context.Context) int64 {
+	id, _ := ctx.Value(sessionIDKey{}).(int64)
+	return id
+}
+
 // RequireUser deja pasar solo peticiones con una sesión válida (si no, responde 401)
 // y guarda el usuario en el contexto. Los handlers lo obtienen con UserFrom o MustUser.
 //
@@ -39,18 +48,19 @@ var errEmailNotVerified = &httpx.Error{
 // que funcionar aunque el usuario todavía no haya confirmado su email.
 func (s *Service) requireSession(next http.Handler) http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		u, err := s.userFromRequest(r)
+		sess, err := s.sessionFromRequest(r)
 		if errors.Is(err, errNoSession) {
 			return httpx.Unauthorized("necesitás iniciar sesión")
 		}
 		if err != nil {
 			return err
 		}
+		s.touch(r, sess)
 
 		// Desde acá, cada línea de log de la petición (incluida la final) incluye el usuario.
-		httpx.AddLogAttrs(r.Context(), "user_id", u.ID)
+		httpx.AddLogAttrs(r.Context(), "user_id", sess.user.ID)
 
-		ctx := WithUser(r.Context(), u)
+		ctx := context.WithValue(WithUser(r.Context(), sess.user), sessionIDKey{}, sess.id)
 		next.ServeHTTP(w, r.WithContext(ctx))
 		return nil
 	})
@@ -61,7 +71,7 @@ func (s *Service) requireSession(next http.Handler) http.Handler {
 // muestran más datos a ciertos usuarios; en el handler se consulta con UserFrom.
 func (s *Service) OptionalUser(next http.Handler) http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		u, err := s.userFromRequest(r)
+		sess, err := s.sessionFromRequest(r)
 		if errors.Is(err, errNoSession) {
 			next.ServeHTTP(w, r)
 			return nil
@@ -69,9 +79,11 @@ func (s *Service) OptionalUser(next http.Handler) http.Handler {
 		if err != nil {
 			return err
 		}
+		s.touch(r, sess)
 
-		httpx.AddLogAttrs(r.Context(), "user_id", u.ID)
-		next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), u)))
+		httpx.AddLogAttrs(r.Context(), "user_id", sess.user.ID)
+		ctx := context.WithValue(WithUser(r.Context(), sess.user), sessionIDKey{}, sess.id)
+		next.ServeHTTP(w, r.WithContext(ctx))
 		return nil
 	})
 }

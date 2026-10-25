@@ -50,6 +50,11 @@ func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	handle("PUT /auth/me", s.requireSession(httpx.Handle(s.updateProfile)))
 	handle("PUT /auth/password", s.RequireUser(account(httpx.Handle(s.changePassword))))
 
+	// Sesiones por dispositivo: verlas y cerrar las que no se reconocen.
+	handle("GET /auth/sessions", s.requireSession(httpx.Handle(s.listSessions)))
+	handle("DELETE /auth/sessions/{id}", s.requireSession(account(httpx.Handle(s.revokeSession))))
+	handle("POST /auth/sessions/revoke-others", s.requireSession(account(httpx.Handle(s.revokeOtherSessions))))
+
 	// Recuperar la contraseña por correo.
 	handle("POST /auth/password/forgot", limits.Emails(httpx.Handle(s.forgotPassword)))
 	handle("POST /auth/password/reset", limits.Tokens(httpx.Handle(s.resetPassword)))

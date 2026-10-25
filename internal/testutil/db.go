@@ -109,7 +109,7 @@ func Login(t *testing.T, pool *pgxpool.Pool, email, role string, opts ...Option)
 	}
 
 	w := httptest.NewRecorder()
-	if err := service.StartSession(t.Context(), w, u.ID); err != nil {
+	if err := service.StartSession(w, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/login", nil), u.ID); err != nil {
 		t.Fatalf("iniciar sesión de %s: %v", email, err)
 	}
 

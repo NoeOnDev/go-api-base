@@ -121,7 +121,7 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 	if err := s.q.DeleteUserToken(r.Context(), tokenHash); err != nil {
 		return fmt.Errorf("borrar desafío del 2FA: %w", err)
 	}
-	if err := s.StartSession(r.Context(), w, userID); err != nil {
+	if err := s.StartSession(w, r, userID); err != nil {
 		return err
 	}
 	s.clearChallengeCookie(w)

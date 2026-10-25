@@ -79,6 +79,7 @@ vet: ## Busca errores comunes con go vet
 # -p 1 corre los paquetes de a uno: los tests de integración comparten la base de pruebas
 # y vacían tablas, así que en paralelo se pisarían entre sí.
 test: ## Corre los tests (los de base de datos usan TEST_DATABASE_URL)
+	@test -n "$(TEST_DATABASE_URL)" || echo "AVISO: TEST_DATABASE_URL no está definida: los tests de integración NO van a correr (se saltean). Ver .env.example."
 	go test -p 1 ./...
 
 .PHONY: vuln

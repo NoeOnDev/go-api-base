@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -36,6 +37,9 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
+		if requireTestDatabase(os.Getenv) {
+			t.Fatal("TEST_DATABASE_URL es obligatoria en CI: sin ella, los tests de integración no corren")
+		}
 		t.Skip("TEST_DATABASE_URL no está definida: se saltea el test de integración")
 	}
 	if err := checkTestDatabase(url, os.Getenv("DATABASE_URL")); err != nil {
@@ -118,6 +122,14 @@ func Login(t *testing.T, pool *pgxpool.Pool, email, role string, opts ...Option)
 	}
 	t.Fatal("no se generó la cookie de sesión")
 	return auth.User{}, nil
+}
+
+// requireTestDatabase indica si la falta de TEST_DATABASE_URL es un error. En CI lo es: si no,
+// el CI daría todo "ok" sin haber probado nada contra la base. GitHub Actions (y casi todos los
+// servicios de CI) definen CI=true.
+func requireTestDatabase(getenv func(string) string) bool {
+	ci, _ := strconv.ParseBool(getenv("CI"))
+	return ci
 }
 
 // checkTestDatabase evita que los tests borren datos reales por un error de configuración

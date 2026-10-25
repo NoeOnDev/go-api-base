@@ -65,6 +65,12 @@ El comentario `-- name: Nombre :tipo` define la función que se va a generar:
 **Patrones útiles**, todos con ejemplos en `products.sql`:
 - **Parámetros con nombre:** `sqlc.arg('limit')`.
 - **Filtros opcionales:** `(sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))`. sqlc genera un puntero, y `nil` significa "sin filtro".
+- **Búsqueda por texto:** `ILIKE '%' || $1 || '%'`, como en `products`, no usa índices: PostgreSQL recorre toda la tabla. Alcanza para unos miles de filas. Si crece, una migración con la extensión `pg_trgm` y un índice que sí sirve para esas búsquedas:
+
+  ```sql
+  CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  CREATE INDEX products_name_trgm_idx ON products USING gin (name gin_trgm_ops);
+  ```
 - **Datos de otra tabla:** un `JOIN`, nombrando las columnas con `AS` (`c.name AS category_name`).
 
 ## 3. Generar el código

@@ -190,9 +190,18 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 - **Tokens de un solo uso** para recuperar la contraseña y verificar el email: en la base solo se guarda su SHA-256, vencen, y se validan y borran en una sola operación, así que no se pueden usar dos veces.
 - **Las sesiones se cierran al cambiar o recuperar la contraseña**, por si alguien había entrado con la anterior.
 - **Una contraseña nueva corta los logins con 2FA a medio hacer:** al cambiarla o recuperarla se borran los desafíos pendientes, que se obtuvieron con la anterior. Al recuperarla, además, se reinicia el límite de intentos del 2FA del usuario, por si alguien con la contraseña vieja lo había agotado.
-- **Límites por IP** (las IPv6 se cuentan por bloque `/64`). Al superarlos se responde `429` con `Retry-After`:
-  - **Intentos:** login, registro, cambio de contraseña, reset, verificación y las rutas del 2FA. 5 seguidos y luego uno cada 12 segundos.
-  - **Correos:** `forgot` y `resend`. 3 seguidos y luego uno cada 5 minutos.
+- **Límites de peticiones por grupo de rutas**, cada uno por separado (el segundo paso del 2FA no gasta los intentos del login). Al superarlos se responde `429` con `Retry-After`. Los valores están juntos en `internal/server/routes.go`, para ajustarlos:
+
+  | Grupo | Rutas | Por | Límite |
+  |---|---|---|---|
+  | Login | `POST /auth/login` | IP | 20 seguidos, luego 1 cada 3 s |
+  | Registro | `POST /auth/register` | IP | 10 seguidos, luego 1 cada 10 s |
+  | 2FA | `POST /auth/two-factor/challenge` | IP | 20 seguidos, luego 1 cada 3 s |
+  | Tokens | `reset`, `email/verify` | IP | 10 seguidos, luego 1 cada 6 s |
+  | Correos | `forgot`, `resend` | IP | 10 seguidos, luego 1 por minuto |
+  | Cuenta | cambiar la contraseña y administrar el 2FA | **usuario** | 5 seguidos, luego 1 cada 12 s |
+
+  Los de IP son generosos porque muchas personas pueden compartir una IP (una oficina, una universidad, los datos móviles). Las IPv6 se cuentan por bloque `/64`. Los de cuenta van por usuario, así los usuarios detrás de una misma IP no se cruzan.
 - **Límites por usuario**, aunque los pedidos lleguen de muchas IPs:
   - **Login:** 10 intentos seguidos por email y luego uno por minuto. Cuenta también los emails que no existen, para no revelar cuáles están registrados. Recuperar la contraseña lo reinicia, aunque contra un ataque que sigue en curso eso no alcanza (ver [decisiones](decisions.md#límite-de-peticiones-en-memoria)).
   - **Código del 2FA:** 10 intentos seguidos y luego uno cada 6 minutos.

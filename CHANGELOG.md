@@ -9,6 +9,26 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.4.6] - 2026-10-24
+
+Correcciones de otra revisión del proyecto completo.
+
+### Corregido
+
+- **El límite por IP de `/auth` era uno solo para todas las rutas** (5 seguidos y uno cada 12 s): detrás de una IP compartida (una oficina, una universidad, CGNAT), los usuarios legítimos recibían `429`, y un login con 2FA gastaba dos intentos. Ahora cada grupo tiene su límite (login, registro, 2FA, tokens y correos), más generoso, y las acciones con sesión (cambiar la contraseña, el 2FA) se limitan por usuario. Los valores quedan juntos en `internal/server/routes.go`.
+- **`Recover` agregaba el JSON del error a una respuesta ya empezada**, por ejemplo a mitad de un stream SSE. Ahora registra el panic y corta la conexión.
+
+### Agregado
+
+- **`TRUSTED_PROXIES`:** las IPs o rangos CIDR exactos del proxy. Sin definirla, se sigue confiando en localhost y en toda red privada. Algunos proveedores tienen redes privadas compartidas entre clientes.
+- `docs/adding-a-resource.md`: `pg_trgm` para las búsquedas con `ILIKE` cuando la tabla crece.
+
+### Cambiado
+
+- `httpx.NewRateLimiter(every, burst)` ya no recibe los proxies: el middleware elige la clave (`MiddlewareByIP(proxies)` o `MiddlewareBy(clave)`).
+- `httpx.ClientIP(r, proxies)` y `auth.Options.TrustedProxies` reciben la lista de proxies de confianza, en lugar de un booleano.
+- `auth.Limits` tiene un campo por grupo de rutas.
+
 ## [v0.4.5] - 2026-10-24
 
 Correcciones de una revisión nueva del proyecto completo.

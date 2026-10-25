@@ -1,3 +1,5 @@
+-- La búsqueda con ILIKE '%…%' no usa índices; si la tabla crece, ver pg_trgm en
+-- docs/adding-a-resource.md.
 -- name: ListProducts :many
 SELECT p.id, p.category_id, c.name AS category_name, p.name, p.slug, p.description,
        p.price_cents, p.stock, p.active, p.created_at, p.updated_at

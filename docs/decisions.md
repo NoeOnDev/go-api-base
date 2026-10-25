@@ -129,7 +129,8 @@ Los orígenes de `CORS_ALLOWED_ORIGINS` se consideran confiables.
 
 Un token bucket (`golang.org/x/time/rate`) con cuatro usos:
 
-- **Por IP**, en las rutas de auth: intentos (login, registro, contraseñas, 2FA) y correos.
+- **Por IP**, en las rutas de auth sin sesión, uno por grupo (login, registro, 2FA, tokens, correos). Son generosos, porque detrás de una IP puede haber muchas personas (una oficina, CGNAT); sirven sobre todo contra quien prueba muchas cuentas desde una sola IP. Al principio había uno solo para todo, de 5 por minuto, y cortaba a usuarios legítimos.
+- **Por usuario**, en las acciones sensibles con sesión (cambiar la contraseña, el 2FA): ahí el ataque lo hace alguien con una sesión, y la IP no aporta nada.
 - **Por cuenta, en el login:** 10 intentos seguidos por email y luego uno por minuto, vengan de la IP que vengan. Cuenta también los emails que no existen, para no revelar cuáles están registrados.
 - **Por usuario, en el código del 2FA:** quien llega a ese paso ya tiene la contraseña y puede repartir sus intentos entre muchas IPs. Además, cada desafío admite 5 intentos (contados en la base, con un `UPDATE` atómico); después hay que volver a poner la contraseña, y se le avisa al usuario por correo.
 - **Por destinatario, en los correos:** desde muchas IPs tampoco se le pueden mandar decenas de correos a una persona. En "olvidé mi contraseña" el límite es silencioso, para no revelar qué emails existen, y no invalida el último enlace enviado.
@@ -140,7 +141,7 @@ El límite por cuenta tiene un costo: quien conozca un email puede bloquear ese 
 
 Si un proyecto necesita evitar ese bloqueo, la técnica habitual son las *device cookies* de OWASP: un dispositivo donde el usuario ya entró no cuenta para el límite.
 
-La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, y aun así **solo si la conexión viene de localhost o de una red privada**, que es donde está el proxy: en el mismo servidor (`127.0.0.1`) o en una red de Docker (`172.x`). Si el puerto de la API quedara abierto a internet por error, quien se conecte directo no puede inventar su IP para esquivar los límites. Es el mismo criterio que usa Rails por defecto. Un proxy en otro servidor con IP pública no se cree: si un proyecto lo necesita, se agrega una lista de IPs de confianza.
+La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, y aun así **solo si la conexión viene de localhost o de una red privada**, que es donde está el proxy: en el mismo servidor (`127.0.0.1`) o en una red de Docker (`172.x`). Si el puerto de la API quedara abierto a internet por error, quien se conecte directo no puede inventar su IP para esquivar los límites. Es el mismo criterio que usa Rails por defecto. Con `TRUSTED_PROXIES` se indican las direcciones exactas del proxy (IPs o rangos CIDR), en lugar de toda red privada. Sirve para un proxy en otro servidor, y para los proveedores cuya red privada se comparte entre clientes del mismo centro de datos: ahí "la red privada" incluye a otras personas.
 
 La regla tiene un límite: confía en cualquier conexión desde una red privada. Con Docker y el puerto publicado a todas las interfaces, en algunas configuraciones (por ejemplo, IPv6 sin `ip6tables`) Docker reenvía las conexiones de afuera con `docker-proxy`, y la API las ve llegar desde el gateway (`172.17.0.1`), que es privado. Para la API, esa conexión es igual a la del proxy legítimo, así que el código no puede distinguirlas. Por eso el puerto de la API no debe quedar expuesto: sin publicarlo, o publicado solo en `127.0.0.1` (ver "Antes de producción" en el README).
 
@@ -197,6 +198,10 @@ Sin ellos, un cliente lento puede mantener conexiones abiertas indefinidamente.
 Los streams SSE no tienen `WriteTimeout` (los cortaría a los 30 segundos), pero **cada escritura tiene un plazo de 10 segundos**: un cliente que deja de leer sin cerrar la conexión se desconecta, en lugar de trabar el handler y seguir ocupando su lugar.
 
 **Al apagar**, el servidor HTTP y los trabajos en segundo plano se detienen al mismo tiempo, cada uno con `SHUTDOWN_TIMEOUT` (10 segundos por defecto). Si alguna petición no terminó a tiempo, se corta. Hay que tenerlo en cuenta con el gestor de procesos: `docker stop` espera 10 segundos antes de matar el proceso, así que con Docker conviene darle un poco más (`docker stop -t 15`, o `stop_grace_period` en Compose); systemd espera 90 por defecto.
+
+## Panics
+
+`Recover` registra el panic con su stack y el `request_id`, y responde un `500` con el formato de error de la API. Si la respuesta ya había empezado (por ejemplo, a mitad de un stream SSE), no responde nada: el JSON quedaría mezclado con lo ya enviado. Corta la conexión con `http.ErrAbortHandler`.
 
 ## Rutas inexistentes
 

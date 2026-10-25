@@ -145,6 +145,7 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - Valor único repetido: `db.IsUniqueViolation(err)` → `httpx.Conflict`. FK inexistente o en uso:
   `db.IsForeignKeyViolation(err)` → `httpx.Validation` (al crear/editar) o `httpx.Conflict` (al borrar).
 - Filtros opcionales en sqlc: `sqlc.narg('x')::tipo IS NULL OR columna = sqlc.narg('x')`. Escapar `%` y `_` en búsquedas `ILIKE`.
+  `ILIKE '%…%'` no usa índices: si la tabla crece, `pg_trgm` (ver `docs/adding-a-resource.md`).
 - Dinero en centavos (`bigint`), nunca `float`.
 
 **Tests**
@@ -153,8 +154,9 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - Peticiones con `testutil.NewAPI`, `testutil.Do` y `testutil.Decode`, como en `internal/products/handlers_test.go`.
   Para leer los correos enviados: `testutil.WithMailer(&mail.Recorder{})` y `testutil.TokenFromEmail`. Para cambiar la
   configuración: `testutil.WithConfig(func(c *config.Config){ … })`. Para el 2FA: `testutil.EnableTwoFactor` y `TwoFactor.Code`.
-- Las rutas de auth comparten el límite de 5 intentos por IP: un test no debería hacer más de 5 peticiones a ellas
-  con `testutil.Do`. Para más, o para simular varias IPs, usar `testutil.DoFromIP`.
+- Las rutas de auth tienen límites por IP (ver `internal/server/routes.go`; el más bajo es de 10 seguidos) y las acciones
+  de cuenta, de 5 por usuario. Con `testutil.Do` todas las peticiones salen de la misma IP; para más, o para simular
+  varias IPs, usar `testutil.DoFromIP`.
 - Si la API del test cambia la configuración de la cookie (`WithConfig` con `CookieSecure`), pasarle las mismas
   opciones a `testutil.Login` para que la cookie coincida.
 - Eventos en tiempo real: `testutil.NewServer` (un servidor HTTP real) y `testutil.OpenEvents`, que devuelve un lector con

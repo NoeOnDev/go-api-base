@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/db"
@@ -129,27 +130,47 @@ func run() error {
 	case <-ctx.Done():
 	}
 
-	// Apagado limpio: deja de aceptar conexiones y espera a que terminen las peticiones en curso.
+	// Apagado limpio: deja de aceptar conexiones y espera a que terminen las peticiones en curso
+	// y los trabajos que se están ejecutando.
 	logger.Info("apagando servidor", "timeout", cfg.ShutdownTimeout.String())
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-	defer cancel()
-
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("apagado: %w", err)
-	}
+	shutdown(cfg.ShutdownTimeout, srv, jobsClient, logger)
 	if err := <-serverErr; !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("servidor: %w", err)
 	}
 
-	// Los trabajos en curso (incluidos los correos) tienen hasta el mismo timeout para terminar.
-	// Los pendientes y los que fallaron siguen en la base y se retoman al arrancar. Uno cortado a
-	// mitad de camino tampoco se pierde: River lo reintenta cuando lleva una hora "en curso".
-	if err := jobsClient.Stop(shutdownCtx); err != nil {
-		logger.Warn("quedaron trabajos a medio hacer al apagar; River los reintentará en una hora", "error", err)
-	}
-
 	logger.Info("servidor detenido")
 	return nil
+}
+
+// stopper es lo que shutdown necesita de los trabajos en segundo plano (el cliente de River).
+type stopper interface {
+	Stop(ctx context.Context) error
+}
+
+// shutdown apaga el servidor HTTP y los trabajos en segundo plano al mismo tiempo, cada uno con
+// el timeout completo. Antes iban uno después del otro con el mismo plazo: si una petición
+// trabada consumía todo el tiempo, los trabajos no llegaban a detenerse en orden, y uno cortado
+// a mitad de camino River lo reintenta recién a la hora.
+//
+// Apagarlos a la vez es seguro: una petición que todavía está terminando puede encolar un
+// trabajo después de que River dejó de procesar; queda en la base y se ejecuta al arrancar.
+//
+// No devuelve error: lo que no terminó a tiempo queda en el log.
+func shutdown(timeout time.Duration, srv *http.Server, jobs stopper, logger *slog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	jobsDone := make(chan error, 1)
+	go func() { jobsDone <- jobs.Stop(ctx) }()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		// Las conexiones que quedan (por ejemplo, una trabada) se cortan, en lugar de dejarlas a medias.
+		logger.Warn("quedaron peticiones en curso al apagar; se cortan", "error", err)
+		_ = srv.Close()
+	}
+	if err := <-jobsDone; err != nil {
+		logger.Warn("quedaron trabajos a medio hacer al apagar; River los reintentará en una hora", "error", err)
+	}
 }
 
 // newMailSender crea el envío de correos según MAIL_DRIVER.

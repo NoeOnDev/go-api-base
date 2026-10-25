@@ -94,3 +94,28 @@ func TestNewRegistersWorkersAndPeriodicJobs(t *testing.T) {
 		t.Errorf("la segunda limpieza de la hora debería saltearse: %+v", second)
 	}
 }
+
+// El apagado detiene River al mismo tiempo que el servidor HTTP (ver cmd/api/main.go): una
+// petición que todavía está terminando tiene que poder encolar, y el trabajo queda para después.
+func TestInsertAfterStop(t *testing.T) {
+	pool := testutil.NewDB(t)
+	client, err := New(pool, slog.New(slog.DiscardHandler), Config{MaxWorkers: 1}, Deps{Queries: store.New(pool), Logger: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := client.Insert(t.Context(), CleanupArgs{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{}})
+	if err != nil {
+		t.Fatalf("encolar después de Stop: %v", err)
+	}
+	var state string
+	if err := pool.QueryRow(t.Context(), "SELECT state FROM river_job WHERE id = $1", res.Job.ID).Scan(&state); err != nil || state != "available" {
+		t.Errorf("el trabajo debería quedar pendiente: %q (%v)", state, err)
+	}
+}

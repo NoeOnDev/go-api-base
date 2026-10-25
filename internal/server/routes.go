@@ -80,11 +80,24 @@ func NewHandler(d Deps) http.Handler {
 		Notifier:             notificationsService,
 		SessionWatcher:       broker,
 	})
-	// Intentos: 5 seguidos por IP y luego uno cada 12 segundos (5 por minuto).
-	// Correos: 3 seguidos por IP y luego uno cada 5 minutos.
-	attempts := httpx.NewRateLimiter(12*time.Second, 5).MiddlewareByIP(d.Config.TrustedProxies)
-	emails := httpx.NewRateLimiter(5*time.Minute, 3).MiddlewareByIP(d.Config.TrustedProxies)
-	auth.Register(mux, authService, auth.Limits{Attempts: attempts, Emails: emails})
+	// Límites de las rutas de auth: "seguidos" es cuántas peticiones se permiten de golpe, y
+	// después se recarga una cada el tiempo indicado. Ajustalos acá según el proyecto.
+	//
+	// Los de IP son generosos porque muchas personas pueden salir por la misma IP (una oficina,
+	// una universidad, los datos móviles). La fuerza bruta la frenan sobre todo los límites por
+	// cuenta (login), por desafío y usuario (2FA) y por destinatario (correos), que están en auth.
+	byIP := func(every time.Duration, burst int) httpx.Middleware {
+		return httpx.NewRateLimiter(every, burst).MiddlewareByIP(d.Config.TrustedProxies)
+	}
+	auth.Register(mux, authService, auth.Limits{
+		Login:     byIP(3*time.Second, 20),  // 20 seguidos, luego 1 cada 3 s
+		Register:  byIP(10*time.Second, 10), // 10 seguidos, luego 1 cada 10 s
+		TwoFactor: byIP(3*time.Second, 20),  // 20 seguidos, luego 1 cada 3 s
+		Tokens:    byIP(6*time.Second, 10),  // 10 seguidos, luego 1 cada 6 s
+		Emails:    byIP(time.Minute, 10),    // 10 seguidos, luego 1 por minuto
+		// Por usuario: 5 seguidos, luego 1 cada 12 s.
+		Account: httpx.NewRateLimiter(12*time.Second, 5),
+	})
 
 	// Tiempo real: un stream SSE con los eventos del usuario y de los temas que pida.
 	mux.Handle("GET /events", authService.RequireUser(broker.Handler(authService)))

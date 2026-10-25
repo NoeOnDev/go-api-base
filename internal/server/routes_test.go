@@ -122,15 +122,16 @@ func TestCORSPreflight(t *testing.T) {
 func TestLoginRateLimit(t *testing.T) {
 	api := newAPI(t)
 
+	// 20 seguidos por IP: el número 21 se rechaza.
 	var last *httptest.ResponseRecorder
-	for range 6 {
+	for range 21 {
 		r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{"email":"a@b.com","password":"x"}`))
 		last = httptest.NewRecorder()
 		api.ServeHTTP(last, r)
 	}
 
 	if last.Code != http.StatusTooManyRequests || errorCode(t, last) != "too_many_requests" {
-		t.Errorf("sexto intento: status = %d, se esperaba 429", last.Code)
+		t.Errorf("intento 21: status = %d, se esperaba 429", last.Code)
 	}
 	if last.Header().Get("Retry-After") == "" {
 		t.Error("falta Retry-After")

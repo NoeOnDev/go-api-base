@@ -38,49 +38,65 @@ Las notificaciones de seguridad (`password_changed`, `two_factor_enabled`, `two_
 ## Desde el frontend (React)
 
 ```js
-// Una sola conexión para toda la app (por ejemplo, en un contexto de React).
-const events = new EventSource("/api/events", { withCredentials: true });
+// Una sola conexión para toda la app (por ejemplo, en un contexto de React). Se arma en una
+// función para poder volver a crearla, con sus listeners, si hay que reconectar a mano.
+let events;
 
-// Se dispara al conectarse y cada vez que se reconecta: pedí el estado de nuevo.
-events.addEventListener("ready", (e) => {
-  queryClient.invalidateQueries(); // con TanStack Query, o el refetch que uses
+function connect(topics = []) {
+  const query = topics.length > 0 ? `?topics=${topics.join(",")}` : "";
+  events = new EventSource(`/api/events${query}`, { withCredentials: true });
 
-  // Temas que ya no puede escuchar (por ejemplo, lo sacaron del proyecto que está mirando).
-  const { rejected } = JSON.parse(e.data);
-  if (rejected.length > 0) showLostAccess(rejected);
-});
+  // Se dispara al conectarse y cada vez que se reconecta: pedí el estado de nuevo.
+  events.addEventListener("ready", (e) => {
+    queryClient.invalidateQueries(); // con TanStack Query, o el refetch que uses
 
-events.addEventListener("notification", (e) => {
-  const notification = JSON.parse(e.data);
-  showToast(notification.data.message);
-});
+    // Temas que ya no puede escuchar (por ejemplo, lo sacaron del proyecto que está mirando).
+    const { rejected } = JSON.parse(e.data);
+    if (rejected.length > 0) showLostAccess(rejected);
+  });
 
-events.addEventListener("note.updated", (e) => {
-  const note = JSON.parse(e.data);
-  updateNoteInList(note);
-});
+  events.addEventListener("notification", (e) => {
+    const notification = JSON.parse(e.data);
+    showToast(notification.data.message);
+  });
+
+  events.addEventListener("note.updated", (e) => {
+    const note = JSON.parse(e.data);
+    updateNoteInList(note);
+  });
+
+  events.onerror = () => handleClosed(topics);
+}
 ```
 
 `withCredentials: true` hace falta solo si el frontend está en otro dominio (con CORS configurado). En el mismo dominio, la cookie viaja sola.
 
-**Cuando la conexión no se puede abrir**, el `EventSource` deja de reintentar y queda con `readyState === EventSource.CLOSED`. Pasa con la sesión cerrada (`401`), con demasiadas conexiones abiertas (`429`) o con la API reiniciándose (`503`). El navegador no deja saber cuál fue, así que conviene preguntarle a la API:
+**Abrí la conexión cuando el usuario ya pueda usar la app.** `GET /events` está detrás de `RequireUser`, así que con `REQUIRE_EMAIL_VERIFICATION=true` responde `403 email_not_verified` mientras el email no esté confirmado. Llamá a `connect()` después del login, solo si `email_verified_at` no es `null` (o si la verificación no es obligatoria).
+
+**Cuando la conexión no se puede abrir**, el `EventSource` deja de reintentar y queda con `readyState === EventSource.CLOSED`. Pasa con la sesión cerrada (`401`), con el email sin verificar (`403`), con demasiadas conexiones abiertas (`429`) o con la API reiniciándose (`503`). El navegador no deja saber cuál fue, así que conviene preguntarle a la API:
 
 ```js
-events.onerror = async () => {
+async function handleClosed(topics) {
   if (events.readyState !== EventSource.CLOSED) return; // un corte de red: se reconecta solo
 
   const res = await fetch("/api/auth/me", { credentials: "include" });
   if (res.status === 401) {
     redirectToLogin(); // la sesión se cerró
-  } else {
-    setTimeout(connect, 10_000); // demasiadas conexiones o la API reiniciándose: reintentar más tarde
+    return;
   }
-};
+  const user = await res.json();
+  if (user.email_verified_at === null) {
+    showVerifyEmailNotice(); // no reintentar: va a seguir fallando hasta que confirme el email
+    return;
+  }
+  // Demasiadas conexiones o la API reiniciándose: reintentar más tarde, con sus listeners.
+  setTimeout(() => connect(topics), 10_000);
+}
 ```
 
 Un tema sin permiso no llega acá: se informa en `ready` y la conexión sigue abierta.
 
-**Para escuchar un tema**, abrí la conexión con `?topics=`. Si el usuario entra a otro tablero, cerrá la conexión (`events.close()`) y abrí otra con el tema nuevo.
+**Para escuchar un tema**, abrí la conexión con `connect(["project:42"])`. Si el usuario entra a otro tablero, cerrá la conexión (`events.close()`) y abrí otra con el tema nuevo.
 
 ## Publicar eventos
 

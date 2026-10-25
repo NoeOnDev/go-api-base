@@ -9,6 +9,16 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.4.3] - 2026-10-24
+
+Solo documentación.
+
+### Corregido
+
+- **El ejemplo de frontend de `docs/realtime.md`:**
+  - la conexión se arma en una función `connect()`, así un reintento crea el `EventSource` nuevo con sus listeners (antes `onerror` llamaba a una `connect` que no existía);
+  - con un email sin verificar no reintenta para siempre: `GET /events` responde `403 email_not_verified`, y el ejemplo lo detecta con `/auth/me`. Además explica que la conexión se abre recién cuando el email está verificado.
+
 ## [v0.4.2] - 2026-10-24
 
 Ajustes de la revisión de v0.4.1.

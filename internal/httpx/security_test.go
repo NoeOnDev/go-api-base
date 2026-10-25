@@ -11,23 +11,30 @@ func TestClientIP(t *testing.T) {
 	tests := []struct {
 		name       string
 		remoteAddr string
-		xff        string
+		xff        []string
 		trustProxy bool
 		want       string
 	}{
-		{"sin proxy", "203.0.113.7:4321", "", false, "203.0.113.7"},
-		{"ignora XFF sin proxy confiable", "203.0.113.7:4321", "1.1.1.1", false, "203.0.113.7"},
-		{"usa el último XFF con proxy", "127.0.0.1:5000", "1.1.1.1, 198.51.100.4", true, "198.51.100.4"},
-		{"proxy sin XFF", "127.0.0.1:5000", "", true, "127.0.0.1"},
-		{"IPv6", "[2001:db8::1]:443", "", false, "2001:db8::1"},
+		{"sin proxy", "203.0.113.7:4321", nil, false, "203.0.113.7"},
+		{"ignora XFF sin TRUST_PROXY", "203.0.113.7:4321", []string{"1.1.1.1"}, false, "203.0.113.7"},
+		{"usa el último XFF con proxy en localhost", "127.0.0.1:5000", []string{"1.1.1.1, 198.51.100.4"}, true, "198.51.100.4"},
+		{"proxy en localhost IPv6", "[::1]:5000", []string{"198.51.100.4"}, true, "198.51.100.4"},
+		{"proxy en una red de Docker", "172.18.0.2:5000", []string{"198.51.100.4"}, true, "198.51.100.4"},
+		{"proxy en una red privada", "10.0.0.5:5000", []string{"198.51.100.4"}, true, "198.51.100.4"},
+		{"varios encabezados: el último es el del proxy", "127.0.0.1:5000", []string{"1.1.1.1", "198.51.100.4"}, true, "198.51.100.4"},
+		{"proxy sin XFF", "127.0.0.1:5000", nil, true, "127.0.0.1"},
+		{"XFF que no es una IP", "127.0.0.1:5000", []string{"inventado"}, true, "127.0.0.1"},
+		// Con TRUST_PROXY y el puerto abierto a internet por error: el XFF inventado no se cree.
+		{"conexión directa desde internet", "203.0.113.7:4321", []string{"1.1.1.1"}, true, "203.0.113.7"},
+		{"IPv6", "[2001:db8::1]:443", nil, false, "2001:db8::1"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			r.RemoteAddr = tt.remoteAddr
-			if tt.xff != "" {
-				r.Header.Set("X-Forwarded-For", tt.xff)
+			for _, v := range tt.xff {
+				r.Header.Add("X-Forwarded-For", v)
 			}
 			if got := ClientIP(r, tt.trustProxy); got != tt.want {
 				t.Errorf("ClientIP = %q, se esperaba %q", got, tt.want)

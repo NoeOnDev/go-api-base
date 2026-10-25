@@ -37,7 +37,8 @@ type Config struct {
 	// un frontend en otro dominio puede llamar a la API. Vacío = sin CORS.
 	CORSAllowedOrigins []string
 	// TrustProxy indica que hay un proxy (por ejemplo Caddy) delante, y que la IP real
-	// del cliente viene en X-Forwarded-For.
+	// del cliente viene en X-Forwarded-For. Solo se cree si la conexión viene de localhost
+	// o de una red privada (ver httpx.ClientIP).
 	TrustProxy bool
 
 	// FrontendURL es la base de los enlaces que van en los correos

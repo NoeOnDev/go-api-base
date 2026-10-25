@@ -135,7 +135,7 @@ Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene
 | `SESSION_TTL` | `168h` | Duración de la sesión |
 | `COOKIE_SECURE` | `true` en producción | La cookie solo viaja por HTTPS |
 | `CORS_ALLOWED_ORIGINS` | | Orígenes del frontend si está en otro dominio |
-| `TRUST_PROXY` | `false` | Leer la IP real de `X-Forwarded-For` (con Caddy o Nginx delante) |
+| `TRUST_PROXY` | `false` | Leer la IP real de `X-Forwarded-For` (con Caddy o Nginx delante). Solo se cree si la conexión viene de localhost o de una red privada |
 | `FRONTEND_URL` | `http://localhost:5173` | Base de los enlaces de los correos |
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | Exigir el email verificado para usar las rutas protegidas |
 | `MAIL_DRIVER` | `log` | `log` (escribe los correos en el log) o `smtp` |
@@ -147,6 +147,17 @@ Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene
 | `GOMEMLIMIT` | (sin límite) | Variable del propio Go, no de la plantilla. Con ella, el recolector de basura libera memoria antes de llegar a ese valor. En producción conviene cerca del 70 % de la RAM del servidor (con 1 GB, `700MiB`) |
 
 Los valores con espacios van entre comillas: `APP_NAME="Mi App"`.
+
+### Antes de producción
+
+Lo que hay que revisar en la configuración, sea cual sea el servidor:
+
+- **`APP_ENV=production`:** logs en JSON y cookies `Secure` con el prefijo `__Host-`.
+- **HTTPS delante de la API** (por ejemplo, con Caddy o Nginx). Sin HTTPS, las cookies `Secure` no viajan y nadie puede iniciar sesión.
+- **`TRUST_PROXY=true` solo si hay un proxy delante.** Si está en el mismo servidor, que la API escuche solo ahí: `HTTP_ADDR=127.0.0.1:8080`.
+- **`MAIL_DRIVER=smtp`** con un proveedor real, y **`FRONTEND_URL`** con el dominio del frontend (los enlaces de los correos apuntan ahí). Con el frontend en otro dominio, también `CORS_ALLOWED_ORIGINS`.
+- **`ENCRYPTION_KEY` guardada como secreto y respaldada aparte de la base:** si se pierde, los usuarios tienen que volver a configurar el 2FA (ver [docs/encryption.md](docs/encryption.md)).
+- **`GOMEMLIMIT`** cerca del 70 % de la RAM del servidor.
 
 ## Comandos
 

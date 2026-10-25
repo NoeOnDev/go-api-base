@@ -9,6 +9,19 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.3.6] - 2026-10-24
+
+Protección de `TRUST_PROXY` y una lista de configuración para producción.
+
+### Agregado
+
+- **"Antes de producción"** en el README: lo que hay que revisar en la configuración, sea cual sea el servidor.
+
+### Corregido
+
+- **Con `TRUST_PROXY=true`, se podía inventar la IP:** si el puerto de la API quedaba abierto a internet, quien se conectara directo podía enviar un `X-Forwarded-For` falso y esquivar los límites por IP. Ahora el encabezado solo se cree si la conexión viene de localhost o de una red privada, que es donde está el proxy.
+- `X-Forwarded-For` se lee de todos los encabezados, no solo del primero, y se toma el último valor, que es el que agrega el proxy. Si no es una IP válida, se ignora.
+
 ## [v0.3.5] - 2026-10-24
 
 Ajustes menores de la revisión de v0.3.4 y alcance de la plantilla.

@@ -142,7 +142,7 @@ El límite por cuenta tiene un costo: quien conozca un email puede bloquear ese 
 
 Si un proyecto necesita evitar ese bloqueo, la técnica habitual son las *device cookies* de OWASP: un dispositivo donde el usuario ya entró no cuenta para el límite.
 
-La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, para que nadie pueda falsearla si la API está expuesta directamente.
+La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, y aun así **solo si la conexión viene de localhost o de una red privada**, que es donde está el proxy: en el mismo servidor (`127.0.0.1`) o en una red de Docker (`172.x`). Si el puerto de la API quedara abierto a internet por error, quien se conecte directo no puede inventar su IP para esquivar los límites. Es el mismo criterio que usa Rails por defecto. Un proxy en otro servidor con IP pública no se cree: si un proyecto lo necesita, se agrega una lista de IPs de confianza.
 
 Las IPv6 se agrupan por bloque `/64`: un proveedor le asigna a cada cliente un `/64` entero, así que contar por dirección exacta permitiría esquivar el límite rotando direcciones.
 

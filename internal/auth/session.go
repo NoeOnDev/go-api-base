@@ -59,7 +59,7 @@ func hashToken(token string) []byte {
 }
 
 // StartSession crea una sesión para el usuario y envía la cookie.
-// De paso borra las sesiones vencidas, para que la tabla no crezca sin límite.
+// Las sesiones vencidas las borra el trabajo periódico de limpieza (internal/jobs).
 func (s *Service) StartSession(ctx context.Context, w http.ResponseWriter, userID int64) error {
 	token, hash, err := newToken()
 	if err != nil {
@@ -73,10 +73,6 @@ func (s *Service) StartSession(ctx context.Context, w http.ResponseWriter, userI
 		ExpiresAt: expires,
 	}); err != nil {
 		return fmt.Errorf("crear sesión: %w", err)
-	}
-
-	if _, err := s.q.DeleteExpiredSessions(ctx); err != nil {
-		return fmt.Errorf("borrar sesiones vencidas: %w", err)
 	}
 
 	http.SetCookie(w, s.cookie(token, expires))

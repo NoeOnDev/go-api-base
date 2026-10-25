@@ -13,10 +13,13 @@ endif
 SQLC_VERSION        := v1.31.1
 GOOSE_VERSION       := v3.29.0
 GOVULNCHECK_VERSION := v1.9.0
+# Tiene que coincidir con la versión de github.com/riverqueue/river del go.mod.
+RIVER_VERSION       := v0.49.0
 
 SQLC        := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 GOOSE_CLI   := go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+RIVER_CLI   := go run github.com/riverqueue/river/cmd/river@$(RIVER_VERSION)
 
 # Los comandos de goose llevan @ para que make no imprima la URL con la contraseña.
 GOOSE := $(GOOSE_CLI) -dir migrations postgres "$(DATABASE_URL)"
@@ -108,6 +111,15 @@ migrate-down: ## Revierte la última migración
 .PHONY: migrate-status
 migrate-status: ## Muestra qué migraciones están aplicadas
 	@$(GOOSE) status
+
+.PHONY: river-migration
+river-migration: ## SQL de las migraciones de River para goose: make river-migration [version=N]
+	@if [ -n "$(version)" ]; then \
+		echo "-- +goose Up"; echo "-- +goose StatementBegin"; $(RIVER_CLI) migrate-get --version $(version) --up; echo "-- +goose StatementEnd"; \
+		echo; echo "-- +goose Down"; echo "-- +goose StatementBegin"; $(RIVER_CLI) migrate-get --version $(version) --down; echo "-- +goose StatementEnd"; \
+	else \
+		$(RIVER_CLI) migrate-get --all --exclude-version 1 --up; \
+	fi
 
 .PHONY: migrate-new
 migrate-new: ## Crea una migración: make migrate-new name=create_products

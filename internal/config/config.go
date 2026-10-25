@@ -50,6 +50,9 @@ type Config struct {
 	// Mail configura el envío de correos.
 	Mail Mail
 
+	// JobsMaxWorkers es cuántos trabajos en segundo plano de la cola default corren a la vez.
+	JobsMaxWorkers int
+
 	// AppName es el nombre de la aplicación, por ejemplo el que muestra la app de autenticación del 2FA.
 	AppName string
 	// EncryptionKey (32 bytes) cifra los datos sensibles guardados en la base, como el secreto del 2FA.
@@ -161,6 +164,10 @@ func load(rawGetenv func(string) string) (Config, error) {
 	cfg.Mail, err = loadMail(getenv)
 	errs = append(errs, err)
 
+	if cfg.JobsMaxWorkers, err = positiveInt(getenv("JOBS_MAX_WORKERS"), 10); err != nil {
+		errs = append(errs, fmt.Errorf("JOBS_MAX_WORKERS %w", err))
+	}
+
 	cfg.AppName = valueOr(getenv("APP_NAME"), "Mi App")
 
 	if v := strings.TrimSpace(getenv("ENCRYPTION_KEY")); v == "" {
@@ -259,6 +266,18 @@ func positiveDuration(value, fallback string) (time.Duration, error) {
 		return 0, errors.New("debe ser una duración positiva, como 10s o 168h")
 	}
 	return d, nil
+}
+
+func positiveInt(value string, fallback int) (int, error) {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0, errors.New("debe ser un número entero positivo")
+	}
+	return n, nil
 }
 
 func boolOr(value string, fallback bool) (bool, error) {

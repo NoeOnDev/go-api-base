@@ -13,7 +13,7 @@ RETURNING user_id;
 DELETE FROM user_tokens
 WHERE user_id = $1 AND purpose = $2;
 
--- name: DeleteExpiredUserTokens :exec
+-- name: DeleteExpiredUserTokens :execrows
 DELETE FROM user_tokens
 WHERE expires_at <= now();
 

@@ -1,5 +1,7 @@
 # sqlc genera código Go con tipos a partir de SQL normal.
 # - schema: lee las migraciones de goose para saber cómo son las tablas (ignora las secciones Down).
+#   Incluye las de River, así que internal/store también trae sus tipos (RiverJob…): no los uses,
+#   a River se le habla con su propio cliente (internal/jobs).
 # - queries: las consultas que escribís, con un comentario "-- name: Nombre :tipo" cada una.
 # Para regenerar después de cambiar migraciones o consultas: make sqlc
 version: "2"

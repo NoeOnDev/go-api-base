@@ -13,8 +13,10 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/db"
+	"github.com/NoeOnDev/go-api-base/internal/jobs"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/server"
+	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
 func main() {
@@ -69,6 +71,19 @@ func run() error {
 		return err
 	}
 
+	// Trabajos en segundo plano: los workers corren en este mismo proceso.
+	// Se arrancan sin el ctx de las señales para apagarlos en orden, después del servidor HTTP.
+	jobsClient, err := jobs.New(pool, logger, jobs.Config{MaxWorkers: cfg.JobsMaxWorkers}, jobs.Deps{
+		Queries: store.New(pool),
+		Logger:  logger,
+	})
+	if err != nil {
+		return err
+	}
+	if err := jobsClient.Start(context.WithoutCancel(ctx)); err != nil {
+		return fmt.Errorf("arrancar los trabajos en segundo plano: %w", err)
+	}
+
 	sender, err := newMailSender(cfg, logger)
 	if err != nil {
 		return err
@@ -106,6 +121,12 @@ func run() error {
 	}
 	if err := <-serverErr; !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("servidor: %w", err)
+	}
+
+	// Los trabajos en curso tienen hasta el mismo timeout para terminar. Si no llegan, quedan en la
+	// base y River los vuelve a intentar al arrancar de nuevo: no se pierden.
+	if err := jobsClient.Stop(shutdownCtx); err != nil {
+		logger.Warn("quedaron trabajos en curso al apagar; se reintentarán", "error", err)
 	}
 
 	// Los correos se envían en segundo plano: se espera a que salgan los pendientes.

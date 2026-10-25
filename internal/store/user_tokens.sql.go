@@ -52,14 +52,17 @@ func (q *Queries) CreateUserToken(ctx context.Context, arg CreateUserTokenParams
 	return err
 }
 
-const deleteExpiredUserTokens = `-- name: DeleteExpiredUserTokens :exec
+const deleteExpiredUserTokens = `-- name: DeleteExpiredUserTokens :execrows
 DELETE FROM user_tokens
 WHERE expires_at <= now()
 `
 
-func (q *Queries) DeleteExpiredUserTokens(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, deleteExpiredUserTokens)
-	return err
+func (q *Queries) DeleteExpiredUserTokens(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredUserTokens)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteUserToken = `-- name: DeleteUserToken :exec

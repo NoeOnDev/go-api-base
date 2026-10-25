@@ -36,9 +36,6 @@ var errInvalidToken = httpx.Validation(map[string]string{
 // issueToken crea un token de un solo uso para el usuario y lo devuelve para enviarlo por correo.
 // Invalida los anteriores del mismo propósito: solo sirve el último enlace enviado.
 func (s *Service) issueToken(ctx context.Context, userID int64, purpose string, ttl time.Duration) (string, error) {
-	if err := s.q.DeleteExpiredUserTokens(ctx); err != nil {
-		return "", fmt.Errorf("borrar tokens vencidos: %w", err)
-	}
 	if err := s.q.DeleteUserTokens(ctx, store.DeleteUserTokensParams{UserID: userID, Purpose: purpose}); err != nil {
 		return "", fmt.Errorf("borrar tokens anteriores: %w", err)
 	}

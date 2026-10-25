@@ -47,6 +47,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.SessionTTL != 168*time.Hour {
 		t.Errorf("SessionTTL = %v", cfg.SessionTTL)
 	}
+	if cfg.JobsMaxWorkers != 10 {
+		t.Errorf("JobsMaxWorkers = %d", cfg.JobsMaxWorkers)
+	}
 	if cfg.CookieSecure {
 		t.Error("CookieSecure debería ser false en desarrollo")
 	}
@@ -151,6 +154,8 @@ func TestLoadInvalid(t *testing.T) {
 		"LOG_LEVEL inválido": {"DATABASE_URL": "x", "LOG_LEVEL": "verbose"},
 		"timeout inválido":   {"DATABASE_URL": "x", "SHUTDOWN_TIMEOUT": "diez"},
 		"timeout negativo":   {"DATABASE_URL": "x", "SHUTDOWN_TIMEOUT": "-5s"},
+		"workers en cero":    {"DATABASE_URL": "x", "JOBS_MAX_WORKERS": "0"},
+		"workers inválidos":  {"DATABASE_URL": "x", "JOBS_MAX_WORKERS": "diez"},
 	}
 
 	for name, env := range tests {

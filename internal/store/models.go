@@ -179,6 +179,7 @@ type UserToken struct {
 	TokenHash []byte
 	UserID    int64
 	Purpose   string
+	Email     *string
 	ExpiresAt time.Time
 	Attempts  int32
 	CreatedAt time.Time

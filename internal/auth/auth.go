@@ -113,6 +113,7 @@ const (
 	NotifyPasswordChanged   = "password_changed"
 	NotifyTwoFactorEnabled  = "two_factor_enabled"
 	NotifyTwoFactorDisabled = "two_factor_disabled"
+	NotifyEmailChanged      = "email_changed"
 )
 
 // notify avisa al usuario de un cambio de seguridad en su cuenta. Si falla, solo se registra:

@@ -28,6 +28,7 @@ type emailData struct {
 	Expires string // por ejemplo "1 hora"
 	When    string // fecha y hora del evento, en UTC
 	IP      string // IP desde la que se hizo el pedido
+	Email   string // otro email que se menciona (por ejemplo, el nuevo en un cambio de email)
 }
 
 // Límite de correos por destinatario y tipo: 3 seguidos y luego uno cada 20 minutos.

@@ -17,6 +17,7 @@ import (
 const (
 	purposePasswordReset     = "password_reset"
 	purposeEmailVerification = "email_verification"
+	purposeEmailChange       = "email_change"
 	purposeTwoFactorLogin    = "two_factor_login"
 )
 
@@ -24,6 +25,7 @@ const (
 const (
 	passwordResetTTL     = time.Hour
 	emailVerificationTTL = 24 * time.Hour
+	emailChangeTTL       = time.Hour
 	twoFactorLoginTTL    = 5 * time.Minute
 )
 
@@ -34,12 +36,13 @@ var errInvalidToken = httpx.Validation(map[string]string{
 })
 
 // issueToken crea un token de un solo uso para el usuario y lo devuelve para enviarlo por correo.
-// Invalida los anteriores del mismo propósito: solo sirve el último enlace enviado.
+// Invalida los anteriores del mismo propósito: solo sirve el último enlace enviado. newEmail es
+// el email nuevo para email_change; nil para los demás propósitos.
 //
 // Va en una transacción que bloquea la fila del usuario. La transacción sola no alcanza: con el
 // aislamiento por defecto, dos pedidos simultáneos podían borrar los dos "nada" y crear cada uno
 // su token, y quedaban dos enlaces válidos. Con el bloqueo, el segundo espera al primero.
-func (s *Service) issueToken(ctx context.Context, userID int64, purpose string, ttl time.Duration) (string, error) {
+func (s *Service) issueToken(ctx context.Context, userID int64, purpose string, ttl time.Duration, newEmail *string) (string, error) {
 	token, hash, err := newToken()
 	if err != nil {
 		return "", err
@@ -58,6 +61,7 @@ func (s *Service) issueToken(ctx context.Context, userID int64, purpose string, 
 			UserID:    userID,
 			Purpose:   purpose,
 			ExpiresAt: time.Now().Add(ttl),
+			Email:     newEmail,
 		}); err != nil {
 			return fmt.Errorf("crear token: %w", err)
 		}

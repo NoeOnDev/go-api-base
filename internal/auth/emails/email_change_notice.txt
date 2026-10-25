@@ -1,0 +1,7 @@
+Hola {{.Name}}:
+
+Se pidió cambiar el email de tu cuenta a {{.Email}}. El cambio se hace recién cuando se confirme con el enlace que enviamos a esa dirección.
+
+Si fuiste vos, no tenés que hacer nada más.
+
+Si no fuiste vos, alguien entró a tu cuenta y conoce tu contraseña: cambiala cuanto antes. Mientras nadie confirme el enlace, tu email no cambia.

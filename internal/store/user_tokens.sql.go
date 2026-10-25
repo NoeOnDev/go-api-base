@@ -10,6 +10,26 @@ import (
 	"time"
 )
 
+const consumeEmailChangeToken = `-- name: ConsumeEmailChangeToken :one
+DELETE FROM user_tokens
+WHERE token_hash = $1 AND purpose = 'email_change' AND expires_at > now()
+RETURNING user_id, email::text
+`
+
+type ConsumeEmailChangeTokenRow struct {
+	UserID int64
+	Email  string
+}
+
+// ConsumeEmailChangeToken borra el token de cambio de email y devuelve el usuario y el email
+// nuevo, en una sola operación (no se puede usar dos veces).
+func (q *Queries) ConsumeEmailChangeToken(ctx context.Context, tokenHash []byte) (ConsumeEmailChangeTokenRow, error) {
+	row := q.db.QueryRow(ctx, consumeEmailChangeToken, tokenHash)
+	var i ConsumeEmailChangeTokenRow
+	err := row.Scan(&i.UserID, &i.Email)
+	return i, err
+}
+
 const consumeUserToken = `-- name: ConsumeUserToken :one
 DELETE FROM user_tokens
 WHERE token_hash = $1 AND purpose = $2 AND expires_at > now()
@@ -31,8 +51,8 @@ func (q *Queries) ConsumeUserToken(ctx context.Context, arg ConsumeUserTokenPara
 }
 
 const createUserToken = `-- name: CreateUserToken :exec
-INSERT INTO user_tokens (token_hash, user_id, purpose, expires_at)
-VALUES ($1, $2, $3, $4)
+INSERT INTO user_tokens (token_hash, user_id, purpose, expires_at, email)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type CreateUserTokenParams struct {
@@ -40,6 +60,7 @@ type CreateUserTokenParams struct {
 	UserID    int64
 	Purpose   string
 	ExpiresAt time.Time
+	Email     *string
 }
 
 func (q *Queries) CreateUserToken(ctx context.Context, arg CreateUserTokenParams) error {
@@ -48,6 +69,7 @@ func (q *Queries) CreateUserToken(ctx context.Context, arg CreateUserTokenParams
 		arg.UserID,
 		arg.Purpose,
 		arg.ExpiresAt,
+		arg.Email,
 	)
 	return err
 }

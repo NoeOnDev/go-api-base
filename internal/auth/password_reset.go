@@ -50,7 +50,7 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 
-	token, err := s.issueToken(r.Context(), u.ID, purposePasswordReset, passwordResetTTL)
+	token, err := s.issueToken(r.Context(), u.ID, purposePasswordReset, passwordResetTTL, nil)
 	if err != nil {
 		return err
 	}

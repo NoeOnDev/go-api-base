@@ -70,3 +70,10 @@ ORDER BY id;
 SELECT id FROM users
 WHERE id = $1
 FOR UPDATE;
+
+-- UpdateUserEmail cambia el email, ya confirmado desde la dirección nueva.
+-- name: UpdateUserEmail :one
+UPDATE users
+SET email = $2, email_verified_at = now(), updated_at = now()
+WHERE id = $1
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at;

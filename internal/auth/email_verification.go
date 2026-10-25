@@ -11,7 +11,7 @@ import (
 
 // sendVerificationEmail envía el enlace para confirmar el email. Invalida los enlaces anteriores.
 func (s *Service) sendVerificationEmail(ctx context.Context, u User) error {
-	token, err := s.issueToken(ctx, u.ID, purposeEmailVerification, emailVerificationTTL)
+	token, err := s.issueToken(ctx, u.ID, purposeEmailVerification, emailVerificationTTL, nil)
 	if err != nil {
 		return err
 	}

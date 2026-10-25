@@ -69,4 +69,8 @@ func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	// Verificar el email (obligatorio solo con REQUIRE_EMAIL_VERIFICATION=true).
 	handle("POST /auth/email/verify", limits.Tokens(httpx.Handle(s.verifyEmail)))
 	handle("POST /auth/email/resend", limits.Emails(s.requireSession(httpx.Handle(s.resendVerification))))
+
+	// Cambiar el email: se pide con la contraseña y se confirma con el enlace que llega al nuevo.
+	handle("PUT /auth/email", s.requireSession(account(httpx.Handle(s.requestEmailChange))))
+	handle("POST /auth/email/confirm", limits.Tokens(httpx.Handle(s.confirmEmailChange)))
 }

@@ -226,6 +226,38 @@ func (q *Queries) UpdateTOTPSecret(ctx context.Context, arg UpdateTOTPSecretPara
 	return result.RowsAffected(), nil
 }
 
+const updateUserEmail = `-- name: UpdateUserEmail :one
+UPDATE users
+SET email = $2, email_verified_at = now(), updated_at = now()
+WHERE id = $1
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
+`
+
+type UpdateUserEmailParams struct {
+	ID    int64
+	Email string
+}
+
+// UpdateUserEmail cambia el email, ya confirmado desde la dirección nueva.
+func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserEmail, arg.ID, arg.Email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.TOTPSecret,
+		&i.TOTPEnabledAt,
+		&i.TOTPLastStep,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateUserName = `-- name: UpdateUserName :one
 UPDATE users
 SET name = $2, updated_at = now()

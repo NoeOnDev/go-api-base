@@ -18,7 +18,7 @@ import (
 // startTwoFactorChallenge es el primer paso del login con 2FA: la contraseña ya fue correcta,
 // así que se crea un desafío que vence en 5 minutos y se envía en una cookie HttpOnly.
 func (s *Service) startTwoFactorChallenge(w http.ResponseWriter, r *http.Request, userID int64) error {
-	token, err := s.issueToken(r.Context(), userID, purposeTwoFactorLogin, twoFactorLoginTTL)
+	token, err := s.issueToken(r.Context(), userID, purposeTwoFactorLogin, twoFactorLoginTTL, nil)
 	if err != nil {
 		return err
 	}

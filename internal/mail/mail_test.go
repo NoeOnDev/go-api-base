@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -138,3 +139,42 @@ var recorder Recorder
 type senderFunc func(context.Context, Message) error
 
 func (f senderFunc) Send(ctx context.Context, msg Message) error { return f(ctx, msg) }
+
+func TestQueueLimitsConcurrentSends(t *testing.T) {
+	var (
+		mu           sync.Mutex
+		active, peak int
+		sent         int
+	)
+	slow := senderFunc(func(context.Context, Message) error {
+		mu.Lock()
+		active++
+		peak = max(peak, active)
+		mu.Unlock()
+
+		time.Sleep(20 * time.Millisecond)
+
+		mu.Lock()
+		active--
+		sent++
+		mu.Unlock()
+		return nil
+	})
+	q := NewQueue(slow, slog.New(slog.DiscardHandler))
+
+	for range 12 {
+		if err := q.Send(t.Context(), Message{To: "ana@ejemplo.com", Subject: "Hola"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := q.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if sent != 12 {
+		t.Errorf("se enviaron %d correos, se esperaban 12", sent)
+	}
+	if peak > maxConcurrentSends {
+		t.Errorf("hubo %d envíos a la vez, el máximo es %d", peak, maxConcurrentSends)
+	}
+}

@@ -9,6 +9,19 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.3.8] - 2026-10-24
+
+Últimos detalles de la revisión final.
+
+### Agregado
+
+- **Aviso al arrancar** si en producción `COOKIE_SECURE=false`: las cookies viajan sin HTTPS y sin el prefijo `__Host-`. No es un error, porque un sistema interno puede usar HTTP a propósito. Los avisos de producción se juntan en `config.Config.Warnings`, junto al de `MAIL_DRIVER=log`.
+
+### Corregido
+
+- **El email del login no tenía límite de largo.** Como es la clave del límite por cuenta, cada intento podía ocupar hasta 1 MB en memoria. Ahora se valida el mismo máximo que en el registro (254 caracteres).
+- **La cola de correos no tenía tope de envíos simultáneos:** cada correo abría su propia conexión SMTP. Ahora se envían como mucho 4 a la vez.
+
 ## [v0.3.7] - 2026-10-24
 
 Solo documentación.

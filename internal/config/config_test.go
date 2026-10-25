@@ -190,3 +190,36 @@ func TestLoadPreviousKeys(t *testing.T) {
 		t.Errorf("se esperaban 2 claves anteriores, hay %d", len(cfg.EncryptionPreviousKeys))
 	}
 }
+
+func TestProductionWarnings(t *testing.T) {
+	risky, err := load(envFrom(map[string]string{
+		"APP_ENV":       "production",
+		"DATABASE_URL":  "x",
+		"COOKIE_SECURE": "false",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := risky.Warnings(); len(w) != 2 {
+		t.Errorf("se esperaban los avisos de COOKIE_SECURE y MAIL_DRIVER: %q", w)
+	}
+
+	safe, err := load(envFrom(map[string]string{
+		"APP_ENV":      "production",
+		"DATABASE_URL": "x",
+		"MAIL_DRIVER":  "smtp",
+		"SMTP_HOST":    "smtp.ejemplo.com",
+		"MAIL_FROM":    "no-reply@ejemplo.com",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := safe.Warnings(); len(w) != 0 {
+		t.Errorf("una configuración de producción correcta no debería tener avisos: %q", w)
+	}
+
+	dev, _ := load(envFrom(map[string]string{"DATABASE_URL": "x"}))
+	if w := dev.Warnings(); len(w) != 0 {
+		t.Errorf("en desarrollo no hay avisos: %q", w)
+	}
+}

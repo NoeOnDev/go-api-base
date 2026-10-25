@@ -55,6 +55,9 @@ func run() error {
 
 	logger := newLogger(cfg)
 	slog.SetDefault(logger)
+	for _, w := range cfg.Warnings() {
+		logger.Warn(w)
+	}
 
 	pool, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -122,10 +125,6 @@ func newMailSender(cfg config.Config, logger *slog.Logger) (mail.Sender, error) 
 			return nil, fmt.Errorf("configuración de correo: %w", err)
 		}
 		return s, nil
-	}
-
-	if cfg.IsProduction() {
-		logger.Warn("MAIL_DRIVER=log en producción: los correos no se envían, se escriben en el log")
 	}
 	return mail.LogSender{Logger: logger}, nil
 }

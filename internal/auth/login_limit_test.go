@@ -3,6 +3,7 @@ package auth_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
@@ -48,5 +49,17 @@ func TestLoginAccountLimit(t *testing.T) {
 	}
 	if w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/login", loginBodyFor("ana@ejemplo.com", newPassword)); w.Code != http.StatusOK {
 		t.Errorf("login después del reset: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+}
+
+func TestLoginRejectsLongEmail(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+
+	long := strings.Repeat("a", 300) + "@ejemplo.com"
+	resp := testutil.Decode[testutil.APIError](t,
+		testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBodyFor(long, "contraseña-de-prueba")), http.StatusUnprocessableEntity)
+	if resp.Error.Fields["email"] == "" {
+		t.Errorf("se esperaba error en email: %+v", resp.Error)
 	}
 }

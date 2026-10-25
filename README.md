@@ -150,7 +150,7 @@ Los valores con espacios van entre comillas: `APP_NAME="Mi App"`.
 
 ### Antes de producción
 
-Lo que hay que revisar en la configuración, sea cual sea el servidor:
+Lo que hay que revisar en la configuración, sea cual sea el servidor. Si `COOKIE_SECURE` o `MAIL_DRIVER` quedan mal en producción, la API lo avisa en el log al arrancar.
 
 - **`APP_ENV=production`:** logs en JSON y cookies `Secure` con el prefijo `__Host-`.
 - **HTTPS delante de la API** (por ejemplo, con Caddy o Nginx). Sin HTTPS, las cookies `Secure` no viajan y nadie puede iniciar sesión.

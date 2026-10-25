@@ -61,8 +61,13 @@ type loginInput struct {
 
 func (in loginInput) validate() error {
 	fields := map[string]string{}
-	if strings.TrimSpace(in.Email) == "" {
+	switch {
+	case strings.TrimSpace(in.Email) == "":
 		fields["email"] = "es obligatorio"
+	case len(in.Email) > maxEmailLen:
+		// El email es la clave del límite por cuenta: sin tope, cada intento podría ocupar
+		// hasta el tamaño máximo del cuerpo (1 MB) en memoria.
+		fields["email"] = "es demasiado largo"
 	}
 	if in.Password == "" {
 		fields["password"] = "es obligatoria"

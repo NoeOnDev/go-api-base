@@ -82,6 +82,22 @@ func (c Config) IsProduction() bool {
 	return c.Env == EnvProduction
 }
 
+// Warnings devuelve las configuraciones válidas pero riesgosas para producción. No son errores,
+// porque pueden ser a propósito (por ejemplo, un sistema interno sin HTTPS), pero conviene verlas.
+func (c Config) Warnings() []string {
+	if !c.IsProduction() {
+		return nil
+	}
+	var w []string
+	if !c.CookieSecure {
+		w = append(w, "COOKIE_SECURE=false en producción: las cookies viajan sin HTTPS y sin el prefijo __Host-")
+	}
+	if c.Mail.Driver != MailDriverSMTP {
+		w = append(w, "MAIL_DRIVER=log en producción: los correos no se envían, se escriben en el log")
+	}
+	return w
+}
+
 // Load lee la configuración del entorno, aplica valores por defecto y la valida.
 // Devuelve todos los errores juntos para poder corregirlos de una sola vez.
 func Load() (Config, error) {

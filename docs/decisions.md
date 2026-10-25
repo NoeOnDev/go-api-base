@@ -72,6 +72,7 @@ JWT conviene cuando varios servicios validan sesiones sin acceso a la base, o pa
 - **Se envían en segundo plano** (`mail.Queue`), por dos motivos:
   - la respuesta no espera al servidor de correo;
   - "olvidé mi contraseña" tarda lo mismo exista o no el email.
+- **Como mucho 4 envíos a la vez:** cada uno abre su propia conexión SMTP, y los proveedores rechazan muchas conexiones simultáneas. Los demás esperan su turno.
 - **Si el envío falla**, queda en el log; al apagar la API se esperan los pendientes.
 - **No hay reintentos ni cola persistente.** Para correos críticos o de mucho volumen, conviene una cola en la base o un servicio dedicado.
 - **Plantillas en texto plano**, embebidas en el binario. Se leen bien en cualquier cliente y no tienen problemas de compatibilidad con HTML.

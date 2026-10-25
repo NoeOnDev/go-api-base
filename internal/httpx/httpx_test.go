@@ -182,3 +182,28 @@ func TestAddLogAttrsReachesRequestLog(t *testing.T) {
 		t.Errorf("la línea de la petición no incluye el user_id: %s", line)
 	}
 }
+
+// Una respuesta que no se puede codificar es un error de programación: antes se enviaba un 200
+// con el cuerpo cortado y el error quedaba en el log sin el request_id. Ahora se codifica antes
+// de enviar nada, así que Recover responde un 500 correcto y lo registra con el request_id.
+func TestWriteUnencodableResponse(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	h := Chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		Write(w, http.StatusOK, map[string]any{"canal": make(chan int)})
+	}), RequestID(logger), Logger, Recover)
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, se esperaba 500", w.Code)
+	}
+	if got := decodeErrorBody(t, w.Body); got.Code != "internal_error" {
+		t.Errorf("code = %q", got.Code)
+	}
+	logs := buf.String()
+	if !strings.Contains(logs, "codificar la respuesta") || !strings.Contains(logs, "request_id="+w.Header().Get("X-Request-ID")) {
+		t.Errorf("el error no quedó en el log con el request_id:\n%s", logs)
+	}
+}

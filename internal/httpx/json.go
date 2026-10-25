@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -74,11 +73,16 @@ func Write(w http.ResponseWriter, status int, v any) {
 		return
 	}
 
+	// Se codifica antes de enviar nada. Las respuestas son structs propios, así que si no se
+	// pueden codificar es un error de programación: el panic llega a Recover, que lo registra
+	// con el request_id y responde un 500 correcto (todavía no se envió el status).
+	body, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Errorf("httpx.Write: codificar la respuesta: %w", err))
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		// Los encabezados ya se enviaron: solo queda registrar el problema.
-		slog.Error("no se pudo escribir la respuesta JSON", "error", err)
-	}
+	// Un error al escribir casi siempre es un cliente que cerró la conexión: no hay nada que hacer.
+	_, _ = w.Write(append(body, '\n'))
 }

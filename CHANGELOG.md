@@ -9,6 +9,23 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.3.5] - 2026-10-24
+
+Ajustes menores de la revisión de v0.3.4 y alcance de la plantilla.
+
+### Agregado
+
+- **`GOMEMLIMIT`** documentada en el README y en `.env.example`: es una variable del propio Go. En una prueba con 200 logins simultáneos y 12 núcleos, `GOMEMLIMIT=300MiB` bajó el pico de memoria de 590 MiB a 317 MiB, con logins un 10 % más lentos.
+
+### Cambiado
+
+- **`testutil.Login` acepta las mismas opciones que `NewAPI`**, para que la cookie coincida cuando un test usa `CookieSecure`.
+- **"Qué no incluye"** (`docs/decisions.md`) deja de presentarse como lista de pendientes: OAuth y el resto se agregan en el proyecto que los necesite. La plantilla no incluye una guía de despliegue, porque depende de cada servidor.
+
+### Corregido
+
+- **La documentación del límite por cuenta** decía que recuperar la contraseña era la salida del dueño. Eso vale cuando el ataque terminó; si sigue, el login de esa cuenta queda bloqueado mientras dure.
+
 ## [v0.3.4] - 2026-10-24
 
 Ajustes para producción en un VPS chico, a partir de una revisión con la API levantada.

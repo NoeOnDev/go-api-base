@@ -60,3 +60,18 @@ func TestSecureCookiesUseHostPrefix(t *testing.T) {
 	}
 	cookieNamed(t, w, "__Host-session")
 }
+
+func TestLoginHelperWithSecureCookies(t *testing.T) {
+	pool := testutil.NewDB(t)
+	secure := testutil.WithConfig(func(c *config.Config) { c.CookieSecure = true })
+	api := testutil.NewAPI(pool, secure)
+
+	// Con las mismas opciones que la API, la cookie de testutil.Login coincide.
+	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", "user", secure)
+	if cookie.Name != "__Host-session" {
+		t.Errorf("cookie = %q, se esperaba __Host-session", cookie.Name)
+	}
+	if w := testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
+		t.Errorf("/auth/me: status = %d", w.Code)
+	}
+}

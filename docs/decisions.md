@@ -138,7 +138,9 @@ Un token bucket (`golang.org/x/time/rate`) con cuatro usos:
 
 Al estar en memoria, alcanza para una instancia, y se reinicia con la API. Con varias instancias, los límites habría que moverlos a la base, a Redis o al proxy. Una clave inactiva se olvida recién cuando su límite ya se habría recargado.
 
-El límite por cuenta tiene un costo: quien conozca un email puede demorar ese login gastando un intento por minuto. Se eligió así porque, sin él, un ataque repartido entre cientos de IPs prueba contraseñas sin freno. La salida del dueño es recuperar la contraseña, que reinicia sus límites del login y del 2FA. No es un bloqueo permanente: el límite se recarga solo.
+El límite por cuenta tiene un costo: quien conozca un email puede bloquear ese login **mientras siga enviando intentos**, y le alcanza con uno por minuto. Recuperar la contraseña reinicia los límites del login y del 2FA, pero eso sirve cuando el ataque ya terminó: si continúa, el atacante vuelve a gastar los intentos. Se aceptó porque, sin el límite, un ataque repartido entre cientos de IPs prueba contraseñas sin freno, y porque el bloqueo dura solo lo que dura el ataque.
+
+Si un proyecto necesita evitar ese bloqueo, la técnica habitual son las *device cookies* de OWASP: un dispositivo donde el usuario ya entró no cuenta para el límite.
 
 La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, para que nadie pueda falsearla si la API está expuesta directamente.
 
@@ -201,12 +203,11 @@ Cualquier ruta no registrada responde 404 en JSON. Un método no permitido en un
 `go.mod` pide Go 1.27.3, que incluye las correcciones de seguridad de octubre de 2026 (`crypto/x509`, `net/http`, `crypto/tls`).
 Con `GOTOOLCHAIN=auto` (el valor por defecto), una versión anterior de Go descarga la correcta automáticamente.
 
-## Qué no incluye (todavía)
+## Qué no incluye
 
 - Cambiar el email.
 - 2FA obligatorio, y passkeys o WebAuthn.
-- OAuth.
+- Login con Google u otros proveedores (OAuth).
 - Permisos más finos que `user`/`admin`.
-- Guía de despliegue (systemd + Caddy).
 
-Se agregan cuando un proyecto los necesita.
+No es una lista de pendientes: son funciones que dependen de cada proyecto, y se agregan en el proyecto que las necesite.

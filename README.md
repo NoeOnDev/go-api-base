@@ -144,6 +144,7 @@ Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene
 | `APP_NAME` | `Mi App` | Nombre que muestra la app de autenticación del 2FA |
 | `ENCRYPTION_KEY` | (obligatoria) | Clave para cifrar el secreto del 2FA. Generala con `make key` (ver [docs/encryption.md](docs/encryption.md)) |
 | `ENCRYPTION_PREVIOUS_KEYS` | | Claves anteriores, solo durante una rotación |
+| `GOMEMLIMIT` | (sin límite) | Variable del propio Go, no de la plantilla. Con ella, el recolector de basura libera memoria antes de llegar a ese valor. En producción conviene cerca del 70 % de la RAM del servidor (con 1 GB, `700MiB`) |
 
 Los valores con espacios van entre comillas: `APP_NAME="Mi App"`.
 

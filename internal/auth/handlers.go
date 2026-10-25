@@ -13,8 +13,9 @@ import (
 // que vengan. Complementa el límite por IP, que no frena un ataque repartido entre muchas IPs.
 //
 // Cuenta por email, exista o no, así la respuesta no revela qué emails están registrados.
-// El costo: quien conozca un email puede demorar ese login. La salida del dueño es recuperar
-// la contraseña, que reinicia el límite (ver resetPassword).
+// El costo: quien conozca un email puede bloquear ese login mientras siga enviando intentos
+// (le alcanza con uno por minuto). Recuperar la contraseña reinicia el límite (ver resetPassword),
+// pero eso solo ayuda cuando el ataque terminó. Ver docs/decisions.md.
 const (
 	loginLimitEvery = time.Minute
 	loginLimitBurst = 10

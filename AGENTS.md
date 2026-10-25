@@ -131,6 +131,8 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
   configuración: `testutil.WithConfig(func(c *config.Config){ … })`. Para el 2FA: `testutil.EnableTwoFactor` y `TwoFactor.Code`.
 - Las rutas de auth comparten el límite de 5 intentos por IP: un test no debería hacer más de 5 peticiones a ellas
   con `testutil.Do`. Para más, o para simular varias IPs, usar `testutil.DoFromIP`.
+- Si la API del test cambia la configuración de la cookie (`WithConfig` con `CookieSecure`), pasarle las mismas
+  opciones a `testutil.Login` para que la cookie coincida.
 - Los tests que usan la base no llevan `t.Parallel()`, y los paquetes corren en serie (`-p 1`, ya incluido en `make test`).
 - Cubrir siempre: el caso feliz, validación (422), no encontrado (404), sin sesión (401) y, si aplica, sin permiso (403) o pertenencia.
 

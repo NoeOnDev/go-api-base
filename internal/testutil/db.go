@@ -15,6 +15,7 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/db"
+	"github.com/NoeOnDev/go-api-base/internal/server"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -80,10 +81,21 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 
 // Login crea un usuario con el rol indicado, le inicia una sesión y devuelve el usuario
 // y la cookie para enviar en las peticiones: r.AddCookie(cookie).
-func Login(t *testing.T, pool *pgxpool.Pool, email, role string) (auth.User, *http.Cookie) {
+//
+// Acepta las mismas opciones que NewAPI: si la API del test cambia la configuración de la
+// cookie (por ejemplo, WithConfig con CookieSecure), pasale las mismas a Login para que la
+// cookie coincida.
+func Login(t *testing.T, pool *pgxpool.Pool, email, role string, opts ...Option) (auth.User, *http.Cookie) {
 	t.Helper()
 
-	service := auth.NewService(store.New(pool), auth.Options{})
+	var d server.Deps
+	for _, opt := range opts {
+		opt(&d)
+	}
+	service := auth.NewService(store.New(pool), auth.Options{
+		SessionTTL:   d.Config.SessionTTL,
+		CookieSecure: d.Config.CookieSecure,
+	})
 	u, err := service.CreateUser(t.Context(), auth.RegisterInput{
 		Name:     "Usuario de prueba",
 		Email:    email,
@@ -98,8 +110,9 @@ func Login(t *testing.T, pool *pgxpool.Pool, email, role string) (auth.User, *ht
 		t.Fatalf("iniciar sesión de %s: %v", email, err)
 	}
 
+	// En producción la cookie lleva el prefijo __Host- (ver auth.CookieName).
 	for _, c := range w.Result().Cookies() {
-		if c.Name == auth.CookieName {
+		if strings.TrimPrefix(c.Name, "__Host-") == auth.CookieName {
 			return u, c
 		}
 	}

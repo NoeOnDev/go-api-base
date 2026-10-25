@@ -194,7 +194,7 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
   - **Intentos:** login, registro, cambio de contraseña, reset, verificación y las rutas del 2FA. 5 seguidos y luego uno cada 12 segundos.
   - **Correos:** `forgot` y `resend`. 3 seguidos y luego uno cada 5 minutos.
 - **Límites por usuario**, aunque los pedidos lleguen de muchas IPs:
-  - **Login:** 10 intentos seguidos por email y luego uno por minuto. Cuenta también los emails que no existen, para no revelar cuáles están registrados. Recuperar la contraseña lo reinicia.
+  - **Login:** 10 intentos seguidos por email y luego uno por minuto. Cuenta también los emails que no existen, para no revelar cuáles están registrados. Recuperar la contraseña lo reinicia, aunque contra un ataque que sigue en curso eso no alcanza (ver [decisiones](decisions.md#límite-de-peticiones-en-memoria)).
   - **Código del 2FA:** 10 intentos seguidos y luego uno cada 6 minutos.
   - **Correos a una misma persona:** 3 seguidos de cada tipo (recuperación, verificación, aviso) y luego uno cada 20 minutos. En `forgot`, al superarlo no se envía nada y la respuesta es la misma de siempre, para no revelar si el email existe; el último enlace enviado sigue sirviendo. `resend` responde `429`.
 - Los límites están en memoria: alcanzan para una instancia de la API, y se reinician con ella.

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 )
 
@@ -36,10 +37,11 @@ type Config struct {
 	// CORSAllowedOrigins son los orígenes (por ejemplo https://app.cliente.com) desde los que
 	// un frontend en otro dominio puede llamar a la API. Vacío = sin CORS.
 	CORSAllowedOrigins []string
-	// TrustProxy indica que hay un proxy (por ejemplo Caddy) delante, y que la IP real
-	// del cliente viene en X-Forwarded-For. Solo se cree si la conexión viene de localhost
-	// o de una red privada (ver httpx.ClientIP).
-	TrustProxy bool
+	// TrustedProxies son los proxies (por ejemplo Caddy) de los que se acepta X-Forwarded-For,
+	// el encabezado con la IP real del cliente. Vacía con TRUST_PROXY=false; con TRUST_PROXY=true,
+	// los de TRUSTED_PROXIES o, si no se definen, localhost y las redes privadas
+	// (httpx.DefaultTrustedProxies). Ver httpx.ClientIP.
+	TrustedProxies httpx.TrustedProxies
 
 	// FrontendURL es la base de los enlaces que van en los correos
 	// (por ejemplo https://app.cliente.com/reset-password?token=…).
@@ -145,8 +147,20 @@ func load(rawGetenv func(string) string) (Config, error) {
 		errs = append(errs, fmt.Errorf("COOKIE_SECURE %w", err))
 	}
 
-	if cfg.TrustProxy, err = boolOr(getenv("TRUST_PROXY"), false); err != nil {
+	trustProxy, err := boolOr(getenv("TRUST_PROXY"), false)
+	if err != nil {
 		errs = append(errs, fmt.Errorf("TRUST_PROXY %w", err))
+	}
+	proxies, err := httpx.ParseTrustedProxies(getenv("TRUSTED_PROXIES"))
+	switch {
+	case err != nil:
+		errs = append(errs, fmt.Errorf("TRUSTED_PROXIES: %w", err))
+	case !trustProxy && len(proxies) > 0:
+		errs = append(errs, errors.New("TRUSTED_PROXIES requiere TRUST_PROXY=true"))
+	case trustProxy && len(proxies) > 0:
+		cfg.TrustedProxies = proxies
+	case trustProxy:
+		cfg.TrustedProxies = httpx.DefaultTrustedProxies
 	}
 
 	if cfg.CORSAllowedOrigins, err = origins(getenv("CORS_ALLOWED_ORIGINS")); err != nil {

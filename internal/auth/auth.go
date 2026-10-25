@@ -78,9 +78,10 @@ type Options struct {
 	Box *secretbox.Box
 	// Issuer es el nombre de la aplicación que muestra la app de autenticación.
 	Issuer string
-	// TrustProxy toma la IP del cliente de X-Forwarded-For (detrás de Caddy o Nginx).
-	// Se usa en el correo que avisa de códigos del 2FA incorrectos.
-	TrustProxy bool
+	// TrustedProxies son los proxies de los que se acepta X-Forwarded-For (ver httpx.ClientIP).
+	// Se usan para registrar la IP real del cliente (por ejemplo, en el correo que avisa de
+	// códigos del 2FA incorrectos).
+	TrustedProxies httpx.TrustedProxies
 	// SessionWatcher se entera cuando auth cierra sesiones, para cortar lo que dependía de ellas.
 	// Es opcional. En la plantilla lo implementa el broker de internal/realtime, que corta los
 	// streams de GET /events abiertos con esas sesiones.
@@ -154,9 +155,9 @@ func NewService(pool *pgxpool.Pool, opts Options) *Service {
 		db:               pool,
 		q:                store.New(pool),
 		opts:             opts,
-		loginLimiter:     httpx.NewRateLimiter(loginLimitEvery, loginLimitBurst, false),
-		twoFactorLimiter: httpx.NewRateLimiter(twoFactorLimitEvery, twoFactorLimitBurst, false),
-		emailLimiter:     httpx.NewRateLimiter(emailLimitEvery, emailLimitBurst, false),
+		loginLimiter:     httpx.NewRateLimiter(loginLimitEvery, loginLimitBurst),
+		twoFactorLimiter: httpx.NewRateLimiter(twoFactorLimitEvery, twoFactorLimitBurst),
+		emailLimiter:     httpx.NewRateLimiter(emailLimitEvery, emailLimitBurst),
 	}
 }
 

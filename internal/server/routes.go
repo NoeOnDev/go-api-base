@@ -76,15 +76,15 @@ func NewHandler(d Deps) http.Handler {
 		RequireVerifiedEmail: d.Config.RequireEmailVerification,
 		Box:                  box,
 		Issuer:               d.Config.AppName,
-		TrustProxy:           d.Config.TrustProxy,
+		TrustedProxies:       d.Config.TrustedProxies,
 		Notifier:             notificationsService,
 		SessionWatcher:       broker,
 	})
 	// Intentos: 5 seguidos por IP y luego uno cada 12 segundos (5 por minuto).
 	// Correos: 3 seguidos por IP y luego uno cada 5 minutos.
-	attempts := httpx.NewRateLimiter(12*time.Second, 5, d.Config.TrustProxy)
-	emails := httpx.NewRateLimiter(5*time.Minute, 3, d.Config.TrustProxy)
-	auth.Register(mux, authService, auth.Limits{Attempts: attempts.Middleware, Emails: emails.Middleware})
+	attempts := httpx.NewRateLimiter(12*time.Second, 5).MiddlewareByIP(d.Config.TrustedProxies)
+	emails := httpx.NewRateLimiter(5*time.Minute, 3).MiddlewareByIP(d.Config.TrustedProxies)
+	auth.Register(mux, authService, auth.Limits{Attempts: attempts, Emails: emails})
 
 	// Tiempo real: un stream SSE con los eventos del usuario y de los temas que pida.
 	mux.Handle("GET /events", authService.RequireUser(broker.Handler(authService)))

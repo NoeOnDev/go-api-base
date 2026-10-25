@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
 
 // testKey es una ENCRYPTION_KEY válida (32 bytes en base64) para los tests.
@@ -53,8 +55,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.CookieSecure {
 		t.Error("CookieSecure debería ser false en desarrollo")
 	}
-	if cfg.TrustProxy || len(cfg.CORSAllowedOrigins) != 0 {
-		t.Errorf("TrustProxy = %v, CORSAllowedOrigins = %v", cfg.TrustProxy, cfg.CORSAllowedOrigins)
+	if len(cfg.TrustedProxies) != 0 || len(cfg.CORSAllowedOrigins) != 0 {
+		t.Errorf("TrustedProxies = %v, CORSAllowedOrigins = %v", cfg.TrustedProxies, cfg.CORSAllowedOrigins)
 	}
 	if cfg.FrontendURL != "http://localhost:5173" || cfg.RequireEmailVerification {
 		t.Errorf("FrontendURL = %q, RequireEmailVerification = %v", cfg.FrontendURL, cfg.RequireEmailVerification)
@@ -124,8 +126,8 @@ func TestLoadCustomValues(t *testing.T) {
 	if !cfg.CookieSecure {
 		t.Error("CookieSecure debería ser true por defecto en producción")
 	}
-	if !cfg.TrustProxy {
-		t.Error("TrustProxy = false")
+	if fmt.Sprint(cfg.TrustedProxies) != fmt.Sprint(httpx.DefaultTrustedProxies) {
+		t.Errorf("con TRUST_PROXY=true y sin TRUSTED_PROXIES: %v", cfg.TrustedProxies)
 	}
 	want := []string{"https://app.ejemplo.com", "http://localhost:5173"}
 	if fmt.Sprint(cfg.CORSAllowedOrigins) != fmt.Sprint(want) {
@@ -226,5 +228,20 @@ func TestProductionWarnings(t *testing.T) {
 	dev, _ := load(envFrom(map[string]string{"DATABASE_URL": "x"}))
 	if w := dev.Warnings(); len(w) != 0 {
 		t.Errorf("en desarrollo no hay avisos: %q", w)
+	}
+}
+
+func TestTrustedProxies(t *testing.T) {
+	cfg, err := load(envFrom(map[string]string{"DATABASE_URL": "x", "TRUST_PROXY": "true", "TRUSTED_PROXIES": "127.0.0.1"}))
+	if err != nil || fmt.Sprint(cfg.TrustedProxies) != "[127.0.0.1/32]" {
+		t.Errorf("TRUSTED_PROXIES: %v (%v)", cfg.TrustedProxies, err)
+	}
+	for name, env := range map[string]map[string]string{
+		"dirección inválida":      {"DATABASE_URL": "x", "TRUST_PROXY": "true", "TRUSTED_PROXIES": "caddy"},
+		"proxies sin TRUST_PROXY": {"DATABASE_URL": "x", "TRUSTED_PROXIES": "127.0.0.1"},
+	} {
+		if _, err := load(envFrom(env)); err == nil {
+			t.Errorf("%s: se esperaba un error", name)
+		}
 	}
 }

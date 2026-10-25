@@ -17,10 +17,9 @@ import (
 // Guarda el estado en memoria: alcanza para una sola instancia de la API, que es el caso
 // de un VPS. Con varias instancias detrás de un balanceador, cada una contaría por separado.
 type RateLimiter struct {
-	every      time.Duration
-	burst      int
-	trustProxy bool
-	ttl        time.Duration // cuánto se recuerda una clave inactiva
+	every time.Duration
+	burst int
+	ttl   time.Duration // cuánto se recuerda una clave inactiva
 
 	mu          sync.Mutex
 	visitors    map[string]*visitor
@@ -37,14 +36,14 @@ type visitor struct {
 // olvidarla antes le devolvería todos los intentos de golpe.
 const visitorTTL = 10 * time.Minute
 
-// NewRateLimiter crea un limitador que permite burst peticiones seguidas por IP
-// y recarga una cada every. Por ejemplo, NewRateLimiter(12*time.Second, 5, false)
-// permite 5 intentos seguidos y luego uno cada 12 segundos (5 por minuto).
-func NewRateLimiter(every time.Duration, burst int, trustProxy bool) *RateLimiter {
+// NewRateLimiter crea un limitador que permite burst peticiones seguidas por clave y recarga
+// una cada every. Por ejemplo, NewRateLimiter(12*time.Second, 5) permite 5 intentos seguidos
+// y luego uno cada 12 segundos (5 por minuto). La clave la elige el middleware: la IP
+// (MiddlewareByIP) u otra, como el usuario (MiddlewareBy).
+func NewRateLimiter(every time.Duration, burst int) *RateLimiter {
 	return &RateLimiter{
 		every:       every,
 		burst:       burst,
-		trustProxy:  trustProxy,
 		ttl:         max(visitorTTL, every*time.Duration(burst)),
 		visitors:    map[string]*visitor{},
 		lastCleanup: time.Now(),
@@ -106,18 +105,29 @@ func rateLimitKey(ip string) string {
 	return prefix.String()
 }
 
-// Middleware responde 429 con el encabezado Retry-After cuando la IP supera el límite.
-func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
+// MiddlewareByIP limita por IP del cliente (o por bloque /64 en IPv6). proxies son los proxies
+// de los que se acepta X-Forwarded-For (ver ClientIP).
+func (rl *RateLimiter) MiddlewareByIP(proxies TrustedProxies) Middleware {
+	return rl.MiddlewareBy(func(r *http.Request) string {
+		return rateLimitKey(ClientIP(r, proxies))
+	})
+}
+
+// MiddlewareBy limita por la clave que devuelve key, por ejemplo el id del usuario. Al superar
+// el límite responde 429 con el encabezado Retry-After.
+func (rl *RateLimiter) MiddlewareBy(key func(*http.Request) string) Middleware {
 	retryAfter := strconv.Itoa(int(math.Ceil(rl.every.Seconds())))
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := ClientIP(r, rl.trustProxy)
-		if !rl.Allow(rateLimitKey(ip)) {
-			LoggerFrom(r.Context()).Warn("límite de peticiones superado", "ip", ip, "path", r.URL.Path)
-			w.Header().Set("Retry-After", retryAfter)
-			WriteError(w, r, TooManyRequests())
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			k := key(r)
+			if !rl.Allow(k) {
+				LoggerFrom(r.Context()).Warn("límite de peticiones superado", "key", k, "path", r.URL.Path)
+				w.Header().Set("Retry-After", retryAfter)
+				WriteError(w, r, TooManyRequests())
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

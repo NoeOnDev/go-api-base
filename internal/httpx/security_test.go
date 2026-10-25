@@ -12,21 +12,25 @@ func TestClientIP(t *testing.T) {
 		name       string
 		remoteAddr string
 		xff        []string
-		trustProxy bool
+		proxies    TrustedProxies
 		want       string
 	}{
-		{"sin proxy", "203.0.113.7:4321", nil, false, "203.0.113.7"},
-		{"ignora XFF sin TRUST_PROXY", "203.0.113.7:4321", []string{"1.1.1.1"}, false, "203.0.113.7"},
-		{"usa el último XFF con proxy en localhost", "127.0.0.1:5000", []string{"1.1.1.1, 198.51.100.4"}, true, "198.51.100.4"},
-		{"proxy en localhost IPv6", "[::1]:5000", []string{"198.51.100.4"}, true, "198.51.100.4"},
-		{"proxy en una red de Docker", "172.18.0.2:5000", []string{"198.51.100.4"}, true, "198.51.100.4"},
-		{"proxy en una red privada", "10.0.0.5:5000", []string{"198.51.100.4"}, true, "198.51.100.4"},
-		{"varios encabezados: el último es el del proxy", "127.0.0.1:5000", []string{"1.1.1.1", "198.51.100.4"}, true, "198.51.100.4"},
-		{"proxy sin XFF", "127.0.0.1:5000", nil, true, "127.0.0.1"},
-		{"XFF que no es una IP", "127.0.0.1:5000", []string{"inventado"}, true, "127.0.0.1"},
+		{"sin proxy", "203.0.113.7:4321", nil, nil, "203.0.113.7"},
+		{"ignora XFF sin TRUST_PROXY", "203.0.113.7:4321", []string{"1.1.1.1"}, nil, "203.0.113.7"},
+		{"usa el último XFF con proxy en localhost", "127.0.0.1:5000", []string{"1.1.1.1, 198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
+		{"proxy en localhost IPv6", "[::1]:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
+		{"proxy en una red de Docker", "172.18.0.2:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
+		{"proxy en una red privada", "10.0.0.5:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
+		{"varios encabezados: el último es el del proxy", "127.0.0.1:5000", []string{"1.1.1.1", "198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
+		{"proxy sin XFF", "127.0.0.1:5000", nil, DefaultTrustedProxies, "127.0.0.1"},
+		{"XFF que no es una IP", "127.0.0.1:5000", []string{"inventado"}, DefaultTrustedProxies, "127.0.0.1"},
 		// Con TRUST_PROXY y el puerto abierto a internet por error: el XFF inventado no se cree.
-		{"conexión directa desde internet", "203.0.113.7:4321", []string{"1.1.1.1"}, true, "203.0.113.7"},
-		{"IPv6", "[2001:db8::1]:443", nil, false, "2001:db8::1"},
+		{"conexión directa desde internet", "203.0.113.7:4321", []string{"1.1.1.1"}, DefaultTrustedProxies, "203.0.113.7"},
+		{"IPv6", "[2001:db8::1]:443", nil, nil, "2001:db8::1"},
+		// Con TRUSTED_PROXIES: solo el proxy indicado, aunque otra dirección sea de una red privada.
+		{"proxy indicado", "10.0.0.5:5000", []string{"198.51.100.4"}, mustProxies(t, "10.0.0.5"), "198.51.100.4"},
+		{"otro de la red privada, no indicado", "10.0.0.6:5000", []string{"1.1.1.1"}, mustProxies(t, "10.0.0.5"), "10.0.0.6"},
+		{"rango indicado", "10.0.0.6:5000", []string{"198.51.100.4"}, mustProxies(t, "10.0.0.0/29"), "198.51.100.4"},
 	}
 
 	for _, tt := range tests {
@@ -36,16 +40,35 @@ func TestClientIP(t *testing.T) {
 			for _, v := range tt.xff {
 				r.Header.Add("X-Forwarded-For", v)
 			}
-			if got := ClientIP(r, tt.trustProxy); got != tt.want {
+			if got := ClientIP(r, tt.proxies); got != tt.want {
 				t.Errorf("ClientIP = %q, se esperaba %q", got, tt.want)
 			}
 		})
 	}
 }
 
+func mustProxies(t *testing.T, list string) TrustedProxies {
+	t.Helper()
+	p, err := ParseTrustedProxies(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestParseTrustedProxies(t *testing.T) {
+	p, err := ParseTrustedProxies(" 127.0.0.1, 10.0.0.0/24 ,::1")
+	if err != nil || len(p) != 3 || p[0].String() != "127.0.0.1/32" || p[1].String() != "10.0.0.0/24" || p[2].String() != "::1/128" {
+		t.Errorf("ParseTrustedProxies = %v, %v", p, err)
+	}
+	if _, err := ParseTrustedProxies("127.0.0.1, caddy"); err == nil {
+		t.Error("una dirección inválida debería ser un error")
+	}
+}
+
 func TestRateLimiter(t *testing.T) {
-	rl := NewRateLimiter(time.Hour, 3, false)
-	h := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	rl := NewRateLimiter(time.Hour, 3)
+	h := rl.MiddlewareByIP(nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -151,8 +174,8 @@ func TestRateLimitKey(t *testing.T) {
 }
 
 func TestRateLimiterGroupsIPv6Block(t *testing.T) {
-	rl := NewRateLimiter(time.Hour, 2, false)
-	h := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	rl := NewRateLimiter(time.Hour, 2)
+	h := rl.MiddlewareByIP(nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
 	call := func(remote string) int {
 		r := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
@@ -176,7 +199,7 @@ func TestRateLimiterGroupsIPv6Block(t *testing.T) {
 
 func TestRateLimiterRemembersUntilRefilled(t *testing.T) {
 	// 3 intentos que se recargan de a uno cada 20 minutos: tarda 1 hora en llenarse.
-	rl := NewRateLimiter(20*time.Minute, 3, false)
+	rl := NewRateLimiter(20*time.Minute, 3)
 	for range 3 {
 		rl.Allow("ana")
 	}
@@ -194,13 +217,13 @@ func TestRateLimiterRemembersUntilRefilled(t *testing.T) {
 		t.Error("la clave se olvidó antes de recargarse y recuperó todos sus intentos")
 	}
 
-	if rl := NewRateLimiter(12*time.Second, 5, false); rl.ttl != visitorTTL {
+	if rl := NewRateLimiter(12*time.Second, 5); rl.ttl != visitorTTL {
 		t.Errorf("con recarga rápida debería usar visitorTTL: %v", rl.ttl)
 	}
 }
 
 func TestRateLimiterReset(t *testing.T) {
-	rl := NewRateLimiter(time.Hour, 1, false)
+	rl := NewRateLimiter(time.Hour, 1)
 	rl.Allow("ana")
 	if rl.Allow("ana") {
 		t.Fatal("el segundo intento debería rechazarse")

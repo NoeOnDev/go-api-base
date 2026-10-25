@@ -154,7 +154,7 @@ func (s *Service) lockChallenge(w http.ResponseWriter, r *http.Request, u store.
 	}
 	s.clearChallengeCookie(w)
 
-	ip := httpx.ClientIP(r, s.opts.TrustProxy)
+	ip := httpx.ClientIP(r, s.opts.TrustedProxies)
 	httpx.LoggerFrom(r.Context()).Warn("desafío del 2FA bloqueado por códigos incorrectos", "user_id", u.ID, "ip", ip)
 	s.sendTwoFactorLockedEmail(r.Context(), u, ip)
 

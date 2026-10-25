@@ -39,8 +39,9 @@ type Stream struct {
 // Open convierte la respuesta en un stream SSE: envía los encabezados y el status 200.
 //
 // Quita el WriteTimeout del servidor solo para esta petición: con él, el servidor cortaría el
-// stream a los 30 segundos. El stream termina cuando el handler vuelve; para enterarse de que el
-// cliente se fue, usar r.Context().
+// stream a los 30 segundos. En su lugar, cada escritura tiene su propio plazo (streamWriteTimeout).
+// El stream termina cuando el handler vuelve; para enterarse de que el cliente se fue, usar
+// r.Context().
 func Open(w http.ResponseWriter, r *http.Request) (*Stream, error) {
 	rc := http.NewResponseController(w)
 	if err := rc.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
@@ -93,9 +94,18 @@ func (s *Stream) Comment(text string) error {
 	return s.write(": " + strings.ReplaceAll(text, "\n", " ") + "\n\n")
 }
 
+// streamWriteTimeout es cuánto puede tardar cada escritura del stream. Open quita el WriteTimeout
+// del servidor (que cortaría el stream a los 30 segundos), así que hace falta un plazo propio: si
+// un cliente deja de leer sin cerrar la conexión, la escritura se bloquearía en cuanto se llena el
+// buffer de TCP, y el handler no vería ni el logout ni el apagado.
+var streamWriteTimeout = 10 * time.Second
+
 func (s *Stream) write(chunk string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
 	if _, err := s.w.Write([]byte(chunk)); err != nil {
 		return err
 	}

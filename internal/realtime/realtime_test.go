@@ -3,9 +3,12 @@ package realtime
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -352,4 +355,72 @@ func TestStreamMaxLifetime(t *testing.T) {
 	if !r.Closed(time.Second) {
 		t.Error("el stream debería cortarse al llegar a su vida máxima")
 	}
+}
+
+// Un cliente que deja de leer sin cerrar la conexión (una pestaña colgada, una red que pierde
+// paquetes sin avisar): la escritura se bloquea en cuanto se llena el buffer de TCP. Sin un plazo
+// por escritura, el handler quedaba trabado ahí y no veía ni el logout ni el apagado.
+func TestStuckClientIsReleased(t *testing.T) {
+	old := streamWriteTimeout
+	streamWriteTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { streamWriteTimeout = old })
+
+	b := NewBroker()
+	srv := testServer(t, b, 0)
+
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	_ = conn.(*net.TCPConn).SetReadBuffer(4096)
+	fmt.Fprint(conn, "GET /events HTTP/1.1\r\nHost: test\r\nX-Test-User: 1\r\nX-Test-Session: s1\r\n\r\n")
+	// A partir de acá el cliente no lee nunca.
+
+	deadline := time.Now().Add(2 * time.Second)
+	for connections(b) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("la conexión no llegó a abrirse")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Eventos grandes, de a uno, hasta que el handler deja de consumirlos: quedó trabado en Write
+	// con los buffers de TCP llenos. (Sin pasar de la mitad del buffer del broker, para que no
+	// la corte por cliente lento: ese no es el caso que se prueba.)
+	sub := subscriptionOf(b, 1)
+	big := strings.Repeat("x", 256<<10)
+	deadline = time.Now().Add(10 * time.Second)
+	for len(sub.events) < subscriptionBuffer/2 {
+		if time.Now().After(deadline) {
+			t.Fatal("el handler nunca se trabó: los buffers no se llenaron")
+		}
+		b.PublishToUser(t.Context(), 1, Event{Type: "big", Data: big})
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// El logout tiene que liberar la conexión, aunque el cliente siga sin leer.
+	b.SessionEnded(t.Context(), "s1")
+	deadline = time.Now().Add(2 * time.Second)
+	for connections(b) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("la conexión trabada sigue ocupando su lugar después del logout")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func subscriptionOf(b *Broker, userID int64) *subscription {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for sub := range b.channels[UserChannel(userID)] {
+		return sub
+	}
+	return nil
+}
+
+func connections(b *Broker) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.total
 }

@@ -2,10 +2,7 @@ package mail
 
 import (
 	"bytes"
-	"context"
-	"errors"
 	"io"
-	"log/slog"
 	"mime"
 	"mime/quotedprintable"
 	"net"
@@ -13,7 +10,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -71,48 +67,6 @@ func TestBuild(t *testing.T) {
 	}
 }
 
-func TestQueueSendsInBackgroundAndWaits(t *testing.T) {
-	slow := senderFunc(func(ctx context.Context, msg Message) error {
-		time.Sleep(50 * time.Millisecond)
-		return (&recorder).Send(ctx, msg)
-	})
-	q := NewQueue(slow, slog.New(slog.DiscardHandler))
-
-	start := time.Now()
-	if err := q.Send(t.Context(), Message{To: "ana@ejemplo.com", Subject: "Hola"}); err != nil {
-		t.Fatal(err)
-	}
-	if time.Since(start) > 20*time.Millisecond {
-		t.Error("Send debería volver sin esperar el envío")
-	}
-
-	if err := q.Wait(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := recorder.Last("ana@ejemplo.com"); !ok {
-		t.Error("el correo no se envió antes de que Wait volviera")
-	}
-
-	if err := q.Send(t.Context(), Message{To: "inválido", Subject: "x"}); err == nil {
-		t.Error("Send debería validar el mensaje antes de encolarlo")
-	}
-}
-
-func TestQueueLogsErrors(t *testing.T) {
-	var logs bytes.Buffer
-	failing := senderFunc(func(context.Context, Message) error { return errors.New("servidor caído") })
-	q := NewQueue(failing, slog.New(slog.NewTextHandler(&logs, nil)))
-
-	_ = q.Send(t.Context(), Message{To: "ana@ejemplo.com", Subject: "Hola"})
-	_ = q.Wait(t.Context())
-
-	if !strings.Contains(logs.String(), "servidor caído") {
-		t.Errorf("el error no quedó en el log: %s", logs.String())
-	}
-}
-
-// TestSMTPSender envía un correo real. Solo corre si SMTP_TEST_ADDR apunta a un servidor
-// de pruebas, por ejemplo Mailpit: SMTP_TEST_ADDR=localhost:1025 go test ./internal/mail/
 func TestSMTPSender(t *testing.T) {
 	addr := os.Getenv("SMTP_TEST_ADDR")
 	if addr == "" {
@@ -135,46 +89,3 @@ func TestSMTPSender(t *testing.T) {
 }
 
 var recorder Recorder
-
-type senderFunc func(context.Context, Message) error
-
-func (f senderFunc) Send(ctx context.Context, msg Message) error { return f(ctx, msg) }
-
-func TestQueueLimitsConcurrentSends(t *testing.T) {
-	var (
-		mu           sync.Mutex
-		active, peak int
-		sent         int
-	)
-	slow := senderFunc(func(context.Context, Message) error {
-		mu.Lock()
-		active++
-		peak = max(peak, active)
-		mu.Unlock()
-
-		time.Sleep(20 * time.Millisecond)
-
-		mu.Lock()
-		active--
-		sent++
-		mu.Unlock()
-		return nil
-	})
-	q := NewQueue(slow, slog.New(slog.DiscardHandler))
-
-	for range 12 {
-		if err := q.Send(t.Context(), Message{To: "ana@ejemplo.com", Subject: "Hola"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := q.Wait(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-
-	if sent != 12 {
-		t.Errorf("se enviaron %d correos, se esperaban 12", sent)
-	}
-	if peak > maxConcurrentSends {
-		t.Errorf("hubo %d envíos a la vez, el máximo es %d", peak, maxConcurrentSends)
-	}
-}

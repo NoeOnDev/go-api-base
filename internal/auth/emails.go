@@ -44,7 +44,7 @@ func (s *Service) allowEmail(kind string, userID int64) bool {
 	return s.emailLimiter.Allow(kind + ":" + strconv.FormatInt(userID, 10))
 }
 
-// sendEmail arma el correo con la plantilla indicada y lo envía. Con mail.Queue el envío
+// sendEmail arma el correo con la plantilla indicada y lo envía. Con jobs.MailSender el envío
 // ocurre en segundo plano, así que esto no demora la respuesta.
 func (s *Service) sendEmail(ctx context.Context, to, subject, tmpl string, data emailData) error {
 	var body bytes.Buffer

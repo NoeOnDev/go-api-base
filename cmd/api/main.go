@@ -15,6 +15,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/jobs"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
+	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
@@ -71,11 +72,24 @@ func run() error {
 		return err
 	}
 
+	// config.Load ya validó las claves.
+	box, err := secretbox.New(cfg.EncryptionKey, cfg.EncryptionPreviousKeys...)
+	if err != nil {
+		return fmt.Errorf("ENCRYPTION_KEY: %w", err)
+	}
+
+	sender, err := newMailSender(cfg, logger)
+	if err != nil {
+		return err
+	}
+
 	// Trabajos en segundo plano: los workers corren en este mismo proceso.
 	// Se arrancan sin el ctx de las señales para apagarlos en orden, después del servidor HTTP.
 	jobsClient, err := jobs.New(pool, logger, jobs.Config{MaxWorkers: cfg.JobsMaxWorkers}, jobs.Deps{
 		Queries: store.New(pool),
 		Logger:  logger,
+		Mailer:  sender,
+		Box:     box,
 	})
 	if err != nil {
 		return err
@@ -84,11 +98,8 @@ func run() error {
 		return fmt.Errorf("arrancar los trabajos en segundo plano: %w", err)
 	}
 
-	sender, err := newMailSender(cfg, logger)
-	if err != nil {
-		return err
-	}
-	mailer := mail.NewQueue(sender, logger)
+	// La app no envía los correos: los encola, y los envía un worker (con reintentos).
+	mailer := jobs.NewMailSender(jobsClient, box)
 
 	srv := server.New(cfg.HTTPAddr, server.NewHandler(server.Deps{
 		Logger: logger,
@@ -123,15 +134,10 @@ func run() error {
 		return fmt.Errorf("servidor: %w", err)
 	}
 
-	// Los trabajos en curso tienen hasta el mismo timeout para terminar. Si no llegan, quedan en la
-	// base y River los vuelve a intentar al arrancar de nuevo: no se pierden.
+	// Los trabajos en curso (incluidos los correos) tienen hasta el mismo timeout para terminar.
+	// Si no llegan, quedan en la base y River los vuelve a intentar al arrancar: no se pierden.
 	if err := jobsClient.Stop(shutdownCtx); err != nil {
 		logger.Warn("quedaron trabajos en curso al apagar; se reintentarán", "error", err)
-	}
-
-	// Los correos se envían en segundo plano: se espera a que salgan los pendientes.
-	if err := mailer.Wait(shutdownCtx); err != nil {
-		logger.Warn("quedaron correos sin enviar al apagar", "error", err)
 	}
 
 	logger.Info("servidor detenido")

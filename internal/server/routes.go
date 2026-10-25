@@ -25,7 +25,7 @@ type Deps struct {
 	Logger *slog.Logger
 	DB     *pgxpool.Pool
 	Config config.Config
-	// Mailer envía los correos. En main es un mail.Queue (envío en segundo plano);
+	// Mailer envía los correos. En main es un jobs.MailSender (los encola en River);
 	// en los tests, un mail.Recorder.
 	Mailer mail.Sender
 }

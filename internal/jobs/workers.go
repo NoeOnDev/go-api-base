@@ -6,6 +6,8 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/NoeOnDev/go-api-base/internal/mail"
+	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -13,12 +15,19 @@ import (
 type Deps struct {
 	Queries *store.Queries
 	Logger  *slog.Logger
+	// Mailer es el sender real (SMTP o log) con el que el worker envía los correos encolados.
+	Mailer mail.Sender
+	// Box descifra los correos encolados (ver SendEmailArgs).
+	Box *secretbox.Box
 }
 
 // registerWorkers registra todos los workers. Cada trabajo nuevo se agrega acá,
 // como las rutas en server/routes.go.
 func registerWorkers(workers *river.Workers, deps Deps) error {
 	if err := river.AddWorkerSafely(workers, &cleanupWorker{q: deps.Queries, logger: deps.Logger}); err != nil {
+		return err
+	}
+	if err := river.AddWorkerSafely(workers, &sendEmailWorker{sender: deps.Mailer, box: deps.Box}); err != nil {
 		return err
 	}
 	return nil

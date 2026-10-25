@@ -85,7 +85,7 @@ func NewHandler(d Deps) http.Handler {
 	notifications.Register(mux, notificationsService, authService)
 
 	// Recursos de la API. Cada recurso nuevo se registra acá.
-	notes.Register(mux, notes.NewHandler(queries), authService)
+	notes.Register(mux, notes.NewHandler(queries, broker), authService)
 	categories.Register(mux, categories.NewHandler(queries), authService)
 	products.Register(mux, products.NewHandler(queries), authService)
 

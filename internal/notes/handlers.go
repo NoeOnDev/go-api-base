@@ -5,6 +5,10 @@
 // También muestra la pertenencia: cada nota es de un usuario, y todas las consultas filtran
 // por el usuario de la sesión. Si alguien pide la nota de otro usuario, la consulta no la
 // encuentra y la API responde 404 (no 403), para no revelar que esa nota existe.
+//
+// Y el tiempo real: cada cambio se publica en el canal del dueño (note.created, note.updated,
+// note.deleted), así otra pestaña u otro dispositivo se actualiza sin recargar. Para datos
+// compartidos (un tablero, un proyecto) se publica en un tema; ver docs/realtime.md.
 package notes
 
 import (
@@ -17,18 +21,28 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
 // Handler agrupa los endpoints de notas y sus dependencias.
 type Handler struct {
-	q *store.Queries
+	q      *store.Queries
+	broker *realtime.Broker
 }
 
-// NewHandler crea el handler a partir de las consultas generadas por sqlc.
-func NewHandler(q *store.Queries) *Handler {
-	return &Handler{q: q}
+// NewHandler crea el handler a partir de las consultas generadas por sqlc y el broker
+// de eventos en tiempo real.
+func NewHandler(q *store.Queries, broker *realtime.Broker) *Handler {
+	return &Handler{q: q, broker: broker}
 }
+
+// Eventos que se publican en el canal del dueño de la nota.
+const (
+	EventCreated = "note.created" // con la nota
+	EventUpdated = "note.updated" // con la nota
+	EventDeleted = "note.deleted" // con {"id": …}
+)
 
 // noteResponse es lo que la API devuelve. Se separa de store.Note para que un cambio
 // en la tabla no cambie el contrato con el frontend sin que lo decidas.
@@ -122,6 +136,8 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("crear nota: %w", err)
 	}
 
+	h.broker.PublishToUser(r.Context(), note.UserID, realtime.Event{Type: EventCreated, Data: toResponse(note)})
+
 	w.Header().Set("Location", fmt.Sprintf("/notes/%d", note.ID))
 	httpx.Write(w, http.StatusCreated, toResponse(note))
 	return nil
@@ -156,6 +172,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("actualizar nota %d: %w", id, err)
 	}
 
+	h.broker.PublishToUser(r.Context(), note.UserID, realtime.Event{Type: EventUpdated, Data: toResponse(note)})
 	httpx.Write(w, http.StatusOK, toResponse(note))
 	return nil
 }
@@ -167,13 +184,16 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	rows, err := h.q.DeleteNote(r.Context(), store.DeleteNoteParams{ID: id, UserID: auth.MustUser(r.Context()).ID})
+	user := auth.MustUser(r.Context())
+	rows, err := h.q.DeleteNote(r.Context(), store.DeleteNoteParams{ID: id, UserID: user.ID})
 	if err != nil {
 		return fmt.Errorf("borrar nota %d: %w", id, err)
 	}
 	if rows == 0 {
 		return errNotFound
 	}
+
+	h.broker.PublishToUser(r.Context(), user.ID, realtime.Event{Type: EventDeleted, Data: map[string]int64{"id": id}})
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil

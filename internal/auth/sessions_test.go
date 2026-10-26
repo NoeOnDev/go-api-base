@@ -250,3 +250,28 @@ func TestSessionIdleTimeout(t *testing.T) {
 	setLastSeen("1 hour")
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
 }
+
+// Con vencimiento por inactividad, la lista no muestra las sesiones que vencieron por eso, aunque
+// la limpieza periódica todavía no las haya borrado: ya no sirven para entrar.
+func TestListSessionsHidesIdleSessions(t *testing.T) {
+	pool := testutil.NewDB(t)
+	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	newSession(t, pool, u.ID) // otro dispositivo
+
+	api := testutil.NewAPI(pool)
+	phoneID := otherSession(t, listSessions(t, api, cookie)).ID
+	if _, err := pool.Exec(t.Context(), "UPDATE sessions SET last_seen_at = now() - interval '1 hour' WHERE id = $1", phoneID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sin vencimiento por inactividad (por defecto), la sesión quieta sigue en la lista.
+	if sessions := listSessions(t, api, cookie); len(sessions) != 2 {
+		t.Errorf("sin vencimiento: %+v", sessions)
+	}
+
+	// Con 30 minutos, solo queda la actual.
+	idle := testutil.NewAPI(pool, testutil.WithConfig(func(c *config.Config) { c.SessionIdleTimeout = 30 * time.Minute }))
+	if sessions := listSessions(t, idle, cookie); len(sessions) != 1 || !sessions[0].Current {
+		t.Errorf("con vencimiento: %+v", sessions)
+	}
+}

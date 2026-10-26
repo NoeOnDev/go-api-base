@@ -17,10 +17,13 @@ UPDATE sessions
 SET last_seen_at = now()
 WHERE token_hash = $1;
 
+-- ListUserSessions devuelve las sesiones que todavía sirven: sin vencer ni inactivas desde antes
+-- de active_since, como en GetSessionUser.
 -- name: ListUserSessions :many
 SELECT id, user_agent, ip, created_at, last_seen_at
 FROM sessions
-WHERE user_id = $1 AND expires_at > now()
+WHERE user_id = sqlc.arg('user_id') AND expires_at > now()
+  AND last_seen_at > sqlc.arg('active_since')::timestamptz
 ORDER BY last_seen_at DESC, id DESC;
 
 -- DeleteUserSession cierra una sesión del usuario, salvo la indicada (la de la petición).

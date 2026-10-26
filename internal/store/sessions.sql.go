@@ -152,8 +152,14 @@ const listUserSessions = `-- name: ListUserSessions :many
 SELECT id, user_agent, ip, created_at, last_seen_at
 FROM sessions
 WHERE user_id = $1 AND expires_at > now()
+  AND last_seen_at > $2::timestamptz
 ORDER BY last_seen_at DESC, id DESC
 `
+
+type ListUserSessionsParams struct {
+	UserID      int64
+	ActiveSince time.Time
+}
 
 type ListUserSessionsRow struct {
 	ID         int64
@@ -163,8 +169,10 @@ type ListUserSessionsRow struct {
 	LastSeenAt time.Time
 }
 
-func (q *Queries) ListUserSessions(ctx context.Context, userID int64) ([]ListUserSessionsRow, error) {
-	rows, err := q.db.Query(ctx, listUserSessions, userID)
+// ListUserSessions devuelve las sesiones que todavía sirven: sin vencer ni inactivas desde antes
+// de active_since, como en GetSessionUser.
+func (q *Queries) ListUserSessions(ctx context.Context, arg ListUserSessionsParams) ([]ListUserSessionsRow, error) {
+	rows, err := q.db.Query(ctx, listUserSessions, arg.UserID, arg.ActiveSince)
 	if err != nil {
 		return nil, err
 	}

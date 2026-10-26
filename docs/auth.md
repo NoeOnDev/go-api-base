@@ -85,7 +85,7 @@ Cada sesión guarda el navegador (user-agent), la IP con la que se inició y su 
 - **`DELETE /auth/sessions/{id}`** cierra una, por ejemplo la de un dispositivo que el usuario no reconoce. Se cortan en el acto sus streams de `GET /events`. La actual se cierra con `POST /auth/logout`.
 - **`POST /auth/sessions/revoke-others`** con `{password}` cierra todas las demás. Pide la contraseña, como Laravel Jetstream, porque es masivo: así alguien con una sesión robada no puede echar al dueño de todos sus dispositivos.
 
-**Vencimiento por inactividad (opcional):** con `SESSION_IDLE_TIMEOUT` (por ejemplo `30m`), una sesión sin actividad durante ese tiempo deja de servir, además del vencimiento fijo de `SESSION_TTL`. Tiene que ser de al menos 15 minutos, porque la actividad se guarda cada 5. Un stream de `GET /events` abierto no cuenta como actividad: una pestaña olvidada no mantiene viva la sesión.
+**Vencimiento por inactividad (opcional):** con `SESSION_IDLE_TIMEOUT` (por ejemplo `30m`), una sesión sin actividad durante ese tiempo deja de servir, además del vencimiento fijo de `SESSION_TTL`. Tiene que ser de al menos 15 minutos, porque la actividad se guarda cada 5. Un stream de `GET /events` abierto no cuenta como actividad: una pestaña olvidada no mantiene viva la sesión. Las sesiones vencidas por inactividad tampoco aparecen en `GET /auth/sessions`.
 
 ## Cambiar el email
 

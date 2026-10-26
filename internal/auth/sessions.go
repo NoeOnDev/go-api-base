@@ -27,9 +27,13 @@ type sessionResponse struct {
 }
 
 // listSessions responde GET /auth/sessions: las sesiones abiertas del usuario (sus dispositivos),
-// de la más reciente a la más vieja.
+// de la más reciente a la más vieja. Las vencidas por inactividad no aparecen, aunque la limpieza
+// periódica todavía no las haya borrado: ya no sirven para entrar.
 func (s *Service) listSessions(w http.ResponseWriter, r *http.Request) error {
-	rows, err := s.q.ListUserSessions(r.Context(), MustUser(r.Context()).ID)
+	rows, err := s.q.ListUserSessions(r.Context(), store.ListUserSessionsParams{
+		UserID:      MustUser(r.Context()).ID,
+		ActiveSince: s.activeSince(),
+	})
 	if err != nil {
 		return fmt.Errorf("listar sesiones: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/mail"
 	"net/url"
 	"os"
@@ -103,7 +104,24 @@ func (c Config) Warnings() []string {
 	if c.Mail.Driver != MailDriverSMTP {
 		w = append(w, "MAIL_DRIVER=log en producción: los correos no se envían, se escriben en el log")
 	}
+	if u, err := url.Parse(c.FrontendURL); err == nil && isLocalHost(u.Hostname()) {
+		w = append(w, "FRONTEND_URL apunta a localhost en producción: los enlaces de los correos (recuperar la contraseña, verificar el email) no van a funcionar")
+	}
+	if from, err := mail.ParseAddress(c.Mail.From); err == nil && isLocalHost(from.Address[strings.LastIndex(from.Address, "@")+1:]) {
+		w = append(w, "MAIL_FROM usa el dominio localhost en producción: los proveedores rechazan esos correos o los mandan a spam")
+	}
 	return w
+}
+
+// isLocalHost indica si host es esta misma máquina: localhost, un subdominio de .localhost o una
+// IP de loopback (127.0.0.1, ::1).
+func isLocalHost(host string) bool {
+	host = strings.ToLower(host)
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // Load lee la configuración del entorno, aplica valores por defecto y la valida.

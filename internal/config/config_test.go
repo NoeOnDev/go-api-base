@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -207,8 +209,30 @@ func TestProductionWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w := risky.Warnings(); len(w) != 2 {
-		t.Errorf("se esperaban los avisos de COOKIE_SECURE y MAIL_DRIVER: %q", w)
+	// Con los valores por defecto de desarrollo: FRONTEND_URL y MAIL_FROM en localhost.
+	w := risky.Warnings()
+	for _, variable := range []string{"COOKIE_SECURE", "MAIL_DRIVER", "FRONTEND_URL", "MAIL_FROM"} {
+		if !slices.ContainsFunc(w, func(s string) bool { return strings.HasPrefix(s, variable) }) {
+			t.Errorf("falta el aviso de %s: %q", variable, w)
+		}
+	}
+	if len(w) != 4 {
+		t.Errorf("se esperaban 4 avisos: %q", w)
+	}
+
+	loopback, err := load(envFrom(map[string]string{
+		"APP_ENV":      "production",
+		"DATABASE_URL": "x",
+		"MAIL_DRIVER":  "smtp",
+		"SMTP_HOST":    "smtp.ejemplo.com",
+		"MAIL_FROM":    "Mi App <no-reply@ejemplo.com>",
+		"FRONTEND_URL": "http://127.0.0.1:3000",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := loopback.Warnings(); len(w) != 1 || !strings.HasPrefix(w[0], "FRONTEND_URL") {
+		t.Errorf("una IP de loopback en FRONTEND_URL debería avisar: %q", w)
 	}
 
 	safe, err := load(envFrom(map[string]string{
@@ -217,6 +241,7 @@ func TestProductionWarnings(t *testing.T) {
 		"MAIL_DRIVER":  "smtp",
 		"SMTP_HOST":    "smtp.ejemplo.com",
 		"MAIL_FROM":    "no-reply@ejemplo.com",
+		"FRONTEND_URL": "https://app.ejemplo.com",
 	}))
 	if err != nil {
 		t.Fatal(err)

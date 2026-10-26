@@ -85,6 +85,15 @@ Recuperar la contraseña y verificar el email usan la tabla `user_tokens`:
 
 Los enlaces apuntan al **frontend** (`FRONTEND_URL`), no a la API: la pantalla toma el token de la URL y llama a la API. Así la API sigue siendo solo JSON.
 
+## Qué revela la API sobre los emails registrados
+
+- **El login y "olvidé mi contraseña" no lo revelan:** responden lo mismo exista o no el email, el login calcula un hash de argon2 igual para tardar lo mismo, y el límite por cuenta cuenta también los emails que no existen.
+- **El registro y el cambio de email sí:** un email en uso responde `409`. Sin eso, quien se equivoca de cuenta o ya estaba registrado no sabría por qué no puede seguir, y el cambio de email nunca se confirmaría. Es lo habitual (Laravel hace lo mismo en el registro), y el registro tiene su límite por IP, así que no sirve para revisar muchos emails rápido.
+
+Con eso, alguien puede averiguar si un email está registrado, aunque no por el login. Lo que se protege es lo que importa: la contraseña no se puede probar sin límite, y el tiempo del login no distingue un email de otro.
+
+Si un proyecto necesita ocultarlo del todo, el registro tiene que responder siempre lo mismo ("revisá tu correo") y avisarle por correo al dueño del email si ya tenía cuenta, y el cambio de email, aceptar el pedido y avisar al confirmarlo.
+
 ## Verificación de email opcional
 
 Viene desactivada (`REQUIRE_EMAIL_VERIFICATION=false`), porque muchos proyectos privados no la necesitan.

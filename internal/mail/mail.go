@@ -3,8 +3,11 @@
 //   - LogSender escribe el correo en el log (desarrollo, sin servidor de correo).
 //   - SMTPSender lo envía por SMTP, compatible con cualquier proveedor (Resend, Brevo, SES, Mailgun…)
 //     y con Mailpit en desarrollo.
-//   - Queue envía en segundo plano, para no demorar la respuesta HTTP.
 //   - Recorder guarda los correos en memoria, para los tests.
+//
+// En la aplicación, los handlers no envían con estos senders: encolan el correo con
+// jobs.MailSender, para no demorar la respuesta HTTP y reintentarlo si falla, y el worker de la
+// cola lo envía con SMTPSender o LogSender.
 //
 // Solo usa la librería estándar.
 package mail

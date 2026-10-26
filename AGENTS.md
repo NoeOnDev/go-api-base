@@ -164,6 +164,8 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - Eventos en tiempo real: `testutil.NewServer` (un servidor HTTP real) y `testutil.OpenEvents`, que devuelve un lector con
   `Next`, `NextComment` y `Nothing`. Para publicar desde el test, `testutil.WithBroker`. Ver `internal/notes/events_test.go`.
 - Workers: `rivertest.NewWorker` y `rivertest.RequireInserted`. Ver `internal/jobs/email_test.go`.
+- El envío real por SMTP (`TestSMTPSender`) solo corre con `SMTP_TEST_ADDR`, por ejemplo `SMTP_TEST_ADDR=localhost:1025`
+  con Mailpit (los correos se ven en `http://localhost:8025`). Sin ella se saltea; en CI no corre.
 - Los tests que usan la base no llevan `t.Parallel()`, y los paquetes corren en serie (`-p 1`, ya incluido en `make test`).
 - Cubrir siempre: el caso feliz, validación (422), no encontrado (404), sin sesión (401) y, si aplica, sin permiso (403) o pertenencia.
 

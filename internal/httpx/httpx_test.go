@@ -295,3 +295,30 @@ func TestParsePage(t *testing.T) {
 		})
 	}
 }
+
+// Con Quiet, la línea de la petición va en debug, salvo un error del servidor.
+func TestQuietLogsAtDebug(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	respond := func(status int) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) })
+	}
+	logLine := func(h http.Handler) string {
+		buf.Reset()
+		Chain(h, RequestID(logger), Logger).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/healthz", nil))
+		return buf.String()
+	}
+
+	for name, tt := range map[string]struct {
+		handler http.Handler
+		level   string
+	}{
+		"con Quiet y 200": {Quiet(respond(http.StatusOK)), "level=DEBUG"},
+		"con Quiet y 503": {Quiet(respond(http.StatusServiceUnavailable)), "level=ERROR"},
+		"sin Quiet, 200":  {respond(http.StatusOK), "level=INFO"},
+	} {
+		if got := logLine(tt.handler); !strings.Contains(got, tt.level) {
+			t.Errorf("%s: se esperaba %s en %q", name, tt.level, got)
+		}
+	}
+}

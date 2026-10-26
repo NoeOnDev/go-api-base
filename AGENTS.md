@@ -88,6 +88,7 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - Cada recurso define su propio struct de respuesta; no devolver directamente los structs de `internal/store`.
 - Logs con `httpx.LoggerFrom(r.Context())` (ya incluye `request_id` y, con sesión, `user_id`). Para sumar un dato a todas las
   líneas de la petición, incluida la final, usar `httpx.AddLogAttrs(ctx, "clave", valor)`. No registrar contraseñas ni tokens.
+  Una ruta que se consulta muy seguido (un health check, métricas) se envuelve con `httpx.Quiet`: su línea va en `debug`, salvo los 5xx.
 
 **Autenticación y permisos**
 - Proteger rutas en `routes.go` del recurso: `authn.RequireUser(...)` (cualquier usuario), `authn.RequireAdmin(...)`

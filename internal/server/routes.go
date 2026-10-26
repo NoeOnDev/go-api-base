@@ -48,7 +48,8 @@ type Deps struct {
 func NewHandler(d Deps) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.Handle("GET /healthz", health(d.DB))
+	// Un monitor lo consulta cada pocos segundos: en el log va en debug, salvo que la base no responda.
+	mux.Handle("GET /healthz", httpx.Quiet(health(d.DB)))
 
 	queries := store.New(d.DB)
 

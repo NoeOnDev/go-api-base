@@ -65,6 +65,7 @@ func RequestIDFrom(ctx context.Context) string {
 type requestLogger struct {
 	mu     sync.Mutex
 	logger *slog.Logger
+	quiet  bool // la línea final va en debug salvo errores (ver Quiet)
 }
 
 // LoggerFrom devuelve el logger de la petición (con su request_id y los atributos agregados
@@ -109,7 +110,7 @@ func validRequestID(id string) bool {
 }
 
 // Logger registra una línea por petición con método, ruta, status, bytes y duración.
-// Las respuestas 5xx se registran como error.
+// Las respuestas 5xx se registran como error, y las de las rutas con Quiet, en debug.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -118,8 +119,11 @@ func Logger(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 
 		level := slog.LevelInfo
-		if rec.status >= http.StatusInternalServerError {
+		switch {
+		case rec.status >= http.StatusInternalServerError:
 			level = slog.LevelError
+		case isQuiet(r.Context()):
+			level = slog.LevelDebug
 		}
 		LoggerFrom(r.Context()).Log(r.Context(), level, "petición",
 			"method", r.Method,
@@ -129,6 +133,31 @@ func Logger(next http.Handler) http.Handler {
 			"duration_ms", Milliseconds(time.Since(start)),
 		)
 	})
+}
+
+// Quiet hace que la línea final de Logger de la ruta vaya en debug, salvo que la respuesta sea
+// un error del servidor (5xx), que se sigue registrando como error. Es para las rutas que se
+// consultan muy seguido, como el health check de un monitor, que si no llenarían el log.
+func Quiet(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rl, ok := r.Context().Value(loggerKey).(*requestLogger); ok {
+			rl.mu.Lock()
+			rl.quiet = true
+			rl.mu.Unlock()
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isQuiet indica si la petición pasó por Quiet.
+func isQuiet(ctx context.Context) bool {
+	rl, ok := ctx.Value(loggerKey).(*requestLogger)
+	if !ok {
+		return false
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	return rl.quiet
 }
 
 // Milliseconds convierte una duración a milisegundos con tres decimales.

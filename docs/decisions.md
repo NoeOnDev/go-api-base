@@ -205,6 +205,8 @@ Si necesitás IDs no adivinables, una alternativa es UUIDv7: PostgreSQL 18 lo ge
 En desarrollo se usa texto legible y en producción JSON, que es lo que procesan las herramientas de logs.
 Cada línea de una petición lleva su `request_id`, que también se devuelve en el encabezado `X-Request-ID`. Así, un error que reporta un usuario se puede encontrar en los logs.
 
+`GET /healthz` se registra en `debug` (con `httpx.Quiet`): un monitor lo consulta cada pocos segundos, y en `info` llenaría el log de líneas iguales. Si la base no responde, el `503` se registra como error, igual que cualquier 5xx.
+
 ## Timeouts del servidor
 
 `ReadHeaderTimeout` 5 s, `ReadTimeout` 15 s, `WriteTimeout` 30 s, `IdleTimeout` 60 s.

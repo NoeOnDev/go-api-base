@@ -166,7 +166,7 @@ Las IPv6 se agrupan por bloque `/64`: un proveedor le asigna a cada cliente un `
 
 `gonew` copia el código, y los proyectos creados no quedan conectados a la plantilla: mejorarla no rompe nada en ellos. Por eso en este repositorio se puede reorganizar libremente, incluidas las migraciones, que representan el esquema inicial.
 
-Para saber de qué versión salió cada proyecto, la plantilla se versiona con tags (`v0.1.0`, …) y un `CHANGELOG.md`. Llevar una mejora a un proyecto existente se hace a mano, mirando el cambio en el historial. Cuando una versión cambia el esquema, el CHANGELOG trae el SQL para la migración nueva del proyecto.
+La plantilla se versiona con tags (`v0.1.0`, …) y un `CHANGELOG.md`, y el archivo `TEMPLATE_VERSION` lleva la versión actual. Como se copia con el resto, cada proyecto sabe de qué versión salió, y al llevarle cambios más nuevos lo actualiza. Llevar una mejora a un proyecto existente se hace a mano, mirando el cambio en el historial. Cuando una versión cambia el esquema, el CHANGELOG trae el SQL para la migración nueva del proyecto.
 
 **La misma regla vale en cada proyecto:** mientras no esté desplegado, las migraciones originales se editan (sumar `ALTER TABLE` por cada campo solo ensucia el historial). Después del primer despliegue, cada cambio va en una migración nueva, porque la base de producción ya aplicó las anteriores.
 

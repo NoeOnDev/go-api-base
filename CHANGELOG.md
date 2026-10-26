@@ -1,7 +1,9 @@
 # Cambios
 
 Historial de versiones de la plantilla. Cada proyecto creado con `gonew` es una copia independiente:
-usá esta lista para saber de qué versión salió un proyecto y qué mejoras podrías llevarle a mano.
+usá esta lista para saber qué mejoras podrías llevarle a mano. El archivo `TEMPLATE_VERSION` del proyecto
+dice de qué versión salió (o hasta cuál se actualizó): leé las secciones más nuevas que esa.
+Al publicar una versión de la plantilla, `TEMPLATE_VERSION` se actualiza en el mismo commit que su sección.
 
 Formato: una sección por versión, con lo **agregado**, **cambiado** y **corregido**.
 

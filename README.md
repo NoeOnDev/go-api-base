@@ -242,6 +242,7 @@ git init
 ```
 
 Después:
+- **Conservá `TEMPLATE_VERSION`:** dice de qué versión de la plantilla salió el proyecto. Cuando lleves al proyecto los cambios del [CHANGELOG](CHANGELOG.md) de versiones más nuevas, actualizalo a la última que aplicaste. Así siempre sabés desde dónde leer.
 - Conservá la autenticación.
 - Quedate con los ejemplos que se parezcan a tu proyecto y borrá el resto (su paquete, sus consultas, sus migraciones y su registro en `internal/server/routes.go`).
 - Si no necesitás la cola de trabajos o el tiempo real, [docs/jobs.md](docs/jobs.md) y [docs/realtime.md](docs/realtime.md) explican cómo quitarlos.

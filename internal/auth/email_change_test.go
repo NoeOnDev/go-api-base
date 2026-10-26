@@ -105,3 +105,85 @@ func TestConfirmEmailTakenMeanwhile(t *testing.T) {
 		t.Errorf("el email no debería haber cambiado: %s", u.Email)
 	}
 }
+
+// Confirmar el email nuevo anula los enlaces de recuperación enviados al anterior: si el usuario
+// cambió el email porque perdió el control del viejo, quien lo tenga no puede usarlos.
+func TestConfirmEmailChangeRevokesPasswordReset(t *testing.T) {
+	pool := testutil.NewDB(t)
+	mails := &mail.Recorder{}
+	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
+	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+
+	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
+	reset, ok := mails.Last("ana@ejemplo.com")
+	if !ok {
+		t.Fatal("no llegó el enlace de recuperación")
+	}
+	resetToken := testutil.TokenFromEmail(t, reset)
+
+	testutil.Do(t, api, cookie, http.MethodPut, "/auth/email", changeToNew)
+	link, _ := mails.Last("ana.nueva@ejemplo.com")
+	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/email/confirm", confirmBody(testutil.TokenFromEmail(t, link))); w.Code != http.StatusNoContent {
+		t.Fatalf("confirmar: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+
+	testutil.Decode[testutil.APIError](t,
+		testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(resetToken, newPassword)),
+		http.StatusUnprocessableEntity)
+	service := auth.NewService(pool, auth.Options{})
+	if _, err := service.Authenticate(t.Context(), "ana.nueva@ejemplo.com", "contraseña-de-prueba"); err != nil {
+		t.Errorf("la contraseña no debería haber cambiado: %v", err)
+	}
+}
+
+// Cambiar o recuperar la contraseña cancela un cambio de email pendiente: lo pudo pedir quien
+// conocía la contraseña anterior, para quedarse con la cuenta.
+func TestPasswordChangeCancelsEmailChange(t *testing.T) {
+	// requestChange pide el cambio de email y devuelve el token del enlace.
+	requestChange := func(t *testing.T, api http.Handler, mails *mail.Recorder, cookie *http.Cookie) string {
+		t.Helper()
+		if w := testutil.Do(t, api, cookie, http.MethodPut, "/auth/email", changeToNew); w.Code != http.StatusAccepted {
+			t.Fatalf("pedir el cambio: status = %d; cuerpo: %s", w.Code, w.Body)
+		}
+		link, _ := mails.Last("ana.nueva@ejemplo.com")
+		return testutil.TokenFromEmail(t, link)
+	}
+
+	t.Run("al cambiar la contraseña", func(t *testing.T) {
+		pool := testutil.NewDB(t)
+		mails := &mail.Recorder{}
+		api := testutil.NewAPI(pool, testutil.WithMailer(mails))
+		_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+
+		token := requestChange(t, api, mails, cookie)
+		body := `{"current_password":"contraseña-de-prueba","password":"` + newPassword + `"}`
+		if w := testutil.Do(t, api, cookie, http.MethodPut, "/auth/password", body); w.Code != http.StatusNoContent {
+			t.Fatalf("cambiar la contraseña: status = %d; cuerpo: %s", w.Code, w.Body)
+		}
+
+		testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodPost, "/auth/email/confirm", confirmBody(token)), http.StatusUnprocessableEntity)
+		if u := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK); u.Email != "ana@ejemplo.com" {
+			t.Errorf("el email no debería haber cambiado: %s", u.Email)
+		}
+	})
+
+	t.Run("al recuperar la contraseña", func(t *testing.T) {
+		pool := testutil.NewDB(t)
+		mails := &mail.Recorder{}
+		api := testutil.NewAPI(pool, testutil.WithMailer(mails))
+		_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+
+		token := requestChange(t, api, mails, cookie)
+		testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
+		reset, _ := mails.Last("ana@ejemplo.com")
+		if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(testutil.TokenFromEmail(t, reset), newPassword)); w.Code != http.StatusNoContent {
+			t.Fatalf("recuperar la contraseña: status = %d; cuerpo: %s", w.Code, w.Body)
+		}
+
+		testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodPost, "/auth/email/confirm", confirmBody(token)), http.StatusUnprocessableEntity)
+		service := auth.NewService(pool, auth.Options{})
+		if _, err := service.Authenticate(t.Context(), "ana@ejemplo.com", newPassword); err != nil {
+			t.Errorf("el email no debería haber cambiado: %v", err)
+		}
+	})
+}

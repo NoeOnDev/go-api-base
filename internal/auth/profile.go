@@ -156,14 +156,18 @@ func (s *Service) sessionsEnded(ctx context.Context, userID int64, keep string) 
 }
 
 // savePassword guarda el hash de una contraseña nueva con las consultas q (pueden ser las de
-// una transacción). También borra los desafíos del 2FA pendientes: se obtuvieron con la
-// contraseña anterior, que pudo haber conocido otra persona.
+// una transacción). También borra lo que se obtuvo con la contraseña anterior, que pudo haber
+// conocido otra persona: los desafíos del 2FA pendientes y el cambio de email pendiente (con
+// él, alguien se quedaría con el email y, desde ahí, con la cuenta).
 func savePassword(ctx context.Context, q *store.Queries, userID int64, hash string) error {
 	if err := q.UpdateUserPassword(ctx, store.UpdateUserPasswordParams{ID: userID, PasswordHash: hash}); err != nil {
 		return fmt.Errorf("guardar contraseña del usuario %d: %w", userID, err)
 	}
 	if err := q.DeleteUserTokens(ctx, store.DeleteUserTokensParams{UserID: userID, Purpose: purposeTwoFactorLogin}); err != nil {
 		return fmt.Errorf("borrar desafíos del 2FA pendientes: %w", err)
+	}
+	if err := q.DeleteUserTokens(ctx, store.DeleteUserTokensParams{UserID: userID, Purpose: purposeEmailChange}); err != nil {
+		return fmt.Errorf("borrar cambio de email pendiente: %w", err)
 	}
 	return nil
 }

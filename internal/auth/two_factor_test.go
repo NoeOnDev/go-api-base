@@ -24,6 +24,10 @@ type recoveryCodes struct {
 
 func codeBody(code string) string { return fmt.Sprintf(`{"code":%q}`, code) }
 
+func enableBody(code, password string) string {
+	return fmt.Sprintf(`{"code":%q,"password":%q}`, code, password)
+}
+
 func TestEnableTwoFactor(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
@@ -53,15 +57,28 @@ func TestEnableTwoFactor(t *testing.T) {
 		t.Fatal("el 2FA no debería estar activo antes de confirmarlo")
 	}
 
-	resp := testutil.Decode[testutil.APIError](t,
-		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", codeBody("000000")), http.StatusUnprocessableEntity)
-	if resp.Error.Fields["code"] == "" {
-		t.Errorf("se esperaba error en code: %+v", resp.Error)
+	// Pide la contraseña: con una sesión robada, alguien activaría el 2FA con su propia app y,
+	// al cerrarse las demás sesiones, dejaría al dueño afuera. Ojo: la ruta tiene límite por
+	// usuario (5 seguidos); este test hace 4 peticiones a ella.
+	code, _ := totp.Code(setup.Secret, time.Now())
+	for name, tt := range map[string]struct{ body, field string }{
+		"sin contraseña":        {codeBody(code), "password"},
+		"contraseña incorrecta": {enableBody(code, "incorrecta"), "password"},
+		"código incorrecto":     {enableBody("000000", "contraseña-de-prueba"), "code"},
+	} {
+		resp := testutil.Decode[testutil.APIError](t,
+			testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", tt.body), http.StatusUnprocessableEntity)
+		if resp.Error.Fields[tt.field] == "" {
+			t.Errorf("%s: se esperaba error en %s: %+v", name, tt.field, resp.Error)
+		}
+	}
+	me = testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK)
+	if me.TwoFactorEnabled {
+		t.Fatal("el 2FA no debería activarse sin la contraseña y el código correctos")
 	}
 
-	code, _ := totp.Code(setup.Secret, time.Now())
 	codes := testutil.Decode[recoveryCodes](t,
-		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", codeBody(code)), http.StatusOK)
+		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody(code, "contraseña-de-prueba")), http.StatusOK)
 
 	if len(codes.RecoveryCodes) != 10 {
 		t.Fatalf("se esperaban 10 códigos de recuperación: %v", codes.RecoveryCodes)
@@ -99,7 +116,7 @@ func TestEnableTwoFactorRequiresSetup(t *testing.T) {
 	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
 
 	testutil.Decode[testutil.APIError](t,
-		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", codeBody("123456")), http.StatusConflict)
+		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody("123456", "contraseña-de-prueba")), http.StatusConflict)
 	testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, nil, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusUnauthorized)
 }

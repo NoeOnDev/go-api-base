@@ -21,7 +21,7 @@ Hay dos colas, cada una con su propio límite de workers, así un trabajo lento 
 - **`default`:** `JOBS_MAX_WORKERS` trabajos a la vez (10 por defecto).
 - **`email`:** 4 a la vez, porque cada envío abre una conexión SMTP y los proveedores rechazan muchas simultáneas.
 
-Los workers usan el mismo pool de conexiones que la API. Si subís `JOBS_MAX_WORKERS`, conviene subir también el tamaño del pool en `DATABASE_URL` (`?pool_max_conns=20`).
+Los workers usan el mismo pool de conexiones que la API, que tiene 10 si `DATABASE_URL` no indica otro tamaño (pgx usaría solo 4). Si subís `JOBS_MAX_WORKERS`, conviene subir también el pool (`?pool_max_conns=20`).
 
 ## Crear un trabajo
 

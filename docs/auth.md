@@ -53,7 +53,7 @@ El desafío del 2FA usa una cookie con los mismos atributos: `two_factor_challen
 | `POST` | `/auth/email/resend` | sesión | | `202`; `204` si el email ya estaba verificado |
 | `POST` | `/auth/two-factor/challenge` | cookie del desafío | `{code}` o `{recovery_code}` | `200` con el usuario y la cookie de sesión; `422` si el código es incorrecto; `401` si el desafío venció; `503` si el secreto no se puede descifrar |
 | `POST` | `/auth/two-factor/setup` | usuario | | `200 {secret, otpauth_url}`; `409` si ya está activo |
-| `POST` | `/auth/two-factor/enable` | usuario | `{code}` | `200 {recovery_codes}`; `422` si el código es incorrecto |
+| `POST` | `/auth/two-factor/enable` | usuario | `{code, password}` | `200 {recovery_codes}`; `422` si el código o la contraseña son incorrectos |
 | `POST` | `/auth/two-factor/disable` | usuario | `{password}` | `204` |
 | `POST` | `/auth/two-factor/recovery-codes` | usuario | `{password}` | `200 {recovery_codes}` nuevos |
 
@@ -75,7 +75,7 @@ El usuario se devuelve así (nunca incluye la contraseña):
 ## Perfil y cambio de contraseña
 
 - **`PUT /auth/me`** cambia el nombre. El email se cambia aparte (ver "Cambiar el email"), porque hay que verificar la dirección nueva.
-- **`PUT /auth/password`** pide la contraseña actual, así alguien que encuentre la sesión abierta no puede cambiarla. Al cambiarla se **cierran todas las demás sesiones** del usuario y la actual sigue activa.
+- **`PUT /auth/password`** pide la contraseña actual, así alguien que encuentre la sesión abierta no puede cambiarla. Al cambiarla se **cierran todas las demás sesiones** del usuario y la actual sigue activa, y se **cancela un cambio de email pendiente** (ver "Cambiar el email").
 
 ## Sesiones por dispositivo
 
@@ -96,6 +96,10 @@ Cada sesión guarda el navegador (user-agent), la IP con la que se inició y su 
 3. **El email no cambia todavía.** La pantalla `/confirm-email` del frontend toma el `token` y llama a **`POST /auth/email/confirm`** con `{token}`. Recién ahí cambia, y queda verificado. Es pública, como la verificación, así funciona aunque el enlace se abra en otro dispositivo.
 
 Al confirmar se envía la notificación `email_changed`. Si mientras tanto otra cuenta tomó ese email, responde `409` y no cambia nada.
+
+**Lo que se anula:**
+- Al confirmar, los enlaces de recuperación de contraseña pendientes, que se enviaron al email anterior: si el usuario lo cambió porque perdió ese correo, quien lo tenga no puede usarlos.
+- Al cambiar o recuperar la contraseña, el cambio de email pendiente: lo pudo pedir quien conocía la contraseña anterior, para quedarse con el email y, desde ahí, con la cuenta.
 
 ## Borrar la cuenta
 
@@ -136,10 +140,12 @@ Cada usuario puede activarlo si quiere. Funciona con cualquier app de autenticac
 1. El frontend llama a `POST /auth/two-factor/setup` y recibe `{secret, otpauth_url}`.
 2. Muestra `otpauth_url` como **código QR** (en React, con `qrcode.react`: `<QRCodeSVG value={otpauth_url} />`) y `secret` en texto, para cargarlo a mano.
 3. El usuario lo escanea con su app y escribe el código de 6 dígitos que aparece.
-4. El frontend llama a `POST /auth/two-factor/enable` con `{code}`. Si es correcto, el 2FA queda activo y la respuesta trae **10 códigos de recuperación**.
+4. El frontend llama a `POST /auth/two-factor/enable` con `{code, password}`. Si los dos son correctos, el 2FA queda activo y la respuesta trae **10 códigos de recuperación**.
 5. El frontend muestra los códigos **una sola vez**, con la opción de copiarlos o descargarlos. Sirven para entrar si el usuario pierde el teléfono.
 
 Hasta que se confirma con `enable`, el 2FA no está activo, así que un QR mal escaneado no deja a nadie bloqueado. Al activarlo se cierran las demás sesiones.
+
+`enable` **pide la contraseña**, como desactivarlo: si no, alguien con una sesión robada activaría el 2FA con su propia app y, al cerrarse las demás sesiones, dejaría al dueño afuera (recuperar la contraseña no desactiva el 2FA).
 
 ### Iniciar sesión con 2FA
 
@@ -223,7 +229,7 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 - **Login sin filtraciones:** siempre responde el mismo `401` y tarda lo mismo exista o no el email. "Olvidé mi contraseña" también responde siempre lo mismo. El registro sí indica si un email está en uso (`409`), porque si no el usuario no sabría por qué falla.
 - **Tokens de un solo uso** para recuperar la contraseña y verificar el email: en la base solo se guarda su SHA-256, vencen, y se validan y borran en una sola operación, así que no se pueden usar dos veces.
 - **Las sesiones se cierran al cambiar o recuperar la contraseña**, por si alguien había entrado con la anterior.
-- **Una contraseña nueva corta los logins con 2FA a medio hacer:** al cambiarla o recuperarla se borran los desafíos pendientes, que se obtuvieron con la anterior. Al recuperarla, además, se reinicia el límite de intentos del 2FA del usuario, por si alguien con la contraseña vieja lo había agotado.
+- **Una contraseña nueva corta los logins con 2FA a medio hacer y los cambios de email pendientes:** al cambiarla o recuperarla se borran los desafíos y el enlace de cambio de email, que se obtuvieron con la anterior. Al recuperarla, además, se reinicia el límite de intentos del 2FA del usuario, por si alguien con la contraseña vieja lo había agotado.
 - **Límites de peticiones por grupo de rutas**, cada uno por separado (el segundo paso del 2FA no gasta los intentos del login). Al superarlos se responde `429` con `Retry-After`. Los valores están juntos en `internal/server/routes.go`, para ajustarlos:
 
   | Grupo | Rutas | Por | Límite |

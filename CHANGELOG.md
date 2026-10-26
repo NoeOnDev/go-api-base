@@ -9,6 +9,22 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.5.1] - 2026-10-25
+
+Correcciones de una revisión del proyecto completo. Sin cambios de esquema: no hace falta SQL de actualización.
+
+### Corregido
+
+- **Activar el 2FA no pedía la contraseña.** Alguien con una sesión robada podía activarlo con su propia app: como `enable` cierra las demás sesiones y recuperar la contraseña no desactiva el 2FA, el dueño quedaba afuera hasta que un admin lo desactivara a mano. Ahora `POST /auth/two-factor/enable` pide `{code, password}`, como desactivarlo.
+- **Confirmar un email nuevo no anulaba los enlaces de recuperación enviados al anterior.** Siguieron sirviendo hasta una hora: si el usuario cambiaba el email porque había perdido el correo viejo, quien lo tuviera podía recuperar la contraseña y quedarse con la cuenta. Ahora se borran al confirmar.
+- **Cambiar o recuperar la contraseña no cancelaba un cambio de email pendiente.** Quien conocía la contraseña anterior podía pedir el cambio a un correo suyo y confirmarlo después de que el dueño la cambiara, para quedarse con el email y, desde ahí, con la cuenta. Ahora `savePassword` borra también ese enlace.
+
+### Cambiado
+
+- **`POST /auth/two-factor/enable` recibe `{code, password}`.** El frontend tiene que pedir la contraseña en la pantalla de activación.
+- **El pool de PostgreSQL tiene 10 conexiones por defecto**, en lugar de las 4 de pgx (o una por núcleo), si `DATABASE_URL` no indica `pool_max_conns`. River ocupa una conexión fija para LISTEN y comparte el resto con la API.
+- `testutil.EnableTwoFactor` envía la contraseña de los usuarios de `testutil.Login`. Para otro usuario, `testutil.EnableTwoFactorWithPassword`.
+
 ## [v0.5.0] - 2026-10-24
 
 Funciones de cuenta: las que Laravel Jetstream suma sobre Breeze.

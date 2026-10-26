@@ -45,7 +45,7 @@ func TestSecureCookiesUseHostPrefix(t *testing.T) {
 	}
 
 	// El login con 2FA usa __Host-two_factor_challenge.
-	tf := testutil.EnableTwoFactor(t, api, session)
+	tf := testutil.EnableTwoFactorWithPassword(t, api, session, "una-clave-larga")
 	w = testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBodyFor("ana@ejemplo.com", "una-clave-larga"))
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("login: status = %d", w.Code)

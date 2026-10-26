@@ -83,8 +83,9 @@ func (s *Service) setupTwoFactor(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-type codeInput struct {
-	Code string `json:"code"`
+type enableInput struct {
+	Code     string `json:"code"`
+	Password string `json:"password"`
 }
 
 type recoveryCodesResponse struct {
@@ -92,15 +93,22 @@ type recoveryCodesResponse struct {
 	RecoveryCodes []string `json:"recovery_codes"`
 }
 
-// enableTwoFactor responde POST /auth/two-factor/enable con un código de la app. Si es correcto,
-// activa el 2FA, devuelve los códigos de recuperación y cierra las demás sesiones.
+// enableTwoFactor responde POST /auth/two-factor/enable con {code, password}. Si los dos son
+// correctos, activa el 2FA, devuelve los códigos de recuperación y cierra las demás sesiones.
+//
+// Pide la contraseña: si no, alguien con una sesión robada activaría el 2FA con su propia app y,
+// al cerrarse las demás sesiones, dejaría al dueño afuera (recuperar la contraseña no lo desactiva).
 func (s *Service) enableTwoFactor(w http.ResponseWriter, r *http.Request) error {
-	var in codeInput
+	var in enableInput
 	if err := httpx.Decode(w, r, &in); err != nil {
 		return err
 	}
 
 	user := MustUser(r.Context())
+	if err := s.checkPassword(r.Context(), user.ID, in.Password, "password"); err != nil {
+		return err
+	}
+
 	stored, err := s.q.GetUserByID(r.Context(), user.ID)
 	if err != nil {
 		return fmt.Errorf("buscar usuario %d: %w", user.ID, err)

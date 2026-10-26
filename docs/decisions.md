@@ -81,6 +81,7 @@ Recuperar la contraseña y verificar el email usan la tabla `user_tokens`:
 - **Vencen** a la hora (recuperación) o a las 24 horas (verificación).
 - **Solo sirve el último enlace:** pedir uno nuevo invalida el anterior.
 - **No se pueden usar dos veces:** se validan y borran en una sola sentencia (`DELETE … RETURNING`), así que ni dos peticiones simultáneas pueden reutilizarlos.
+- **Se anulan cuando cambia lo que los respaldaba:** una contraseña nueva borra los desafíos del 2FA y el cambio de email pendientes (se obtuvieron con la anterior), y un email nuevo borra los enlaces de recuperación enviados al viejo.
 
 Los enlaces apuntan al **frontend** (`FRONTEND_URL`), no a la API: la pantalla toma el token de la URL y llama a la API. Así la API sigue siendo solo JSON.
 

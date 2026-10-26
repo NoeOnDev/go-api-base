@@ -38,8 +38,16 @@ func (tf TwoFactor) CodeAt(t *testing.T, at time.Time) string {
 }
 
 // EnableTwoFactor activa el 2FA del usuario de la sesión, como lo haría el frontend:
-// pide el secreto (setup) y lo confirma con un código (enable).
+// pide el secreto (setup) y lo confirma con un código y la contraseña (enable).
+// El usuario tiene que ser uno creado con Login; si no, usar EnableTwoFactorWithPassword.
 func EnableTwoFactor(t *testing.T, api http.Handler, cookie *http.Cookie) TwoFactor {
+	t.Helper()
+	return EnableTwoFactorWithPassword(t, api, cookie, testPassword)
+}
+
+// EnableTwoFactorWithPassword es EnableTwoFactor para un usuario con otra contraseña
+// (por ejemplo, uno creado con POST /auth/register).
+func EnableTwoFactorWithPassword(t *testing.T, api http.Handler, cookie *http.Cookie, password string) TwoFactor {
 	t.Helper()
 
 	setup := Decode[struct {
@@ -52,7 +60,7 @@ func EnableTwoFactor(t *testing.T, api http.Handler, cookie *http.Cookie) TwoFac
 	}
 	enabled := Decode[struct {
 		RecoveryCodes []string `json:"recovery_codes"`
-	}](t, Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", fmt.Sprintf(`{"code":%q}`, code)), http.StatusOK)
+	}](t, Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", fmt.Sprintf(`{"code":%q,"password":%q}`, code, password)), http.StatusOK)
 
 	return TwoFactor{Secret: setup.Secret, RecoveryCodes: enabled.RecoveryCodes}
 }

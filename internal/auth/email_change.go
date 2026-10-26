@@ -121,6 +121,11 @@ func (s *Service) confirmEmailChange(w http.ResponseWriter, r *http.Request) err
 			}
 			return fmt.Errorf("cambiar email del usuario %d: %w", row.UserID, err)
 		}
+		// Los enlaces de recuperación pendientes se enviaron al email anterior, que ya no es de la
+		// cuenta: si el usuario lo cambió porque perdió ese correo, quien lo tenga no puede usarlos.
+		if err := q.DeleteUserTokens(r.Context(), store.DeleteUserTokensParams{UserID: row.UserID, Purpose: purposePasswordReset}); err != nil {
+			return fmt.Errorf("borrar enlaces de recuperación pendientes: %w", err)
+		}
 		userID, oldEmail, newEmail = row.UserID, before.Email, row.Email
 		return nil
 	})

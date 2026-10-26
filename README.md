@@ -138,7 +138,7 @@ Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene
 |---|---|---|
 | `APP_ENV` | `development` | `production` activa los logs en JSON y la cookie `Secure` |
 | `HTTP_ADDR` | `:8080` | Dirección del servidor |
-| `DATABASE_URL` | (obligatoria) | Conexión a PostgreSQL |
+| `DATABASE_URL` | (obligatoria) | Conexión a PostgreSQL. El pool tiene 10 conexiones salvo que la URL indique otro tamaño (`?pool_max_conns=20`) |
 | `TEST_DATABASE_URL` | | Base de los tests de integración |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` o `error` |
 | `SHUTDOWN_TIMEOUT` | `10s` | Espera máxima al apagar el servidor |

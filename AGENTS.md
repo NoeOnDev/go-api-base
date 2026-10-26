@@ -13,7 +13,8 @@ Instrucciones para agentes de código (Claude Code, Codex, Copilot) que trabajen
 > cambia **en la migración original** (y se recrea la base local). Después del primer despliegue, siempre con una
 > migración nueva.
 
-`go-api-base` es una plantilla de API REST en Go para proyectos chicos y medianos que corren en un VPS.
+`go-api-base` es una plantilla de API REST en Go, completa y lista para producción, para proyectos personales, de
+clientes y de empresa. Se despliega como un solo binario con PostgreSQL (una instancia, en un VPS o un contenedor).
 Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migraciones (goose), consultas tipadas (sqlc),
 la cola de trabajos (River) y paquetes del equipo de Go (`golang.org/x/crypto`, `x/time`, `x/term`).
 

@@ -1,11 +1,15 @@
 # go-api-base
 
-Plantilla de API REST en Go, liviana y lista para producción en un VPS chico. Usa la librería estándar más:
+Plantilla de API REST en Go, completa y lista para producción, para proyectos personales, de clientes y de empresa. Trae resuelto lo que casi toda API necesita: autenticación con 2FA, correos, trabajos en segundo plano, tiempo real y seguridad. Así cada proyecto empieza directamente por lo suyo.
+
+Es completa, pero con pocas dependencias: prioriza la librería estándar y suma solo esto:
 - **PostgreSQL con pgx**
 - **migraciones con goose**
 - **consultas tipadas con sqlc**
 - **la cola de trabajos River**, también sobre PostgreSQL
 - paquetes oficiales del equipo de Go para las contraseñas y el límite de peticiones
+
+Se despliega como un solo binario, con PostgreSQL como único servicio (sin Redis ni colas aparte), en un VPS o en un contenedor. Está pensada para **una instancia**. Con varias, los límites de intentos y el tiempo real tienen que pasar a la base o a otro servicio (ver [docs/decisions.md](docs/decisions.md)).
 
 Incluye:
 

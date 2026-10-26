@@ -7,9 +7,12 @@ Por qué la plantilla está armada así. Si cambiás alguna decisión, actualiz�
 `net/http` (con las rutas por método y parámetro de Go 1.22), `encoding/json`, `log/slog` y `testing` cubren lo necesario para una API.
 Menos dependencias significa menos actualizaciones, menos vulnerabilidades posibles y un código que se entiende sin conocer un framework.
 
+La plantilla trae mucho resuelto (autenticación con 2FA, rotación de claves, cola de trabajos, tiempo real), pero lo arma sobre la librería estándar: lo que crece es el código propio, que se puede leer y cambiar, no la lista de dependencias. TOTP, el cifrado, SSE y el envío por SMTP, por ejemplo, no suman ninguna.
+
 **Dependencias del binario:**
 - `pgx`: driver de PostgreSQL.
 - `goose`: migraciones.
+- `river`: la cola de trabajos, sobre el mismo PostgreSQL (ver "Trabajos en segundo plano con River").
 - Tres paquetes del equipo de Go:
   - `golang.org/x/crypto`: argon2id;
   - `golang.org/x/time`: límite de peticiones;
@@ -119,11 +122,11 @@ Activada, bloquea las rutas protegidas con un `403 email_not_verified` en lugar 
 - **El reporte indica cuándo se puede quitar una clave vieja**, para no hacerlo a ciegas.
 - **Los códigos de recuperación guardan el `key_id` de su HMAC**, porque sin el código original no se puede saber con qué clave se calcularon.
 
-Se descartó un servicio de claves externo (AWS KMS, Vault): en un VPS chico agrega costo y complejidad que no se justifican.
+Se descartó un servicio de claves externo (AWS KMS, Vault): para una API en un VPS suma otro servicio, costo y complejidad. Si un proyecto lo exige (por ejemplo, por una norma de cumplimiento), el cambio queda acotado: las claves maestras que hoy salen de `ENCRYPTION_KEY` vendrían del servicio al arrancar, y `secretbox` sigue igual.
 
 ## argon2id para las contraseñas
 
-Es el algoritmo recomendado por OWASP. Los parámetros (19 MiB, 2 iteraciones, 1 hilo) son los mínimos que recomiendan, elegidos porque el destino es un VPS de 1 vCPU.
+Es el algoritmo recomendado por OWASP. Los parámetros (19 MiB, 2 iteraciones, 1 hilo) son los mínimos que recomiendan, elegidos para que funcione bien incluso en un VPS de 1 vCPU. En un servidor con más recursos se pueden subir en `defaultParams` (`internal/auth/password.go`).
 
 Van guardados dentro de cada hash (formato PHC), así que se pueden subir más adelante sin invalidar las contraseñas existentes. Cada una se vuelve a hashear con los parámetros nuevos la próxima vez que su usuario entra (es el único momento en que la API tiene la contraseña): ese login calcula un hash más, una sola vez.
 

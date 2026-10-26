@@ -9,6 +9,13 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [Sin publicar]
+
+### Cambiado
+
+- **La plantilla ya no se presenta como "liviana" ni para proyectos chicos:** el README y `AGENTS.md` la describen como una base completa y lista para producción, para proyectos personales, de clientes y de empresa. Siguen siendo pocas dependencias, un solo binario y una instancia; el README lo dice en la presentación.
+- `docs/decisions.md`: la lista de dependencias del binario incluye River, y "Librería estándar primero" explica que lo que crece es el código propio, no las dependencias. El servicio de claves externo y los parámetros de argon2 ya no se justifican por "un VPS chico".
+
 ## [v0.5.3] - 2026-10-25
 
 Correcciones de otra revisión. Sin cambios de esquema: no hace falta SQL de actualización (cambian consultas, así que hay que correr `make sqlc`).

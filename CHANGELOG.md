@@ -9,7 +9,9 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
-## [Sin publicar]
+## [v0.5.4] - 2026-10-25
+
+Cambios de documentación: la presentación de la plantilla. Sin cambios de código ni de esquema.
 
 ### Cambiado
 

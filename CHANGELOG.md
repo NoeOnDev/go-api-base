@@ -9,6 +9,26 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.5.3] - 2026-10-25
+
+Correcciones de otra revisión. Sin cambios de esquema: no hace falta SQL de actualización (cambian consultas, así que hay que correr `make sqlc`).
+
+### Corregido
+
+- **Activar el 2FA podía dejar activo un secreto que el usuario nunca escaneó.** `enable` validaba el código con el secreto pendiente y después activaba cualquier secreto. Si entre los dos pasos otra petición pedía un QR nuevo (`setup`, que solo pide sesión), quedaba activo ese secreto, y quien hizo el `setup` lo recibía en la respuesta. Ahora `EnableTOTP` exige que el secreto sea el verificado; si cambió, responde `409`. Para que una rotación de claves entre `setup` y `enable` no rompa la comparación, `enable` ya no vuelve a cifrar el secreto pendiente: lo pasan a la clave actual el login o `rotate-keys`.
+- **Iniciar sesión dejaba viva la sesión anterior del mismo navegador.** Con un login sin logout o un cambio de cuenta, la cookie nueva reemplazaba a la vieja, pero la fila seguía hasta vencer y aparecía en `GET /auth/sessions` como otro dispositivo. Ahora `StartSession` (login, registro y segundo paso del 2FA) cierra la sesión de la cookie de la petición y corta sus streams. Las sesiones de otros dispositivos no se tocan.
+
+### Agregado
+
+- **Avisos de producción para `FRONTEND_URL` y `MAIL_FROM`:** si siguen en `localhost`, la API lo avisa en el log al arrancar, como ya hacía con `COOKIE_SECURE` y `MAIL_DRIVER`. Con `FRONTEND_URL` en localhost, los enlaces de los correos no funcionan; con `MAIL_FROM`, los proveedores rechazan los correos.
+- **Rehash de las contraseñas al entrar:** si los parámetros de argon2 cambian, cada contraseña se vuelve a hashear con los nuevos la próxima vez que su usuario inicia sesión. Antes se quedaban con los parámetros viejos para siempre.
+
+### Cambiado
+
+- `server.Deps.Box`: el llavero de `ENCRYPTION_KEY` se pasa en `Deps`, en lugar de que `NewHandler` arme el suyo desde `Config`. `main` pasa el mismo que usan los jobs; sin él, el 2FA no está disponible. `testutil.NewAPI` lo arma solo.
+- `EnableTOTP` recibe el secreto verificado (`store.EnableTOTPParams.TOTPSecret`).
+- Los comentarios del apagado en `cmd/api/main.go` describen el código actual, y algunos que contaban cómo era antes quedan en presente.
+
 ## [v0.5.2] - 2026-10-25
 
 Correcciones de otra revisión del proyecto completo. Sin cambios de esquema: no hace falta SQL de actualización (cambia una consulta, así que hay que correr `make sqlc`).

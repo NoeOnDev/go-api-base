@@ -118,7 +118,8 @@ func (s *Service) checkPassword(ctx context.Context, userID int64, password, fie
 }
 
 // endOtherSessions cierra todas las sesiones del usuario salvo la de esta petición, y avisa al
-// SessionWatcher. Se usa después de un cambio de seguridad que no va en una transacción (2FA).
+// SessionWatcher. Es para cuando no hay nada más que guardar junto (POST /auth/sessions/revoke-others);
+// si lo hay, deleteOtherSessions dentro de la transacción y sessionsEnded después del commit.
 func (s *Service) endOtherSessions(r *http.Request, userID int64) error {
 	keep, err := s.deleteOtherSessions(r, s.q, userID)
 	if err != nil {

@@ -50,8 +50,9 @@ func recoveryCodeMACInput(userID int64, code string) []byte {
 }
 
 // replaceRecoveryCodes genera códigos nuevos, guarda su HMAC (reemplazando los anteriores)
-// y los devuelve en texto para mostrárselos al usuario una sola vez.
-func (s *Service) replaceRecoveryCodes(ctx context.Context, userID int64) ([]string, error) {
+// con las consultas q (pueden ser las de una transacción) y los devuelve en texto para
+// mostrárselos al usuario una sola vez.
+func (s *Service) replaceRecoveryCodes(ctx context.Context, q *store.Queries, userID int64) ([]string, error) {
 	box, err := s.box()
 	if err != nil {
 		return nil, err
@@ -66,7 +67,7 @@ func (s *Service) replaceRecoveryCodes(ctx context.Context, userID int64) ([]str
 		hashes[i] = box.MAC(recoveryCodeMACInput(userID, codes[i]))
 	}
 
-	if err := s.q.ReplaceRecoveryCodes(ctx, store.ReplaceRecoveryCodesParams{
+	if err := q.ReplaceRecoveryCodes(ctx, store.ReplaceRecoveryCodesParams{
 		UserID:     userID,
 		CodeHashes: hashes,
 		KeyID:      box.KeyID(),

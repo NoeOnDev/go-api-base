@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/store"
@@ -128,21 +130,29 @@ func (s *Service) enableTwoFactor(w http.ResponseWriter, r *http.Request) error 
 		return errWrongCode
 	}
 
-	rows, err := s.q.EnableTOTP(r.Context(), store.EnableTOTPParams{ID: user.ID, TOTPLastStep: &step})
-	if err != nil {
-		return fmt.Errorf("activar 2FA: %w", err)
-	}
-	if rows == 0 {
-		return errTwoFactorEnabled
-	}
-
-	codes, err := s.replaceRecoveryCodes(r.Context(), user.ID)
+	// Activar, guardar los códigos de recuperación y cerrar las demás sesiones van juntos: si
+	// un paso falla, el 2FA sigue inactivo y el usuario puede volver a intentarlo.
+	var codes []string
+	var keep string
+	err = pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		rows, err := q.EnableTOTP(r.Context(), store.EnableTOTPParams{ID: user.ID, TOTPLastStep: &step})
+		if err != nil {
+			return fmt.Errorf("activar 2FA: %w", err)
+		}
+		if rows == 0 {
+			return errTwoFactorEnabled
+		}
+		if codes, err = s.replaceRecoveryCodes(r.Context(), q, user.ID); err != nil {
+			return err
+		}
+		keep, err = s.deleteOtherSessions(r, q, user.ID)
+		return err
+	})
 	if err != nil {
 		return err
 	}
-	if err := s.endOtherSessions(r, user.ID); err != nil {
-		return err
-	}
+	s.sessionsEnded(r.Context(), user.ID, keep)
 	s.notify(r.Context(), user.ID, NotifyTwoFactorEnabled, "Se activó la verificación en dos pasos en tu cuenta.")
 
 	httpx.Write(w, http.StatusOK, recoveryCodesResponse{RecoveryCodes: codes})
@@ -166,15 +176,24 @@ func (s *Service) disableTwoFactor(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	if err := s.q.DisableTOTP(r.Context(), user.ID); err != nil {
-		return fmt.Errorf("desactivar 2FA: %w", err)
-	}
-	if err := s.q.DeleteRecoveryCodes(r.Context(), user.ID); err != nil {
-		return fmt.Errorf("borrar códigos de recuperación: %w", err)
-	}
-	if err := s.endOtherSessions(r, user.ID); err != nil {
+	// Todo o nada: si un paso falla, el 2FA sigue activo con sus códigos y sus sesiones.
+	var keep string
+	err := pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		if err := q.DisableTOTP(r.Context(), user.ID); err != nil {
+			return fmt.Errorf("desactivar 2FA: %w", err)
+		}
+		if err := q.DeleteRecoveryCodes(r.Context(), user.ID); err != nil {
+			return fmt.Errorf("borrar códigos de recuperación: %w", err)
+		}
+		var err error
+		keep, err = s.deleteOtherSessions(r, q, user.ID)
+		return err
+	})
+	if err != nil {
 		return err
 	}
+	s.sessionsEnded(r.Context(), user.ID, keep)
 	s.notify(r.Context(), user.ID, NotifyTwoFactorDisabled, "Se desactivó la verificación en dos pasos en tu cuenta. Si no fuiste vos, cambiá tu contraseña.")
 
 	httpx.Write(w, http.StatusNoContent, nil)
@@ -197,7 +216,7 @@ func (s *Service) regenerateRecoveryCodes(w http.ResponseWriter, r *http.Request
 		return errTwoFactorNotEnabled
 	}
 
-	codes, err := s.replaceRecoveryCodes(r.Context(), user.ID)
+	codes, err := s.replaceRecoveryCodes(r.Context(), s.q, user.ID)
 	if err != nil {
 		return err
 	}

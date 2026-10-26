@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
+	"github.com/NoeOnDev/go-api-base/internal/totp"
 )
 
 // failSessionDeletes hace que la base rechace borrar sesiones, para simular una falla a mitad
@@ -82,6 +84,72 @@ func TestChangePasswordIsAtomic(t *testing.T) {
 
 	if _, err := auth.NewService(pool, auth.Options{}).Authenticate(t.Context(), "ana@ejemplo.com", "contraseña-de-prueba"); err != nil {
 		t.Errorf("la contraseña no debería haber cambiado: %v", err)
+	}
+}
+
+// Si un paso de activar el 2FA falla, sigue inactivo: sin códigos de recuperación y con las demás
+// sesiones abiertas. El mismo código sirve al reintentar, porque su paso no quedó guardado.
+func TestEnableTwoFactorIsAtomic(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	other := newSession(t, pool, u.ID) // otra sesión, que se cerraría
+
+	setup := testutil.Decode[struct {
+		Secret string `json:"secret"`
+	}](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
+	code, err := totp.Code(setup.Secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exec := func(sql string) error { _, err := pool.Exec(context.Background(), sql); return err }
+	failSessionDeletes(t, exec)
+
+	// Falla el cierre de las demás sesiones, el último paso: se deshace todo.
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody(code, testutil.Password)), http.StatusInternalServerError)
+
+	if me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK); me.TwoFactorEnabled {
+		t.Error("el 2FA no debería haber quedado activo")
+	}
+	if n := countRows(t, pool, "user_recovery_codes", u.ID); n != 0 {
+		t.Errorf("quedaron %d códigos de recuperación, se esperaba ninguno", n)
+	}
+	if w := testutil.Do(t, api, other, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
+		t.Errorf("la otra sesión debería seguir abierta: status = %d", w.Code)
+	}
+
+	// Sin la falla, el mismo código funciona.
+	if err := exec("DROP TRIGGER test_fail_session_delete ON sessions"); err != nil {
+		t.Fatal(err)
+	}
+	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody(code, testutil.Password)); w.Code != http.StatusOK {
+		t.Fatalf("el reintento debería activar el 2FA: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+}
+
+// Lo mismo al desactivarlo: sigue activo, con sus códigos y las demás sesiones.
+func TestDisableTwoFactorIsAtomic(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
+	other := newSession(t, pool, u.ID) // después de activarlo, que cierra las demás
+
+	exec := func(sql string) error { _, err := pool.Exec(context.Background(), sql); return err }
+	failSessionDeletes(t, exec)
+
+	body := fmt.Sprintf(`{"password":%q}`, testutil.Password)
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", body), http.StatusInternalServerError)
+
+	if me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK); !me.TwoFactorEnabled {
+		t.Error("el 2FA debería seguir activo")
+	}
+	if n := countRows(t, pool, "user_recovery_codes", u.ID); n == 0 {
+		t.Error("se borraron los códigos de recuperación")
+	}
+	if w := testutil.Do(t, api, other, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
+		t.Errorf("la otra sesión debería seguir abierta: status = %d", w.Code)
 	}
 }
 

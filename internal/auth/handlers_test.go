@@ -2,7 +2,9 @@ package auth_test
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/argon2"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/config"
@@ -261,5 +264,34 @@ func TestLogoutAlwaysClearsCookie(t *testing.T) {
 				t.Errorf("la cookie no se borró: %+v", cleared)
 			}
 		})
+	}
+}
+
+// Una contraseña guardada con parámetros viejos de argon2 (por ejemplo, antes de subirlos) se
+// vuelve a hashear con los actuales al entrar, y sigue sirviendo.
+func TestLoginRehashesOldPassword(t *testing.T) {
+	api, pool := newAPI(t)
+	u, _ := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+
+	salt := []byte("sal-de-16-bytes!")
+	key := argon2.IDKey([]byte(testutil.Password), salt, 1, 8*1024, 1, 32)
+	old := fmt.Sprintf("$argon2id$v=%d$m=8192,t=1,p=1$%s$%s", argon2.Version,
+		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key))
+	if _, err := pool.Exec(t.Context(), "UPDATE users SET password_hash = $1 WHERE id = $2", old, u.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBody); w.Code != http.StatusOK {
+		t.Fatalf("login con el hash viejo: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+	var stored string
+	if err := pool.QueryRow(t.Context(), "SELECT password_hash FROM users WHERE id = $1", u.ID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stored, "$m=19456,t=2,p=1$") {
+		t.Errorf("el hash no se actualizó a los parámetros actuales: %s", stored)
+	}
+	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBody); w.Code != http.StatusOK {
+		t.Errorf("login con el hash nuevo: status = %d", w.Code)
 	}
 }

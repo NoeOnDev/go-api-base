@@ -52,7 +52,8 @@ func argon2Key(ctx context.Context, password, salt []byte, p argonParams, keyLen
 //	$argon2id$v=19$m=19456,t=2,p=1$<sal>$<hash>
 //
 // Los parámetros viajan dentro del hash, así que se pueden subir en el futuro
-// sin romper las contraseñas ya guardadas.
+// sin romper las contraseñas ya guardadas: cada una se vuelve a hashear con los
+// nuevos la próxima vez que su usuario entra (ver needsRehash).
 func HashPassword(ctx context.Context, password string) (string, error) {
 	p := defaultParams
 	salt := make([]byte, p.saltLen)
@@ -84,6 +85,19 @@ func VerifyPassword(ctx context.Context, password, encoded string) (bool, error)
 		return false, err
 	}
 	return subtle.ConstantTimeCompare(key, other) == 1, nil
+}
+
+// needsRehash indica si el hash se calculó con otros parámetros que los actuales (por ejemplo,
+// antes de subirlos) y conviene volver a calcularlo. Un hash inválido devuelve false: con él,
+// VerifyPassword ya falló.
+func needsRehash(encoded string) bool {
+	p, salt, key, err := decodeHash(encoded)
+	if err != nil {
+		return false
+	}
+	d := defaultParams
+	return p.memory != d.memory || p.time != d.time || p.threads != d.threads ||
+		uint32(len(salt)) != d.saltLen || uint32(len(key)) != d.keyLen
 }
 
 func decodeHash(encoded string) (argonParams, []byte, []byte, error) {

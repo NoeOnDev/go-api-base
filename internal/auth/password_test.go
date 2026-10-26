@@ -2,10 +2,14 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/argon2"
 )
 
 func TestHashAndVerifyPassword(t *testing.T) {
@@ -68,5 +72,37 @@ func TestPasswordHashingIsBounded(t *testing.T) {
 	}
 	if ok, err := VerifyPassword(t.Context(), "una contraseña segura", hash); err != nil || !ok {
 		t.Errorf("VerifyPassword = %v, %v", ok, err)
+	}
+}
+
+// hashWithParams arma un hash en formato PHC con otros parámetros, como los que quedarían
+// guardados si se suben los de defaultParams.
+func hashWithParams(t *testing.T, password string, p argonParams) string {
+	t.Helper()
+	salt := make([]byte, p.saltLen)
+	key := argon2.IDKey([]byte(password), salt, p.time, p.memory, p.threads, p.keyLen)
+	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, p.memory, p.time, p.threads,
+		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key))
+}
+
+func TestNeedsRehash(t *testing.T) {
+	current, err := HashPassword(t.Context(), "una contraseña segura")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if needsRehash(current) {
+		t.Error("un hash con los parámetros actuales no necesita rehash")
+	}
+
+	old := hashWithParams(t, "una contraseña segura", argonParams{memory: 8 * 1024, time: 1, threads: 1, saltLen: 16, keyLen: 32})
+	if !needsRehash(old) {
+		t.Error("un hash con parámetros viejos necesita rehash")
+	}
+	if ok, err := VerifyPassword(t.Context(), "una contraseña segura", old); err != nil || !ok {
+		t.Errorf("el hash viejo debería seguir verificando: %v, %v", ok, err)
+	}
+
+	if needsRehash("texto") {
+		t.Error("un hash inválido no se rehashea: VerifyPassword ya falló")
 	}
 }

@@ -24,6 +24,14 @@ UPDATE users
 SET password_hash = $2, updated_at = now()
 WHERE id = $1;
 
+-- RehashPassword guarda la misma contraseña con un hash de parámetros nuevos. Solo lo cambia si
+-- sigue siendo el que se verificó, así no pisa un cambio de contraseña hecho al mismo tiempo.
+-- No toca updated_at: para el usuario, nada cambió.
+-- name: RehashPassword :execrows
+UPDATE users
+SET password_hash = sqlc.arg('new_hash')
+WHERE id = sqlc.arg('id') AND password_hash = sqlc.arg('old_hash');
+
 -- name: MarkEmailVerified :exec
 UPDATE users
 SET email_verified_at = coalesce(email_verified_at, now()), updated_at = now()

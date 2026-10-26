@@ -125,7 +125,7 @@ Se descartó un servicio de claves externo (AWS KMS, Vault): en un VPS chico agr
 
 Es el algoritmo recomendado por OWASP. Los parámetros (19 MiB, 2 iteraciones, 1 hilo) son los mínimos que recomiendan, elegidos porque el destino es un VPS de 1 vCPU.
 
-Van guardados dentro de cada hash (formato PHC), así que se pueden subir más adelante sin invalidar las contraseñas existentes.
+Van guardados dentro de cada hash (formato PHC), así que se pueden subir más adelante sin invalidar las contraseñas existentes. Cada una se vuelve a hashear con los parámetros nuevos la próxima vez que su usuario entra (es el único momento en que la API tiene la contraseña): ese login calcula un hash más, una sola vez.
 
 **Como mucho un hash por núcleo a la vez** (un semáforo en `password.go`). Cada hash reserva 19 MiB: sin tope, 200 logins simultáneos llevaban el proceso de 16 MiB a 2,5 GiB en 2 núcleos, y en un VPS chico el sistema lo habría matado. Con el tope, el pico queda en unos 120 MiB y los logins terminan incluso antes, porque la CPU ya no se reparte entre 200 hashes. Si el cliente se va mientras espera su turno, no se calcula nada.
 

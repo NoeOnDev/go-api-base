@@ -228,6 +228,22 @@ func (s *Service) Authenticate(ctx context.Context, email, password string) (Use
 	if !ok {
 		return User{}, errInvalidCredentials
 	}
+	if needsRehash(u.PasswordHash) {
+		s.rehashPassword(ctx, u, password)
+	}
 
 	return toUser(u), nil
+}
+
+// rehashPassword vuelve a hashear la contraseña con los parámetros actuales de argon2, después
+// de un login correcto (es el único momento en que se tiene la contraseña). Si falla, solo se
+// registra: el login ya fue válido, y se vuelve a intentar en el próximo.
+func (s *Service) rehashPassword(ctx context.Context, u store.User, password string) {
+	hash, err := HashPassword(ctx, password)
+	if err == nil {
+		_, err = s.q.RehashPassword(ctx, store.RehashPasswordParams{ID: u.ID, OldHash: u.PasswordHash, NewHash: hash})
+	}
+	if err != nil {
+		httpx.LoggerFrom(ctx).Warn("no se pudo actualizar el hash de la contraseña", "user_id", u.ID, "error", err)
+	}
 }

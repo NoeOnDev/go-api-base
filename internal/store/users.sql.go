@@ -232,6 +232,29 @@ func (q *Queries) MarkEmailVerified(ctx context.Context, id int64) error {
 	return err
 }
 
+const rehashPassword = `-- name: RehashPassword :execrows
+UPDATE users
+SET password_hash = $1
+WHERE id = $2 AND password_hash = $3
+`
+
+type RehashPasswordParams struct {
+	NewHash string
+	ID      int64
+	OldHash string
+}
+
+// RehashPassword guarda la misma contraseña con un hash de parámetros nuevos. Solo lo cambia si
+// sigue siendo el que se verificó, así no pisa un cambio de contraseña hecho al mismo tiempo.
+// No toca updated_at: para el usuario, nada cambió.
+func (q *Queries) RehashPassword(ctx context.Context, arg RehashPasswordParams) (int64, error) {
+	result, err := q.db.Exec(ctx, rehashPassword, arg.NewHash, arg.ID, arg.OldHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setPendingTOTPSecret = `-- name: SetPendingTOTPSecret :execrows
 UPDATE users
 SET totp_secret = $2, totp_last_step = NULL, updated_at = now()

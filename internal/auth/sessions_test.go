@@ -275,3 +275,37 @@ func TestListSessionsHidesIdleSessions(t *testing.T) {
 		t.Errorf("con vencimiento: %+v", sessions)
 	}
 }
+
+// Iniciar sesión cierra la sesión que ese navegador ya tenía (su cookie se reemplaza, así que
+// quedaría como un dispositivo fantasma), pero no las de otros dispositivos.
+func TestStartSessionReplacesBrowserSession(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	u, old := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	phone := newSession(t, pool, u.ID) // otro dispositivo
+
+	// Login en el mismo navegador, que todavía manda la cookie vieja.
+	w := testutil.Do(t, api, old, http.MethodPost, "/auth/login", loginBody)
+	if w.Code != http.StatusOK {
+		t.Fatalf("login: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+	current := sessionCookie(t, w)
+
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, old, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
+	if sessions := listSessions(t, api, current); len(sessions) != 2 {
+		t.Errorf("se esperaban la sesión nueva y la del teléfono: %+v", sessions)
+	}
+	if w := testutil.Do(t, api, phone, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
+		t.Errorf("la sesión del teléfono debería seguir: status = %d", w.Code)
+	}
+
+	// Cambio de cuenta en el mismo navegador: registrar a Luis cierra esa sesión de Ana.
+	w = testutil.Do(t, api, current, http.MethodPost, "/auth/register", `{"name":"Luis","email":"luis@ejemplo.com","password":"una-clave-larga"}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("registro: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, current, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
+	if w := testutil.Do(t, api, phone, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
+		t.Errorf("la sesión del teléfono debería seguir: status = %d", w.Code)
+	}
+}

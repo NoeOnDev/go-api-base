@@ -14,7 +14,7 @@ Cada función se puede quitar si un proyecto no la necesita (ver [al final](#qui
 
 ## Cómo funcionan las sesiones
 
-1. **Inicio de sesión:** `POST /auth/register` o `POST /auth/login` crean una sesión. La API genera un token aleatorio de 256 bits, guarda en la base solo su SHA-256 y envía el token en la cookie `session`.
+1. **Inicio de sesión:** `POST /auth/register` o `POST /auth/login` crean una sesión. La API genera un token aleatorio de 256 bits, guarda en la base solo su SHA-256 y envía el token en la cookie `session`. Si ese navegador ya tenía una sesión (por ejemplo, al cambiar de cuenta), se cierra; las de otros dispositivos siguen abiertas.
 2. **Cada petición:** el navegador envía la cookie automáticamente. `RequireUser` busca la sesión, comprueba que no haya vencido (`SESSION_TTL`, 7 días por defecto) y deja el usuario en el contexto.
 3. **Cierre de sesión:** `POST /auth/logout` borra la sesión de la base y la cookie del navegador.
 

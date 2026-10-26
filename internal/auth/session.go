@@ -73,7 +73,16 @@ const touchInterval = 5 * time.Minute
 // StartSession crea una sesión para el usuario y envía la cookie. Guarda el navegador
 // (user-agent) y la IP de la petición, para que el usuario reconozca sus dispositivos en
 // GET /auth/sessions. Las sesiones vencidas las borra la limpieza periódica (internal/jobs).
+//
+// Si el navegador ya tenía una sesión (otro login sin logout, o un cambio de cuenta), la cierra:
+// su cookie se reemplaza por la nueva, así que nadie la usaría, pero seguiría viva y figuraría
+// como otro dispositivo. Las sesiones de otros navegadores no se tocan.
 func (s *Service) StartSession(w http.ResponseWriter, r *http.Request, userID int64) error {
+	// Si falla, el login sigue: la sesión vieja la borra la limpieza cuando vence.
+	if err := s.endRequestSession(r.Context(), r); err != nil {
+		httpx.LoggerFrom(r.Context()).Warn("no se pudo cerrar la sesión anterior del navegador", "error", err)
+	}
+
 	token, hash, err := newToken()
 	if err != nil {
 		return err
@@ -96,17 +105,27 @@ func (s *Service) StartSession(w http.ResponseWriter, r *http.Request, userID in
 
 // EndSession borra la sesión de la petición (si hay) y le indica al navegador que borre la cookie.
 func (s *Service) EndSession(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	if c, err := r.Cookie(s.cookieName(CookieName)); err == nil {
-		hash := hashToken(c.Value)
-		if err := s.q.DeleteSession(ctx, hash); err != nil {
-			return fmt.Errorf("borrar sesión: %w", err)
-		}
-		if s.opts.SessionWatcher != nil {
-			s.opts.SessionWatcher.SessionEnded(ctx, hex.EncodeToString(hash))
-		}
+	if err := s.endRequestSession(ctx, r); err != nil {
+		return err
 	}
-
 	s.clearSessionCookie(w)
+	return nil
+}
+
+// endRequestSession borra la sesión de la cookie de la petición, si la trae, y avisa al
+// SessionWatcher para que corte sus streams.
+func (s *Service) endRequestSession(ctx context.Context, r *http.Request) error {
+	c, err := r.Cookie(s.cookieName(CookieName))
+	if err != nil {
+		return nil
+	}
+	hash := hashToken(c.Value)
+	if err := s.q.DeleteSession(ctx, hash); err != nil {
+		return fmt.Errorf("borrar sesión: %w", err)
+	}
+	if s.opts.SessionWatcher != nil {
+		s.opts.SessionWatcher.SessionEnded(ctx, hex.EncodeToString(hash))
+	}
 	return nil
 }
 

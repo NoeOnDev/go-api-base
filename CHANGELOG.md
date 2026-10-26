@@ -9,6 +9,27 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.5.2] - 2026-10-25
+
+Correcciones de otra revisión del proyecto completo. Sin cambios de esquema: no hace falta SQL de actualización (cambia una consulta, así que hay que correr `make sqlc`).
+
+### Corregido
+
+- **Con dos proxies, la IP del cliente era la del primero.** Con un CDN delante del proxy (Cloudflare → Caddy → API), `httpx.ClientIP` tomaba el último valor de `X-Forwarded-For`, que es la IP de Cloudflare: todos los usuarios de un mismo nodo compartían los límites por IP y recibían `429`, y las sesiones mostraban esa IP. Ahora se recorre de derecha a izquierda salteando los proxies de `TRUSTED_PROXIES`, como `trusted_proxies_strict` de Caddy. Para Cloudflare, sumá sus rangos a `TRUSTED_PROXIES` y configurá `trusted_proxies` en Caddy (ver "Antes de producción" en el README). Con un solo proxy, nada cambia.
+- **Activar o desactivar el 2FA podía quedar a medias.** Si fallaba guardar los códigos de recuperación o cerrar las demás sesiones, el 2FA quedaba activo sin códigos y con las otras sesiones abiertas, y el reintento respondía `409`. Ahora los pasos van en una transacción.
+- **`GET /auth/sessions` mostraba sesiones vencidas por inactividad** hasta que la limpieza periódica las borraba. Ahora la lista trae solo las que todavía sirven.
+
+### Agregado
+
+- **`make rotate-keys` cuenta los correos de la cola** cifrados con claves anteriores. Antes, el reporte podía indicar que una clave se podía quitar mientras quedaban correos cifrados con ella, que se cancelaban al quitarla; había que revisarlo a mano con un `SELECT`. Ahora, mientras queden, la clave no figura como removible y el comando termina con error. Lo hacen `jobs.QueuedEmailKeys` y `auth.KeyReport.AddQueuedEmails`.
+- `docs/decisions.md`: qué revela la API sobre los emails registrados (el login y la recuperación no; el registro y el cambio de email sí, con `409`) y cómo ocultarlo del todo si un proyecto lo necesita.
+- `SMTP_TEST_ADDR` documentada en `AGENTS.md` y `.env.example`: con Mailpit (`localhost:1025`), los tests prueban también el envío real por SMTP.
+
+### Cambiado
+
+- **`?offset=` acepta como mucho 10000** (`httpx.MaxOffset`); uno mayor responde `422`. Un offset enorme obligaba a PostgreSQL a leer y descartar todas las filas anteriores. Para recorrer más, conviene paginar por cursor (ver el README).
+- `github.com/riverqueue/river/rivertype` pasa a ser dependencia directa en `go.mod`: es la misma versión que ya estaba como indirecta.
+
 ## [v0.5.1] - 2026-10-25
 
 Correcciones de una revisión del proyecto completo. Sin cambios de esquema: no hace falta SQL de actualización.

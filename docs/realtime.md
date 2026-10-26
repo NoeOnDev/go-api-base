@@ -214,13 +214,13 @@ Cada conexión abierta ocupa unos **11 KB** de memoria (medido con 500 conexione
 
 ## Detrás de un proxy
 
-- **Caddy:** no hace falta nada; envía los eventos apenas llegan.
-- **Nginx:** la API ya envía `X-Accel-Buffering: no`, que le pide no guardar la respuesta en su buffer. El latido de 25 segundos queda por debajo de su `proxy_read_timeout` (60 segundos por defecto).
-- **HTTP/2:** con HTTP/1.1, el navegador abre como mucho 6 conexiones por dominio, y cada pestaña con `EventSource` ocupa una. Con HTTPS, Caddy y Nginx usan HTTP/2, que no tiene ese límite.
+- **Sin buffer:** el proxy tiene que reenviar cada evento apenas llega, sin juntarlos. La API envía `X-Accel-Buffering: no`, que algunos proxies respetan para no guardar la respuesta en su buffer.
+- **Latido:** cada 25 segundos, por debajo de los 60 que suelen esperar los proxies antes de cortar una conexión sin tráfico.
+- **HTTP/2:** con HTTP/1.1, el navegador abre como mucho 6 conexiones por dominio, y cada pestaña con `EventSource` ocupa una. Con HTTP/2, lo habitual con HTTPS, no hay ese límite.
 
 ## Una sola instancia
 
-El broker vive en memoria: un evento publicado en una instancia solo llega a las conexiones de esa instancia. En un VPS con una sola instancia es lo correcto. Si algún día hay varias, se reparten los eventos con `LISTEN/NOTIFY` de PostgreSQL: `Publish` hace un `NOTIFY` y cada instancia escucha con `LISTEN` y reenvía a sus conexiones. La firma de `Publish` ya recibe `ctx` para poder cambiarlo sin tocar a quien publica.
+El broker vive en memoria: un evento publicado en una instancia solo llega a las conexiones de esa instancia. Con una sola instancia es lo correcto. Si algún día hay varias, se reparten los eventos con `LISTEN/NOTIFY` de PostgreSQL: `Publish` hace un `NOTIFY` y cada instancia escucha con `LISTEN` y reenvía a sus conexiones. La firma de `Publish` ya recibe `ctx` para poder cambiarlo sin tocar a quien publica.
 
 ## Por qué no WebSockets
 

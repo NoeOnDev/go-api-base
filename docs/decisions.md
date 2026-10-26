@@ -28,7 +28,7 @@ La plantilla trae mucho resuelto (autenticación con 2FA, rotación de claves, c
 
 - Son archivos `.sql` versionados, fáciles de revisar.
 - Van dentro del binario (`embed`): para desplegar alcanza con copiar un solo archivo.
-- La API migra al arrancar, con un advisory lock de PostgreSQL para que dos instancias no migren a la vez. Es simple y suficiente para un VPS.
+- La API migra al arrancar, con un advisory lock de PostgreSQL para que dos instancias no migren a la vez. Es simple, y desplegar no pide ningún paso aparte.
 - sqlc lee las mismas migraciones como esquema, así que son la única fuente de verdad.
 
 ## Herramientas con versión fija en el Makefile
@@ -122,7 +122,7 @@ Activada, bloquea las rutas protegidas con un `403 email_not_verified` en lugar 
 - **El reporte indica cuándo se puede quitar una clave vieja**, para no hacerlo a ciegas.
 - **Los códigos de recuperación guardan el `key_id` de su HMAC**, porque sin el código original no se puede saber con qué clave se calcularon.
 
-Se descartó un servicio de claves externo (AWS KMS, Vault): para una API en un VPS suma otro servicio, costo y complejidad. Si un proyecto lo exige (por ejemplo, por una norma de cumplimiento), el cambio queda acotado: las claves maestras que hoy salen de `ENCRYPTION_KEY` vendrían del servicio al arrancar, y `secretbox` sigue igual.
+Se descartó un servicio de claves externo (AWS KMS, Vault): suma otro servicio, costo y complejidad. Si un proyecto lo exige (por ejemplo, por una norma de cumplimiento), el cambio queda acotado: las claves maestras que hoy salen de `ENCRYPTION_KEY` vendrían del servicio al arrancar, y `secretbox` sigue igual.
 
 ## argon2id para las contraseñas
 
@@ -158,7 +158,7 @@ La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, y aun así **solo
 
 `X-Forwarded-For` se recorre **de derecha a izquierda, salteando los proxies de confianza**: cada proxy agrega al final la IP que se le conectó, así que la primera que no es de un proxy es la del cliente. Con un solo proxy es el último valor; con dos (Cloudflare delante de Caddy), el último es el de Cloudflare, y tomarlo haría que todos los usuarios de un mismo nodo compartan los límites. Lo que queda a la izquierda del cliente lo puede escribir él mismo, así que no se usa. Es el mismo algoritmo que la opción `trusted_proxies_strict` de Caddy.
 
-La regla tiene un límite: confía en cualquier conexión desde una red privada. Con Docker y el puerto publicado a todas las interfaces, en algunas configuraciones (por ejemplo, IPv6 sin `ip6tables`) Docker reenvía las conexiones de afuera con `docker-proxy`, y la API las ve llegar desde el gateway (`172.17.0.1`), que es privado. Para la API, esa conexión es igual a la del proxy legítimo, así que el código no puede distinguirlas. Por eso el puerto de la API no debe quedar expuesto: sin publicarlo, o publicado solo en `127.0.0.1` (ver "Antes de producción" en el README).
+La regla tiene un límite: confía en cualquier conexión desde una red privada. Con Docker y el puerto publicado a todas las interfaces, en algunas configuraciones (por ejemplo, IPv6 sin `ip6tables`) Docker reenvía las conexiones de afuera con `docker-proxy`, y la API las ve llegar desde el gateway (`172.17.0.1`), que es privado. Para la API, esa conexión es igual a la del proxy legítimo, así que el código no puede distinguirlas. Por eso el puerto de la API no debe quedar abierto a internet, y conviene indicar con `TRUSTED_PROXIES` la IP exacta del proxy.
 
 Las IPv6 se agrupan por bloque `/64`: un proveedor le asigna a cada cliente un `/64` entero, así que contar por dirección exacta permitiría esquivar el límite rotando direcciones.
 
@@ -214,7 +214,7 @@ Sin ellos, un cliente lento puede mantener conexiones abiertas indefinidamente.
 
 Los streams SSE no tienen `WriteTimeout` (los cortaría a los 30 segundos), pero **cada escritura tiene un plazo de 10 segundos**: un cliente que deja de leer sin cerrar la conexión se desconecta, en lugar de trabar el handler y seguir ocupando su lugar.
 
-**Al apagar**, el servidor HTTP y los trabajos en segundo plano se detienen al mismo tiempo, cada uno con `SHUTDOWN_TIMEOUT` (10 segundos por defecto). Si alguna petición no terminó a tiempo, se corta. Hay que tenerlo en cuenta con el gestor de procesos: `docker stop` espera 10 segundos antes de matar el proceso, así que con Docker conviene darle un poco más (`docker stop -t 15`, o `stop_grace_period` en Compose); systemd espera 90 por defecto.
+**Al apagar**, el servidor HTTP y los trabajos en segundo plano se detienen al mismo tiempo, cada uno con `SHUTDOWN_TIMEOUT` (10 segundos por defecto). Si alguna petición no terminó a tiempo, se corta. El gestor de procesos tiene que esperar un poco más que `SHUTDOWN_TIMEOUT` antes de matar el proceso; algunos esperan solo 10 segundos por defecto.
 
 ## Panics
 
@@ -242,7 +242,7 @@ Las que Laravel Jetstream suma sobre Breeze: sesiones por dispositivo, cambiar e
 
 [River](https://riverqueue.com) guarda la cola en PostgreSQL. Se eligió frente a:
 - **Una cola propia** (con `SELECT … FOR UPDATE SKIP LOCKED`): parece simple, pero los reintentos, los trabajos trabados, los periódicos sin duplicados y el apagado ordenado son cientos de líneas difíciles de probar. River lo resuelve y es una dependencia chica (usa el mismo pgx).
-- **Redis** (con Asynq, por ejemplo): suma otro servicio que instalar, respaldar y vigilar en el VPS. Además, PostgreSQL permite encolar dentro de la misma transacción que los datos, algo que con Redis no se puede.
+- **Redis** (con Asynq, por ejemplo): suma otro servicio que instalar, respaldar y vigilar. Además, PostgreSQL permite encolar dentro de la misma transacción que los datos, algo que con Redis no se puede.
 
 Decisiones:
 - **Los workers corren dentro del proceso de la API.** Un solo binario y un solo servicio; se pueden separar si un proyecto lo necesita (ver `docs/jobs.md`).

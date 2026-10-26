@@ -269,7 +269,7 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 
 ### Mismo dominio (recomendado)
 
-Si el proxy (Caddy) sirve el frontend y la API bajo el mismo dominio, por ejemplo `cliente.com` y `cliente.com/api`, no hace falta CORS y la cookie funciona sin configurar nada:
+Si el frontend y la API se sirven bajo el mismo dominio, por ejemplo `cliente.com` y `cliente.com/api`, no hace falta CORS y la cookie funciona sin configurar nada:
 
 ```js
 const res = await fetch("/api/auth/login", {

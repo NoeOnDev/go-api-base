@@ -185,7 +185,7 @@ Si un proyecto tiene trabajos pesados que no deben competir con la API por la CP
 1. Un subcomando `worker` en `cmd/api` que arme el cliente con `jobs.New`, llame a `Start` y espere la señal de apagado, sin servidor HTTP.
 2. En la API, armar el cliente sin `Queues` y sin llamar a `Start`: solo encola.
 
-No viene armado, porque en un VPS un solo proceso alcanza y es más simple de desplegar.
+No viene armado, porque un solo proceso alcanza para la mayoría de los proyectos y es más simple.
 
 ## Quitar la cola
 

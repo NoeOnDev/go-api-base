@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -25,9 +26,19 @@ type KeyReport struct {
 	// con ella. No se pueden recalcular sin el código original: dejan de servir si se quita la clave,
 	// así que esos usuarios tienen que regenerarlos.
 	OldRecoveryCodes []KeyUsage
+	// QueuedEmails cuenta, por clave vieja, los correos de la cola cifrados con ella que todavía
+	// no salieron (ver AddQueuedEmails). Salen solos en segundos o minutos; si se quita la clave
+	// antes, se cancelan.
+	QueuedEmails []KeyCount
 	// RemovableKeys son las claves anteriores que ya no usa ningún dato: se pueden quitar de
 	// ENCRYPTION_PREVIOUS_KEYS.
 	RemovableKeys []string
+}
+
+// KeyCount es la cantidad de datos (por ejemplo, correos en la cola) que dependen de una clave.
+type KeyCount struct {
+	KeyID string
+	Count int64
 }
 
 // UndecryptableSecret es un secreto del 2FA que no se pudo descifrar.
@@ -45,7 +56,21 @@ type KeyUsage struct {
 
 // Done indica si ya no queda nada que dependa de claves viejas.
 func (r KeyReport) Done() bool {
-	return len(r.Undecryptable) == 0 && len(r.OldRecoveryCodes) == 0
+	return len(r.Undecryptable) == 0 && len(r.OldRecoveryCodes) == 0 && len(r.QueuedEmails) == 0
+}
+
+// AddQueuedEmails suma al reporte los correos de la cola cifrados con claves anteriores. byKey
+// es lo que devuelve jobs.QueuedEmailKeys: auth no conoce la cola, así que RotateKeys no los
+// cuenta solo. Mientras queden correos con una clave, esa clave no se puede quitar.
+func (r *KeyReport) AddQueuedEmails(byKey map[string]int64) {
+	for id, n := range byKey {
+		if id == r.CurrentKeyID || n == 0 {
+			continue
+		}
+		r.QueuedEmails = append(r.QueuedEmails, KeyCount{KeyID: id, Count: n})
+		r.RemovableKeys = slices.DeleteFunc(r.RemovableKeys, func(k string) bool { return k == id })
+	}
+	slices.SortFunc(r.QueuedEmails, func(a, b KeyCount) int { return cmp.Compare(a.KeyID, b.KeyID) })
 }
 
 // RotateKeys vuelve a cifrar con la clave actual todos los secretos del 2FA que estén con una

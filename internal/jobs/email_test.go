@@ -1,9 +1,11 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"strings"
 	"testing"
 
@@ -130,5 +132,46 @@ func TestSendEmailWorkerCancelsUndecryptable(t *testing.T) {
 	res, _ := workEmail(t, &mail.Recorder{}, "00000000:AAAA")
 	if res.Job.State != rivertype.JobStateCancelled {
 		t.Errorf("estado = %s, se esperaba cancelled", res.Job.State)
+	}
+}
+
+// QueuedEmailKeys cuenta los correos que todavía no salieron, por la clave con la que se cifraron.
+func TestQueuedEmailKeys(t *testing.T) {
+	pool := testutil.NewDB(t)
+	boxA := testBox(t)
+	boxB, err := secretbox.New(bytes.Repeat([]byte{2}, 32), testutil.EncryptionKey) // B actual, A anterior
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(pool, slog.New(slog.DiscardHandler), Config{MaxWorkers: 1}, Deps{Queries: store.New(pool), Mailer: &mail.Recorder{}, Box: boxB})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Uno con cada clave. El cliente no arrancó, así que quedan esperando.
+	for _, box := range []*secretbox.Box{boxA, boxB} {
+		if err := NewMailSender(client, box).Send(t.Context(), resetEmail); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Uno cancelado ya no está en la cola: no cuenta.
+	enc, err := boxA.Encrypt([]byte(`{"To":"ana@ejemplo.com","Subject":"Hola","Body":"hola"}`), emailAAD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inserted, err := client.Insert(t.Context(), SendEmailArgs{Message: enc}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.JobCancel(t.Context(), inserted.Job.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := QueuedEmailKeys(t.Context(), pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]int64{boxA.KeyID(): 1, boxB.KeyID(): 1}; !maps.Equal(got, want) {
+		t.Errorf("QueuedEmailKeys = %v, se esperaba %v", got, want)
 	}
 }

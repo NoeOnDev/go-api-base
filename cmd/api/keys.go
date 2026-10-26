@@ -9,6 +9,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/db"
+	"github.com/NoeOnDev/go-api-base/internal/jobs"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 )
 
@@ -50,6 +51,11 @@ func runRotateKeys() error {
 	if err != nil {
 		return err
 	}
+	queued, err := jobs.QueuedEmailKeys(ctx, pool)
+	if err != nil {
+		return err
+	}
+	report.AddQueuedEmails(queued)
 
 	fmt.Printf("Clave actual: %s\n", report.CurrentKeyID)
 	fmt.Printf("Secretos del 2FA vueltos a cifrar: %d. Ya con la clave actual: %d.\n",
@@ -72,6 +78,15 @@ func runRotateKeys() error {
 		fmt.Println("  Si quitás la clave, sus códigos actuales dejan de servir (su app de autenticación sí sigue funcionando).")
 	}
 
+	if len(report.QueuedEmails) > 0 {
+		fmt.Println("\nCorreos en la cola cifrados con claves anteriores (todavía no salieron):")
+		for _, k := range report.QueuedEmails {
+			fmt.Printf("  - clave %s: %s\n", k.KeyID, emails(k.Count))
+		}
+		fmt.Println("  Salen solos en segundos o minutos (si el SMTP falla, se reintentan); si quitás la clave antes, se cancelan.")
+		fmt.Println("  Esperá a que salgan y volvé a correr el comando.")
+	}
+
 	if len(report.RemovableKeys) > 0 {
 		fmt.Printf("\nClaves anteriores que ya no se usan y se pueden quitar de ENCRYPTION_PREVIOUS_KEYS: %v\n", report.RemovableKeys)
 	}
@@ -88,4 +103,11 @@ func users(n int64) string {
 		return "1 usuario"
 	}
 	return fmt.Sprintf("%d usuarios", n)
+}
+
+func emails(n int64) string {
+	if n == 1 {
+		return "1 correo"
+	}
+	return fmt.Sprintf("%d correos", n)
 }

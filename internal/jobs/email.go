@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
@@ -78,4 +81,42 @@ func (w *sendEmailWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		return river.JobCancel(fmt.Errorf("decodificar correo: %w", err))
 	}
 	return w.sender.Send(ctx, msg)
+}
+
+// QueuedEmailKeys cuenta los correos que todavía no salieron (esperando, programados,
+// reintentándose o enviándose), por el identificador de la clave con la que se cifraron. Lo usa
+// rotate-keys: un correo cifrado con una clave anterior se cancela si la clave se quita antes de
+// que salga.
+func QueuedEmailKeys(ctx context.Context, pool *pgxpool.Pool) (map[string]int64, error) {
+	// Sin colas ni workers, el cliente solo consulta y encola: no ejecuta nada.
+	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("crear cliente de River: %w", err)
+	}
+
+	const pageSize = 1000
+	params := river.NewJobListParams().
+		Kinds(SendEmailArgs{}.Kind()).
+		States(rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRetryable,
+			rivertype.JobStateRunning, rivertype.JobStateScheduled).
+		First(pageSize)
+
+	counts := map[string]int64{}
+	for {
+		res, err := client.JobList(ctx, params)
+		if err != nil {
+			return nil, fmt.Errorf("listar correos de la cola: %w", err)
+		}
+		for _, job := range res.Jobs {
+			var args SendEmailArgs
+			if err := json.Unmarshal(job.EncodedArgs, &args); err != nil {
+				return nil, fmt.Errorf("leer el correo %d de la cola: %w", job.ID, err)
+			}
+			counts[secretbox.KeyIDOf(args.Message)]++
+		}
+		if len(res.Jobs) < pageSize {
+			return counts, nil
+		}
+		params = params.After(res.LastCursor)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/argon2"
 
@@ -299,5 +301,16 @@ func TestLoginRehashesOldPassword(t *testing.T) {
 	}
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBody); w.Code != http.StatusOK {
 		t.Errorf("login con el hash nuevo: status = %d", w.Code)
+	}
+}
+
+// La base exige el email en minúsculas: UNIQUE solo evita duplicados si nadie guarda
+// "Ana@Ejemplo.com" junto a "ana@ejemplo.com", por ejemplo con un INSERT a mano.
+func TestEmailIsLowercaseInDatabase(t *testing.T) {
+	_, pool := newAPI(t)
+	_, err := pool.Exec(t.Context(), "INSERT INTO users (name, email, password_hash) VALUES ('Ana', 'Ana@Ejemplo.com', 'x')")
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "users_email_lowercase" {
+		t.Fatalf("se esperaba la violación de users_email_lowercase, llegó %v", err)
 	}
 }

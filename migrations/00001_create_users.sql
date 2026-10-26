@@ -2,8 +2,9 @@
 CREATE TABLE users (
     id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name          text        NOT NULL,
-    -- La aplicación guarda el email en minúsculas, así que UNIQUE alcanza para evitar duplicados.
-    email         text        NOT NULL UNIQUE,
+    -- La aplicación guarda el email en minúsculas y la base lo exige, así que UNIQUE alcanza para
+    -- evitar duplicados aunque alguien inserte a mano (Ana@x.com y ana@x.com serían dos cuentas).
+    email         text        NOT NULL UNIQUE CONSTRAINT users_email_lowercase CHECK (email = lower(email)),
     password_hash text        NOT NULL,
     role          text        NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     -- NULL mientras el usuario no confirme su email con el enlace que se le envía.

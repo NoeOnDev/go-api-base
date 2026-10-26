@@ -257,3 +257,41 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 	defer l.mu.Unlock()
 	return l.w.Write(p)
 }
+
+func TestParsePage(t *testing.T) {
+	tests := []struct {
+		query     string
+		want      Page
+		badFields []string
+	}{
+		{"", Page{Limit: DefaultLimit}, nil},
+		{"limit=1&offset=0", Page{Limit: 1}, nil},
+		{"limit=100&offset=10000", Page{Limit: MaxLimit, Offset: MaxOffset}, nil},
+		{"limit=0", Page{}, []string{"limit"}},
+		{"limit=101", Page{}, []string{"limit"}},
+		// Un offset enorme hace lenta la consulta: el tope es MaxOffset.
+		{"offset=10001", Page{}, []string{"offset"}},
+		{"offset=-1", Page{}, []string{"offset"}},
+		{"limit=diez&offset=abc", Page{}, []string{"limit", "offset"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			page, err := ParsePage(httptest.NewRequest(http.MethodGet, "/notes?"+tt.query, nil))
+			if tt.badFields == nil {
+				if err != nil || page != tt.want {
+					t.Errorf("ParsePage = %+v, %v; se esperaba %+v", page, err, tt.want)
+				}
+				return
+			}
+			var apiErr *Error
+			if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnprocessableEntity {
+				t.Fatalf("se esperaba un error de validación, llegó %v", err)
+			}
+			for _, f := range tt.badFields {
+				if apiErr.Fields[f] == "" {
+					t.Errorf("falta el error del campo %q: %v", f, apiErr.Fields)
+				}
+			}
+		})
+	}
+}

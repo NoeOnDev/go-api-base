@@ -111,7 +111,7 @@ Incluye:
 | `GET` | `/products?category_id=&q=&active=`, `/products/{id}` | Público: los visitantes solo ven productos activos; el admin ve todos |
 | `POST`, `PUT`, `DELETE` | `/products…` | Solo admin |
 
-Los listados aceptan `?limit=` (de 1 a 100, 20 por defecto) y `?offset=`, y responden `{"data": [...], "meta": {"limit", "offset", "total"}}`.
+Los listados aceptan `?limit=` (de 1 a 100, 20 por defecto) y `?offset=` (hasta 10000), y responden `{"data": [...], "meta": {"limit", "offset", "total"}}`. Un offset enorme hace lenta la consulta, porque PostgreSQL lee y descarta las filas anteriores; para recorrer más, conviene paginar por cursor (`WHERE id < $último`).
 
 Todos los errores tienen la misma forma:
 

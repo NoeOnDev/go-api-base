@@ -9,6 +9,10 @@ import (
 const (
 	DefaultLimit = 20
 	MaxLimit     = 100
+	// MaxOffset es el offset más alto que se acepta. PostgreSQL lee y descarta todas las filas
+	// anteriores al offset, así que uno enorme hace lenta la consulta. Para recorrer más que esto
+	// (una exportación, un scroll infinito largo), conviene paginar por cursor: WHERE id < $último.
+	MaxOffset = 10_000
 )
 
 // Page son los parámetros de paginación de un listado (?limit=20&offset=40).
@@ -46,8 +50,8 @@ func ParsePage(r *http.Request) (Page, error) {
 
 	if v := r.URL.Query().Get("offset"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 32)
-		if err != nil || n < 0 {
-			fields["offset"] = "debe ser un número mayor o igual a 0"
+		if err != nil || n < 0 || n > MaxOffset {
+			fields["offset"] = "debe ser un número entre 0 y " + strconv.Itoa(MaxOffset)
 		}
 		page.Offset = int32(n)
 	}

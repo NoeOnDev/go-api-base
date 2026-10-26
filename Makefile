@@ -13,12 +13,14 @@ endif
 SQLC_VERSION        := v1.31.1
 GOOSE_VERSION       := v3.29.0
 GOVULNCHECK_VERSION := v1.9.0
+STATICCHECK_VERSION := v0.8.2
 # Tiene que coincidir con la versión de github.com/riverqueue/river del go.mod.
 RIVER_VERSION       := v0.49.0
 
 SQLC        := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 GOOSE_CLI   := go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+STATICCHECK := go run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 RIVER_CLI   := go run github.com/riverqueue/river/cmd/river@$(RIVER_VERSION)
 
 # Los comandos de goose llevan @ para que make no imprima la URL con la contraseña.
@@ -75,6 +77,10 @@ fmt: ## Formatea el código
 vet: ## Busca errores comunes con go vet
 	go vet ./...
 
+.PHONY: lint
+lint: ## Busca errores y código sin uso con staticcheck
+	$(STATICCHECK) ./...
+
 .PHONY: test
 # -p 1 corre los paquetes de a uno: los tests de integración comparten la base de pruebas
 # y vacían tablas, así que en paralelo se pisarían entre sí.
@@ -94,6 +100,8 @@ check: ## Todo lo que debe pasar antes de commitear
 	@$(SQLC) diff || { echo "internal/store no coincide con las consultas: corré make sqlc"; exit 1; }
 	@echo "==> go vet"
 	@go vet ./...
+	@echo "==> staticcheck"
+	@$(STATICCHECK) ./...
 	@echo "==> go test"
 	@go test -p 1 ./...
 	@echo "==> govulncheck"

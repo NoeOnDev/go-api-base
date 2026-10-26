@@ -33,7 +33,7 @@ verificación de email opcional, 2FA con TOTP, sesiones por dispositivo, cambio 
 | Comando | Para qué |
 |---|---|
 | `make run` | Levanta la API (aplica las migraciones al arrancar) |
-| `make check` | **Correr siempre antes de commitear**: gofmt, sqlc diff, go vet, go test y govulncheck |
+| `make check` | **Correr siempre antes de commitear**: gofmt, sqlc diff, go vet, staticcheck, go test y govulncheck |
 | `make test` | Tests (`go test -p 1`; los de base de datos usan `TEST_DATABASE_URL`, sin ella se saltean) |
 | `make sqlc` | Regenerar `internal/store` después de cambiar migraciones o consultas |
 | `make migrate-new name=create_x` | Crear una migración nueva |
@@ -43,7 +43,7 @@ verificación de email opcional, 2FA con TOTP, sesiones por dispositivo, cambio 
 | `make river-migration version=N` | SQL de una migración nueva de River, al actualizarlo (ver `docs/jobs.md`) |
 | `make build` | Binario estático en `bin/api` |
 
-`make` carga `.env` automáticamente. Las herramientas (sqlc, goose, govulncheck) se ejecutan con `go run paquete@versión`,
+`make` carga `.env` automáticamente. Las herramientas (sqlc, goose, staticcheck, govulncheck) se ejecutan con `go run paquete@versión`,
 con las versiones fijas al principio del `Makefile`; no hace falta instalarlas. **No crear subcarpetas con su propio `go.mod`**:
 `gonew` no las copia.
 

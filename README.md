@@ -30,7 +30,7 @@ Incluye:
   - `categories` y `products`: un catálogo con relaciones, filtros y permisos de admin
 - **Calidad:**
   - tests de integración contra PostgreSQL
-  - `govulncheck`
+  - `staticcheck` y `govulncheck`
   - CI con GitHub Actions
 
 ## Requisitos
@@ -187,7 +187,7 @@ Ejecutá `make` para ver la lista completa. Los principales:
 | Comando | Para qué |
 |---|---|
 | `make run` | Levanta la API |
-| `make check` | gofmt, sqlc al día, go vet, tests y govulncheck. Correlo antes de cada commit |
+| `make check` | gofmt, sqlc al día, go vet, staticcheck, tests y govulncheck. Correlo antes de cada commit |
 | `make sqlc` | Regenera el código de la base después de cambiar migraciones o consultas |
 | `make migrate-new name=create_x` | Crea una migración |
 | `make create-admin email=…` | Crea un administrador |

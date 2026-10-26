@@ -88,4 +88,9 @@ func TestSMTPSender(t *testing.T) {
 	}
 }
 
-var recorder Recorder
+// Todas las implementaciones cumplen Sender: si una cambia de firma, el paquete no compila.
+var (
+	_ Sender = (*Recorder)(nil)
+	_ Sender = LogSender{}
+	_ Sender = (*SMTPSender)(nil)
+)

@@ -33,7 +33,7 @@ La plantilla trae mucho resuelto (autenticación con 2FA, rotación de claves, c
 
 ## Herramientas con versión fija en el Makefile
 
-sqlc, goose (la CLI) y govulncheck se ejecutan con `go run paquete@versión`, con la versión en una variable del `Makefile` (`SQLC_VERSION`, etc.):
+sqlc, goose (la CLI), staticcheck y govulncheck se ejecutan con `go run paquete@versión`, con la versión en una variable del `Makefile` (`SQLC_VERSION`, etc.):
 - **No hace falta instalar nada:** la primera vez se descargan, verificadas contra la base de checksums de Go, y se compilan; después se usan desde la caché.
 - **No agregan dependencias al `go.mod` de la API.** sqlc sola arrastra cientos.
 - **Funcionan en proyectos creados con `gonew`.** Un módulo aparte (por ejemplo `tools/go.mod`) no sirve: Go excluye las subcarpetas con su propio `go.mod` al empaquetar el módulo, así que `gonew` no las copia.

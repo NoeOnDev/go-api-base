@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 )
 
@@ -64,11 +65,10 @@ func (p TrustedProxies) Contains(addr netip.Addr) bool {
 
 // ClientIP devuelve la IP del cliente.
 //
-// Si la conexión viene de uno de los proxies de confianza, se toma el último valor de
-// X-Forwarded-For, que es el que agregó el proxy. Los valores anteriores los puede inventar el
-// cliente, así que no se usan. Si la conexión viene de cualquier otro lado (o la lista está
-// vacía), se usa la dirección de la conexión: así, si el puerto de la API quedara abierto a
-// internet por error, nadie puede inventar su IP para esquivar los límites.
+// Si la conexión viene de uno de los proxies de confianza, la IP sale de X-Forwarded-For (ver
+// clientFromForwardedFor). Si viene de cualquier otro lado (o la lista está vacía), se usa la
+// dirección de la conexión: así, si el puerto de la API quedara abierto a internet por error,
+// nadie puede inventar su IP para esquivar los límites.
 func ClientIP(r *http.Request, proxies TrustedProxies) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -76,23 +76,39 @@ func ClientIP(r *http.Request, proxies TrustedProxies) string {
 	}
 
 	if addr, err := netip.ParseAddr(host); err == nil && proxies.Contains(addr) {
-		if ip, ok := lastForwardedFor(r.Header.Values("X-Forwarded-For")); ok {
+		if ip, ok := clientFromForwardedFor(r.Header.Values("X-Forwarded-For"), proxies); ok {
 			return ip
 		}
 	}
 	return host
 }
 
-// lastForwardedFor devuelve el último valor de X-Forwarded-For, aunque lleguen varios
-// encabezados: el proxy agrega el suyo al final. Si no es una IP válida, no se usa.
-func lastForwardedFor(values []string) (string, bool) {
-	if len(values) == 0 {
-		return "", false
+// clientFromForwardedFor busca al cliente en X-Forwarded-For, aunque lleguen varios encabezados.
+// Cada proxy agrega al final la IP que se le conectó, así que se recorre de derecha a izquierda
+// salteando los proxies de confianza: la primera IP que no es de un proxy es la del cliente.
+// Con dos proxies (por ejemplo, Cloudflare delante de Caddy) el último valor es el de Cloudflare,
+// no el del cliente. Lo que queda a la izquierda lo puede inventar el cliente, así que no se usa.
+//
+// Un valor que no es una IP corta la búsqueda. Si todas las IPs son de proxies de confianza (un
+// cliente de la red privada), se usa la más a la izquierda que se pudo leer.
+func clientFromForwardedFor(values []string, proxies TrustedProxies) (string, bool) {
+	var ips []string
+	for _, v := range values {
+		for part := range strings.SplitSeq(v, ",") {
+			ips = append(ips, strings.TrimSpace(part))
+		}
 	}
-	parts := strings.Split(values[len(values)-1], ",")
-	ip := strings.TrimSpace(parts[len(parts)-1])
-	if _, err := netip.ParseAddr(ip); err != nil {
-		return "", false
+
+	client := ""
+	for _, ip := range slices.Backward(ips) {
+		addr, err := netip.ParseAddr(ip)
+		if err != nil {
+			break
+		}
+		client = ip
+		if !proxies.Contains(addr) {
+			break
+		}
 	}
-	return ip, true
+	return client, client != ""
 }

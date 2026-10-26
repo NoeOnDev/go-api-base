@@ -31,6 +31,15 @@ func TestClientIP(t *testing.T) {
 		{"proxy indicado", "10.0.0.5:5000", []string{"198.51.100.4"}, mustProxies(t, "10.0.0.5"), "198.51.100.4"},
 		{"otro de la red privada, no indicado", "10.0.0.6:5000", []string{"1.1.1.1"}, mustProxies(t, "10.0.0.5"), "10.0.0.6"},
 		{"rango indicado", "10.0.0.6:5000", []string{"198.51.100.4"}, mustProxies(t, "10.0.0.0/29"), "198.51.100.4"},
+		// Con dos proxies (Cloudflare delante de Caddy): se recorre XFF de derecha a izquierda
+		// salteando los de confianza.
+		{"Cloudflare y Caddy", "127.0.0.1:5000", []string{"203.0.113.7, 173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
+		{"ignora lo que el cliente inventa a la izquierda", "127.0.0.1:5000", []string{"6.6.6.6, 203.0.113.7, 173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
+		{"la cadena en varios encabezados", "127.0.0.1:5000", []string{"203.0.113.7", "173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
+		{"cliente de la red privada", "127.0.0.1:5000", []string{"192.168.1.5"}, DefaultTrustedProxies, "192.168.1.5"},
+		{"todos de confianza: el más a la izquierda", "127.0.0.1:5000", []string{"192.168.1.5, 10.0.0.9"}, DefaultTrustedProxies, "192.168.1.5"},
+		{"un valor inválido corta la búsqueda", "127.0.0.1:5000", []string{"inventado, 10.0.0.9"}, DefaultTrustedProxies, "10.0.0.9"},
+		{"basura a la izquierda de un cliente válido", "127.0.0.1:5000", []string{"inventado, 203.0.113.7"}, DefaultTrustedProxies, "203.0.113.7"},
 	}
 
 	for _, tt := range tests {

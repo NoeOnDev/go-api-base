@@ -147,7 +147,7 @@ Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene
 | `COOKIE_SECURE` | `true` en producción | La cookie solo viaja por HTTPS |
 | `CORS_ALLOWED_ORIGINS` | | Orígenes del frontend si está en otro dominio |
 | `TRUST_PROXY` | `false` | Leer la IP real de `X-Forwarded-For` (con Caddy o Nginx delante). Solo se cree si la conexión viene de localhost o de una red privada |
-| `TRUSTED_PROXIES` | | Con `TRUST_PROXY=true`, las IPs o rangos CIDR exactos del proxy (por ejemplo `127.0.0.1`), en lugar de toda red privada |
+| `TRUSTED_PROXIES` | | Con `TRUST_PROXY=true`, las IPs o rangos CIDR exactos del proxy (por ejemplo `127.0.0.1`), en lugar de toda red privada. Con un CDN delante, como Cloudflare, también sus rangos (ver "Antes de producción") |
 | `FRONTEND_URL` | `http://localhost:5173` | Base de los enlaces de los correos |
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | Exigir el email verificado para usar las rutas protegidas |
 | `MAIL_DRIVER` | `log` | `log` (escribe los correos en el log) o `smtp` |
@@ -170,6 +170,7 @@ Lo que hay que revisar en la configuración, sea cual sea el servidor. Si `COOKI
 - **`TRUST_PROXY=true` solo si hay un proxy delante, y con el puerto de la API cerrado a internet.**
   - Con el proxy en el mismo servidor, que la API escuche solo ahí: `HTTP_ADDR=127.0.0.1:8080`, y de paso `TRUSTED_PROXIES=127.0.0.1`.
   - Si tu proveedor tiene una red privada compartida entre clientes, indicá siempre la IP exacta del proxy con `TRUSTED_PROXIES`.
+  - Con un CDN delante del proxy (por ejemplo, Cloudflare → Caddy → API), sumá a `TRUSTED_PROXIES` los rangos del CDN ([los de Cloudflare](https://www.cloudflare.com/ips/)) además del proxy. El proxy tiene que conservar el `X-Forwarded-For` que manda el CDN: en Caddy, con `trusted_proxies static <rangos del CDN>` en la opción global `servers` (sin eso, Caddy lo reemplaza por la IP del CDN); en Nginx, `$proxy_add_x_forwarded_for` ya lo conserva. Si no, todos los usuarios que pasan por el mismo nodo del CDN comparten los límites de intentos.
   - Con Docker: si el proxy está en la misma red de Docker, no publiques el puerto de la API; si hace falta publicarlo, solo en localhost (`-p 127.0.0.1:8080:8080`). Si no, en algunas configuraciones las conexiones de afuera llegan con la IP privada del gateway de Docker, y se volvería a creer un `X-Forwarded-For` inventado.
 - **`MAIL_DRIVER=smtp`** con un proveedor real, y **`FRONTEND_URL`** con el dominio del frontend (los enlaces de los correos apuntan ahí). Con el frontend en otro dominio, también `CORS_ALLOWED_ORIGINS`.
 - **`ENCRYPTION_KEY` guardada como secreto y respaldada aparte de la base:** si se pierde, los usuarios tienen que volver a configurar el 2FA (ver [docs/encryption.md](docs/encryption.md)).

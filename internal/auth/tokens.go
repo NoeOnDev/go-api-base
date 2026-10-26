@@ -40,8 +40,8 @@ var errInvalidToken = httpx.Validation(map[string]string{
 // el email nuevo para email_change; nil para los demás propósitos.
 //
 // Va en una transacción que bloquea la fila del usuario. La transacción sola no alcanza: con el
-// aislamiento por defecto, dos pedidos simultáneos podían borrar los dos "nada" y crear cada uno
-// su token, y quedaban dos enlaces válidos. Con el bloqueo, el segundo espera al primero.
+// aislamiento por defecto, dos pedidos simultáneos podrían borrar los dos "nada" y crear cada uno
+// su token, y quedarían dos enlaces válidos. Con el bloqueo, el segundo espera al primero.
 func (s *Service) issueToken(ctx context.Context, userID int64, purpose string, ttl time.Duration, newEmail *string) (string, error) {
 	token, hash, err := newToken()
 	if err != nil {

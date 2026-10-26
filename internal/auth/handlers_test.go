@@ -17,6 +17,7 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/config"
+	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
@@ -31,10 +32,15 @@ type apiError struct {
 func newAPI(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	t.Helper()
 	pool := testutil.NewDB(t)
+	box, err := secretbox.New(testutil.EncryptionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	api := server.NewHandler(server.Deps{
 		Logger: slog.New(slog.DiscardHandler),
 		DB:     pool,
-		Config: config.Config{SessionTTL: time.Hour, EncryptionKey: testutil.EncryptionKey},
+		Config: config.Config{SessionTTL: time.Hour},
+		Box:    box,
 	})
 	return api, pool
 }

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -39,6 +38,10 @@ type Deps struct {
 	// recursos que encolen; en los tests puede ser nil, o un cliente de jobs.New sin Start.
 	// Se declara con el tipo de River para que server no importe jobs (jobs usa testutil en sus tests).
 	Jobs *river.Client[pgx.Tx]
+	// Box es el llavero de ENCRYPTION_KEY: cifra el secreto del 2FA y protege los códigos de
+	// recuperación. main pasa el mismo que usan los jobs. Si es nil (en algunos tests), el 2FA
+	// no está disponible.
+	Box *secretbox.Box
 }
 
 // NewHandler registra todas las rutas y les aplica los middlewares comunes.
@@ -54,17 +57,6 @@ func NewHandler(d Deps) http.Handler {
 		broker = realtime.NewBroker()
 	}
 
-	// Sin ENCRYPTION_KEY (por ejemplo, en algunos tests) el 2FA queda no disponible.
-	// En la aplicación real config.Load exige la clave, así que siempre está.
-	var box *secretbox.Box
-	if len(d.Config.EncryptionKey) > 0 {
-		b, err := secretbox.New(d.Config.EncryptionKey, d.Config.EncryptionPreviousKeys...)
-		if err != nil {
-			panic(fmt.Sprintf("ENCRYPTION_KEY inválida: %v", err)) // config.Load ya la validó
-		}
-		box = b
-	}
-
 	// Notificaciones dentro del sistema: se guardan y se envían en vivo por GET /events.
 	notificationsService := notifications.NewService(queries, broker)
 
@@ -75,7 +67,7 @@ func NewHandler(d Deps) http.Handler {
 		Mailer:               d.Mailer,
 		FrontendURL:          d.Config.FrontendURL,
 		RequireVerifiedEmail: d.Config.RequireEmailVerification,
-		Box:                  box,
+		Box:                  d.Box,
 		Issuer:               d.Config.AppName,
 		TrustedProxies:       d.Config.TrustedProxies,
 		Notifier:             notificationsService,

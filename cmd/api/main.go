@@ -86,7 +86,8 @@ func run() error {
 	}
 
 	// Trabajos en segundo plano: los workers corren en este mismo proceso.
-	// Se arrancan sin el ctx de las señales para apagarlos en orden, después del servidor HTTP.
+	// Se arrancan sin el ctx de las señales: así la señal no los corta de golpe, y shutdown los
+	// detiene con Stop y su propio plazo, dejando terminar lo que está en curso.
 	jobsClient, err := jobs.New(pool, logger, jobs.Config{MaxWorkers: cfg.JobsMaxWorkers}, jobs.Deps{
 		Queries: store.New(pool),
 		Logger:  logger,
@@ -114,6 +115,7 @@ func run() error {
 		Mailer: mailer,
 		Broker: broker,
 		Jobs:   jobsClient,
+		Box:    box,
 	}), logger)
 	// Al apagar se cierran los streams SSE; si no, Shutdown esperaría hasta el timeout.
 	srv.RegisterOnShutdown(broker.Close)
@@ -150,9 +152,8 @@ type stopper interface {
 }
 
 // shutdown apaga el servidor HTTP y los trabajos en segundo plano al mismo tiempo, cada uno con
-// el timeout completo. Antes iban uno después del otro con el mismo plazo: si una petición
-// trabada consumía todo el tiempo, los trabajos no llegaban a detenerse en orden, y uno cortado
-// a mitad de camino River lo reintenta recién a la hora.
+// el timeout completo. Así una petición trabada no les quita tiempo a los trabajos para
+// detenerse en orden: uno cortado a mitad de camino River lo reintenta recién a la hora.
 //
 // Apagarlos a la vez es seguro: una petición que todavía está terminando puede encolar un
 // trabajo después de que River dejó de procesar; queda en la base y se ejecuta al arrancar.

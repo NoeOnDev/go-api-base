@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
+	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 )
 
@@ -56,6 +58,15 @@ func NewAPI(pool *pgxpool.Pool, opts ...Option) http.Handler {
 	}
 	for _, opt := range opts {
 		opt(&d)
+	}
+	// El llavero se arma con la configuración final, como en main: los tests de rotación cambian
+	// las claves con WithConfig.
+	if d.Box == nil && len(d.Config.EncryptionKey) > 0 {
+		box, err := secretbox.New(d.Config.EncryptionKey, d.Config.EncryptionPreviousKeys...)
+		if err != nil {
+			panic(fmt.Sprintf("testutil.NewAPI: llavero inválido: %v", err))
+		}
+		d.Box = box
 	}
 	return server.NewHandler(d)
 }

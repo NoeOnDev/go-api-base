@@ -154,7 +154,7 @@ func TestDisableTwoFactorIsAtomic(t *testing.T) {
 }
 
 // Varios pedidos de enlace simultáneos para el mismo usuario dejan un solo enlace válido.
-// (Sin el bloqueo de la fila del usuario, este test podía fallar o no según coincidieran en el
+// (Sin el bloqueo de la fila del usuario, este test fallaría o no según coincidieran en el
 // tiempo; con el bloqueo pasa siempre.)
 func TestConcurrentForgotLeavesOneToken(t *testing.T) {
 	pool := testutil.NewDB(t)

@@ -34,10 +34,12 @@ UPDATE users
 SET totp_secret = $2, totp_last_step = NULL, updated_at = now()
 WHERE id = $1 AND totp_enabled_at IS NULL;
 
+-- EnableTOTP activa el 2FA solo si el secreto sigue siendo el que se verificó: si mientras tanto
+-- otra petición pidió un QR nuevo (setup), no activa uno que el usuario nunca escaneó.
 -- name: EnableTOTP :execrows
 UPDATE users
-SET totp_enabled_at = now(), totp_last_step = $2, updated_at = now()
-WHERE id = $1 AND totp_secret IS NOT NULL AND totp_enabled_at IS NULL;
+SET totp_enabled_at = now(), totp_last_step = sqlc.arg('totp_last_step'), updated_at = now()
+WHERE id = sqlc.arg('id') AND totp_secret = sqlc.arg('totp_secret') AND totp_enabled_at IS NULL;
 
 -- name: DisableTOTP :exec
 UPDATE users

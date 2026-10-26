@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 	"github.com/NoeOnDev/go-api-base/internal/totp"
 )
@@ -166,5 +167,31 @@ func TestRegenerateRecoveryCodes(t *testing.T) {
 	var count int
 	if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM user_recovery_codes").Scan(&count); err != nil || count != 10 {
 		t.Errorf("deberían quedar solo los 10 códigos nuevos, hay %d (%v)", count, err)
+	}
+}
+
+// EnableTOTP solo activa el secreto que se verificó: si mientras tanto otra petición pidió un QR
+// nuevo (setup), no activa ese, que el usuario nunca escaneó y cuyo secreto recibió quien lo pidió.
+func TestEnableTOTPRequiresVerifiedSecret(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	user, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	testutil.Decode[setupResponse](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
+
+	q := store.New(pool)
+	verified, err := q.GetUserByID(t.Context(), user.ID) // el secreto con el que enable verificó el código
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Antes de activarlo, otra petición pide un QR nuevo.
+	testutil.Decode[setupResponse](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
+
+	step := int64(1)
+	rows, err := q.EnableTOTP(t.Context(), store.EnableTOTPParams{ID: user.ID, TOTPSecret: verified.TOTPSecret, TOTPLastStep: &step})
+	if err != nil || rows != 0 {
+		t.Fatalf("EnableTOTP con un secreto reemplazado: filas = %d, error = %v; se esperaba 0", rows, err)
+	}
+	if me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK); me.TwoFactorEnabled {
+		t.Error("el 2FA no debería haber quedado activo")
 	}
 }

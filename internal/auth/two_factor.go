@@ -36,6 +36,7 @@ var (
 	errTwoFactorEnabled    = httpx.Conflict("el 2FA ya está activo", "")
 	errTwoFactorNotEnabled = httpx.Conflict("el 2FA no está activo", "")
 	errSetupFirst          = httpx.Conflict("primero pedí el código QR con POST /auth/two-factor/setup", "")
+	errSecretChanged       = httpx.Conflict("el código QR cambió mientras lo activabas; escaneá el nuevo y volvé a intentarlo", "")
 	errWrongCode           = httpx.Validation(map[string]string{"code": "el código no es correcto"})
 )
 
@@ -122,7 +123,9 @@ func (s *Service) enableTwoFactor(w http.ResponseWriter, r *http.Request) error 
 		return errSetupFirst
 	}
 
-	step, ok, err := s.checkTOTP(r.Context(), stored, in.Code)
+	// Sin volver a cifrar el secreto aunque esté con una clave vieja: EnableTOTP compara con el
+	// secreto leído, y rotate-keys también cifra con la clave actual los que están pendientes.
+	step, ok, _, err := s.verifyTOTP(stored, in.Code)
 	if err != nil {
 		return err
 	}
@@ -136,12 +139,20 @@ func (s *Service) enableTwoFactor(w http.ResponseWriter, r *http.Request) error 
 	var keep string
 	err = pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		rows, err := q.EnableTOTP(r.Context(), store.EnableTOTPParams{ID: user.ID, TOTPLastStep: &step})
+		rows, err := q.EnableTOTP(r.Context(), store.EnableTOTPParams{ID: user.ID, TOTPSecret: stored.TOTPSecret, TOTPLastStep: &step})
 		if err != nil {
 			return fmt.Errorf("activar 2FA: %w", err)
 		}
 		if rows == 0 {
-			return errTwoFactorEnabled
+			// Mientras se verificaba el código, otra petición lo activó o pidió un QR nuevo.
+			current, err := q.GetUserByID(r.Context(), user.ID)
+			if err != nil {
+				return fmt.Errorf("buscar usuario %d: %w", user.ID, err)
+			}
+			if current.TOTPEnabledAt != nil {
+				return errTwoFactorEnabled
+			}
+			return errSecretChanged
 		}
 		if codes, err = s.replaceRecoveryCodes(r.Context(), q, user.ID); err != nil {
 			return err
@@ -225,29 +236,36 @@ func (s *Service) regenerateRecoveryCodes(w http.ResponseWriter, r *http.Request
 	return nil
 }
 
-// checkTOTP descifra el secreto del usuario y comprueba el código en este momento.
-// Si el código es correcto y el secreto está cifrado con una clave vieja, lo vuelve a
-// cifrar con la actual (rotación gradual: cada usuario se actualiza al usar su 2FA).
-func (s *Service) checkTOTP(ctx context.Context, u store.User, code string) (step int64, ok bool, err error) {
+// verifyTOTP descifra el secreto del usuario y comprueba el código en este momento. Devuelve
+// también el secreto descifrado, para volver a cifrarlo si hace falta (ver checkTOTP).
+func (s *Service) verifyTOTP(u store.User, code string) (step int64, ok bool, secret []byte, err error) {
 	if u.TOTPSecret == nil {
-		return 0, false, nil
+		return 0, false, nil, nil
 	}
 	box, err := s.box()
 	if err != nil {
-		return 0, false, err
+		return 0, false, nil, err
 	}
 
-	secret, err := box.Decrypt(*u.TOTPSecret, totpAAD(u.ID))
+	secret, err = box.Decrypt(*u.TOTPSecret, totpAAD(u.ID))
 	if err != nil {
-		return 0, false, twoFactorUnavailable(u, err)
+		return 0, false, nil, twoFactorUnavailable(u, err)
 	}
 
 	step, ok, err = totp.Validate(string(secret), code, time.Now())
+	return step, ok, secret, err
+}
+
+// checkTOTP comprueba el código como verifyTOTP. Si es correcto y el secreto está cifrado con
+// una clave vieja, lo vuelve a cifrar con la actual (rotación gradual: cada usuario se
+// actualiza al usar su 2FA).
+func (s *Service) checkTOTP(ctx context.Context, u store.User, code string) (int64, bool, error) {
+	step, ok, secret, err := s.verifyTOTP(u, code)
 	if err != nil || !ok {
 		return step, ok, err
 	}
 
-	if box.NeedsRotation(*u.TOTPSecret) {
+	if box := s.opts.Box; box.NeedsRotation(*u.TOTPSecret) {
 		s.reencryptSecret(ctx, box, u, secret)
 	}
 	return step, true, nil

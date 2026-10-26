@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
+	"github.com/NoeOnDev/go-api-base/internal/totp"
 )
 
 // Clave A: la de los tests (testutil.EncryptionKey). Clave B: la nueva, después de rotar.
@@ -138,4 +140,32 @@ func TestTwoFactorDataIsBoundToUser(t *testing.T) {
 	// Los códigos de recuperación de Ana tampoco le sirven a Luis.
 	body := fmt.Sprintf(`{"recovery_code":%q}`, tfAna.RecoveryCodes[0])
 	testutil.Decode[testutil.APIError](t, challenge(t, api, loginAs(t, api, "luis@ejemplo.com"), body), http.StatusUnprocessableEntity)
+}
+
+// Un secreto pendiente cifrado con una clave anterior se activa igual. Enable no lo vuelve a
+// cifrar (lo hacen el login y rotate-keys): si lo hiciera, el secreto ya no coincidiría con el
+// que se verificó y EnableTOTP no lo activaría.
+func TestEnableTwoFactorAfterKeyRotation(t *testing.T) {
+	pool := testutil.NewDB(t)
+	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	setup := testutil.Decode[setupResponse](t, testutil.Do(t, testutil.NewAPI(pool), session, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK) // con la clave A
+
+	api := rotatedAPI(pool)
+	code, err := totp.Code(setup.Secret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := testutil.Do(t, api, session, http.MethodPost, "/auth/two-factor/enable", enableBody(code, testutil.Password)); w.Code != http.StatusOK {
+		t.Fatalf("activar con un secreto de la clave anterior: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+
+	// El login con código funciona, y ahí el secreto pasa a la clave nueva.
+	tf := testutil.TwoFactor{Secret: setup.Secret}
+	if w := challenge(t, api, loginAs(t, api, "ana@ejemplo.com"), codeBody(tf.Code(t))); w.Code != http.StatusOK {
+		t.Fatalf("login después de activar: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+	boxB, _ := secretbox.New(keyB)
+	if after := storedSecret(t, pool, "ana@ejemplo.com"); !strings.HasPrefix(after, boxB.KeyID()+":") {
+		t.Errorf("el secreto no se volvió a cifrar con la clave nueva en el login: %s", after)
+	}
 }

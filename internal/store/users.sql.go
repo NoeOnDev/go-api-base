@@ -77,17 +77,20 @@ func (q *Queries) DisableTOTP(ctx context.Context, id int64) error {
 
 const enableTOTP = `-- name: EnableTOTP :execrows
 UPDATE users
-SET totp_enabled_at = now(), totp_last_step = $2, updated_at = now()
-WHERE id = $1 AND totp_secret IS NOT NULL AND totp_enabled_at IS NULL
+SET totp_enabled_at = now(), totp_last_step = $1, updated_at = now()
+WHERE id = $2 AND totp_secret = $3 AND totp_enabled_at IS NULL
 `
 
 type EnableTOTPParams struct {
-	ID           int64
 	TOTPLastStep *int64
+	ID           int64
+	TOTPSecret   *string
 }
 
+// EnableTOTP activa el 2FA solo si el secreto sigue siendo el que se verificó: si mientras tanto
+// otra petición pidió un QR nuevo (setup), no activa uno que el usuario nunca escaneó.
 func (q *Queries) EnableTOTP(ctx context.Context, arg EnableTOTPParams) (int64, error) {
-	result, err := q.db.Exec(ctx, enableTOTP, arg.ID, arg.TOTPLastStep)
+	result, err := q.db.Exec(ctx, enableTOTP, arg.TOTPLastStep, arg.ID, arg.TOTPSecret)
 	if err != nil {
 		return 0, err
 	}

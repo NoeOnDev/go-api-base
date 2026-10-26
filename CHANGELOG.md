@@ -11,6 +11,36 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [v0.5.5] - 2026-10-25
+
+Mejoras de una tercera revisión y documentación sin instrucciones de despliegue. Cambia el esquema: ver **Actualizar un proyecto existente**.
+
+### Agregado
+
+- **`TEMPLATE_VERSION`:** dice de qué versión de la plantilla salió el proyecto. Se copia con el resto; al llevarle cambios de versiones más nuevas, actualizalo a la última que aplicaste.
+- **`httpx.Quiet`:** la línea de log de una ruta muy consultada va en `debug`, salvo los 5xx.
+- **staticcheck en `make check`** (y suelto con `make lint`), con versión fija como las demás herramientas.
+
+### Cambiado
+
+- **`users.email` exige minúsculas en la base** (`CHECK (email = lower(email))`). La aplicación ya los guardaba así, pero un `INSERT` a mano podía crear `Ana@x.com` junto a `ana@x.com` y saltear el `UNIQUE`.
+- **`GET /healthz` se registra en `debug`** si responde bien: un monitor ya no llena el log. Un `503` se sigue registrando como error.
+- **La documentación ya no explica cómo desplegar** con Caddy, Nginx, Docker o systemd. Quedan las variables de entorno, los avisos de producción y las reglas de la API, contadas en general.
+- `var recorder Recorder`, sin uso en `mail_test.go`, pasa a ser la comprobación de que cada sender cumple `mail.Sender`.
+
+### Actualizar un proyecto existente
+
+```sql
+ALTER TABLE users ADD CONSTRAINT users_email_lowercase CHECK (email = lower(email));
+```
+
+Si falla, hay emails con mayúsculas guardados a mano. Antes de pasarlos a minúsculas, revisá que no queden dos cuentas con el mismo email:
+
+```sql
+SELECT lower(email), count(*) FROM users GROUP BY lower(email) HAVING count(*) > 1;
+UPDATE users SET email = lower(email) WHERE email <> lower(email);
+```
+
 ## [v0.5.4] - 2026-10-25
 
 Cambios de documentación: la presentación de la plantilla. Sin cambios de código ni de esquema.

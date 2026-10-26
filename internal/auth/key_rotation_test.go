@@ -59,7 +59,7 @@ func loginAs(t *testing.T, api http.Handler, email string) *http.Cookie {
 func TestTwoFactorAfterKeyRotation(t *testing.T) {
 	pool := testutil.NewDB(t)
 	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	tf := testutil.EnableTwoFactor(t, testutil.NewAPI(pool), session) // con la clave A
+	tf := testutil.EnableTwoFactor(t, testutil.NewAPI(pool), session, testutil.Password) // con la clave A
 
 	boxB, _ := secretbox.New(keyB)
 	before := storedSecret(t, pool, "ana@ejemplo.com")
@@ -88,7 +88,7 @@ func TestTwoFactorAfterKeyRotation(t *testing.T) {
 func TestTwoFactorWithMissingKey(t *testing.T) {
 	pool := testutil.NewDB(t)
 	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	tf := testutil.EnableTwoFactor(t, testutil.NewAPI(pool), session) // con la clave A
+	tf := testutil.EnableTwoFactor(t, testutil.NewAPI(pool), session, testutil.Password) // con la clave A
 
 	// Se quitó la clave A sin rotar: el usuario recibe un error claro, no un 500.
 	api := onlyNewKeyAPI(pool)
@@ -108,8 +108,8 @@ func TestTwoFactorDataIsBoundToUser(t *testing.T) {
 	setup := testutil.NewAPI(pool)
 	_, ana := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
 	luis, luisSession := testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
-	tfAna := testutil.EnableTwoFactor(t, setup, ana)
-	testutil.EnableTwoFactor(t, setup, luisSession)
+	tfAna := testutil.EnableTwoFactor(t, setup, ana, testutil.Password)
+	testutil.EnableTwoFactor(t, setup, luisSession, testutil.Password)
 
 	// Alguien con acceso de escritura a la base copia el secreto de Ana a Luis
 	// y le pasa los códigos de recuperación de Ana.

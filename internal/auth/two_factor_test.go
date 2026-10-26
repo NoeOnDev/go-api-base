@@ -125,7 +125,7 @@ func TestDisableTwoFactor(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
 	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	testutil.EnableTwoFactor(t, api, cookie)
+	testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
 
 	resp := testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"incorrecta"}`), http.StatusUnprocessableEntity)
@@ -156,7 +156,7 @@ func TestRegenerateRecoveryCodes(t *testing.T) {
 	testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/recovery-codes", `{"password":"contraseña-de-prueba"}`), http.StatusConflict)
 
-	first := testutil.EnableTwoFactor(t, api, cookie)
+	first := testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
 	second := testutil.Decode[recoveryCodes](t,
 		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/recovery-codes", `{"password":"contraseña-de-prueba"}`), http.StatusOK)
 

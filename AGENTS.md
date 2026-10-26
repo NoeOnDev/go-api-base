@@ -155,7 +155,7 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
   Usan solo `TEST_DATABASE_URL`, que debe terminar en `_test` y ser distinta de `DATABASE_URL`. **No quitar esa protección.**
 - Peticiones con `testutil.NewAPI`, `testutil.Do` y `testutil.Decode`, como en `internal/products/handlers_test.go`.
   Para leer los correos enviados: `testutil.WithMailer(&mail.Recorder{})` y `testutil.TokenFromEmail`. Para cambiar la
-  configuración: `testutil.WithConfig(func(c *config.Config){ … })`. Para el 2FA: `testutil.EnableTwoFactor` y `TwoFactor.Code`.
+  configuración: `testutil.WithConfig(func(c *config.Config){ … })`. Para el 2FA: `testutil.EnableTwoFactor(t, api, cookie, testutil.Password)` y `TwoFactor.Code`.
 - Las rutas de auth tienen límites por IP (ver `internal/server/routes.go`; el más bajo es de 10 seguidos) y las acciones
   de cuenta, de 5 por usuario. Con `testutil.Do` todas las peticiones salen de la misma IP; para más, o para simular
   varias IPs, usar `testutil.DoFromIP`.

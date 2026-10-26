@@ -48,7 +48,7 @@ func TestChallengeLocksAfterMaxAttempts(t *testing.T) {
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
 	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	tf := testutil.EnableTwoFactor(t, api, session)
+	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
 	pending := loginFromIP(t, api, addr.next())
@@ -101,7 +101,7 @@ func TestChallengeUserLimitAcrossIPs(t *testing.T) {
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
 	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	tf := testutil.EnableTwoFactor(t, api, session)
+	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
 	// Dos desafíos agotados: 10 códigos incorrectos, cada uno desde una IP distinta.
@@ -136,7 +136,7 @@ func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
 	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	tf := testutil.EnableTwoFactor(t, api, session)
+	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
 	// Alguien con la contraseña agota el límite del 2FA de Ana y deja un desafío pendiente.
@@ -177,7 +177,7 @@ func TestPasswordChangeEndsPendingChallenges(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
 	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	tf := testutil.EnableTwoFactor(t, api, session)
+	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
 	// Alguien con la contraseña pasó el primer paso del login…

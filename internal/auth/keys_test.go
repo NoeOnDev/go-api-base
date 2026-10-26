@@ -31,8 +31,8 @@ func TestRotateKeys(t *testing.T) {
 	_, ana := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
 	_, luis := testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
 	_, sofia := testutil.Login(t, pool, "sofia@ejemplo.com", auth.RoleUser)
-	testutil.EnableTwoFactor(t, apiA, ana)
-	testutil.EnableTwoFactor(t, apiA, luis)
+	testutil.EnableTwoFactor(t, apiA, ana, testutil.Password)
+	testutil.EnableTwoFactor(t, apiA, luis, testutil.Password)
 	testutil.Decode[setupResponse](t, testutil.Do(t, apiA, sofia, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
 
 	// Rotación: B es la actual y A queda como anterior.
@@ -86,7 +86,7 @@ func TestRotateKeysReportsUndecryptable(t *testing.T) {
 	keyC := bytes.Repeat([]byte{3}, 32)
 	apiC := testutil.NewAPI(pool, testutil.WithConfig(func(c *config.Config) { c.EncryptionKey = keyC }))
 	user, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	testutil.EnableTwoFactor(t, apiC, cookie)
+	testutil.EnableTwoFactor(t, apiC, cookie, testutil.Password)
 
 	service, _ := serviceWithKeys(t, pool, keyB, testutil.EncryptionKey)
 	report, err := service.RotateKeys(t.Context())

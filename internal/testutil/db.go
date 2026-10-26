@@ -82,12 +82,11 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// testPassword es la contraseña de los usuarios que crea Login (y la que envía EnableTwoFactor).
-const testPassword = "contraseña-de-prueba"
+// Password es la contraseña de los usuarios que crea Login.
+const Password = "contraseña-de-prueba"
 
 // Login crea un usuario con el rol indicado, le inicia una sesión y devuelve el usuario
-// y la cookie para enviar en las peticiones: r.AddCookie(cookie). Su contraseña es
-// "contraseña-de-prueba".
+// y la cookie para enviar en las peticiones: r.AddCookie(cookie). Su contraseña es Password.
 //
 // Acepta las mismas opciones que NewAPI: si la API del test cambia la configuración de la
 // cookie (por ejemplo, WithConfig con CookieSecure), pasale las mismas a Login para que la
@@ -106,7 +105,7 @@ func Login(t *testing.T, pool *pgxpool.Pool, email, role string, opts ...Option)
 	u, err := service.CreateUser(t.Context(), auth.RegisterInput{
 		Name:     "Usuario de prueba",
 		Email:    email,
-		Password: testPassword,
+		Password: Password,
 	}, role)
 	if err != nil {
 		t.Fatalf("crear usuario %s: %v", email, err)

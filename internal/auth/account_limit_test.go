@@ -40,7 +40,7 @@ func TestTwoFactorChallengeHasItsOwnLimit(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
 	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	testutil.EnableTwoFactor(t, api, session)
+	testutil.EnableTwoFactor(t, api, session, testutil.Password)
 
 	// 10 logins con su segundo paso (con un código incorrecto), todos desde la misma IP.
 	for i := range 10 {

@@ -23,7 +23,7 @@ Correcciones de una revisión del proyecto completo. Sin cambios de esquema: no 
 
 - **`POST /auth/two-factor/enable` recibe `{code, password}`.** El frontend tiene que pedir la contraseña en la pantalla de activación.
 - **El pool de PostgreSQL tiene 10 conexiones por defecto**, en lugar de las 4 de pgx (o una por núcleo), si `DATABASE_URL` no indica `pool_max_conns`. River ocupa una conexión fija para LISTEN y comparte el resto con la API.
-- `testutil.EnableTwoFactor` envía la contraseña de los usuarios de `testutil.Login`. Para otro usuario, `testutil.EnableTwoFactorWithPassword`.
+- `testutil.EnableTwoFactor(t, api, cookie, password)` recibe la contraseña del usuario. Para uno creado con `testutil.Login` es `testutil.Password`.
 
 ## [v0.5.0] - 2026-10-24
 

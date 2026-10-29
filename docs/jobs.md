@@ -191,7 +191,11 @@ No viene armado, porque un solo proceso alcanza para la mayoría de los proyecto
 
 Si un proyecto no la necesita:
 
-1. Borrá `internal/jobs` y `migrations/00008_create_river.sql`.
-2. En `cmd/api/main.go`, quitá el cliente y usá el `mail.Sender` directo (`newMailSender`) como `Mailer`. Los correos se enviarían dentro de la petición. En `internal/server/routes.go`, quitá el campo `Jobs` de `Deps`. En `cmd/api/keys.go`, `rotate-keys` informa los correos encolados con `jobs.QueuedEmailKeys`: quitá esa parte.
-3. Volvé a poner la limpieza de vencidos en `StartSession` y `issueToken` (`DeleteExpiredSessions` y `DeleteExpiredUserTokens`). Sin la limpieza de cada hora, también se acumulan las filas viejas de `rate_limits` y `realtime_messages`: borralas en otro lado, por ejemplo con un `time.Ticker` en `cmd/api/main.go` que llame a `DeleteExpiredRateLimits` y `DeleteRealtimeMessagesBefore`.
-4. `make sqlc` (el esquema de River también genera tipos en `internal/store`), `go mod tidy` y `make check`.
+1. **Primero, la limpieza de cada hora**, que hoy es un trabajo de la cola. Pasá el cuerpo de `cleanupWorker.Work` (`internal/jobs/cleanup.go`), con sus constantes, a una función `cleanup(ctx, q, idle, logger) error` en `cmd/api/cleanup.go`. Al lado, escribí `cleanupEvery`, que la llama al arrancar y después cada hora con un `time.Ticker`, hasta que `ctx` se cancela. En `run`, lanzala con `go cleanupEvery(ctx, store.New(pool), cfg.SessionIdleTimeout, logger)`. Con varias instancias, cada una limpia por su cuenta, y no importa: son borrados que no chocan. Los tests de `cleanup_test.go` usan River: adaptalos para llamar a `cleanup` directo, o borralos.
+2. Borrá `internal/jobs` y la migración `00008_create_river.sql`. En el `Makefile`, quitá `RIVER_VERSION`, `RIVER_CLI` y el objetivo `river-migration` (y su fila en `AGENTS.md` y en el README).
+3. En `cmd/api/main.go`, quitá el cliente de la cola y usá el `mail.Sender` directo (`sender`) como `Mailer`: los correos se envían dentro de la petición, sin reintentos. `shutdown` queda solo con el servidor HTTP: quitale el parámetro de los trabajos y la interfaz `stopper`. Borrá `main_test.go`, que prueba el apagado de los trabajos.
+4. En `internal/server/routes.go`, quitá el campo `Jobs` de `Deps`. En `cmd/api/keys.go`, quitá la parte de los correos encolados (`jobs.QueuedEmailKeys` y `AddQueuedEmails`).
+5. En `internal/config`, quitá `JobsMaxWorkers`, sus casos en `config_test.go` y `positiveInt`, que queda sin uso. Quitá también `JOBS_MAX_WORKERS` de `.env.example` y del README.
+6. `make sqlc` (el esquema de River también genera tipos en `internal/store`), `go mod tidy` y `make check`.
+
+Esta receta se probó en una copia del proyecto, con una base de pruebas creada solo con las migraciones que quedan.

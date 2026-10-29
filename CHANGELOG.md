@@ -37,12 +37,17 @@ La API funciona con varias instancias, y la documentación tiene un índice para
   - Los tests siguen la misma división: las ayudas comunes van a `helpers_test.go`, y los tests de cada función a su archivo. `transactions_test.go` y `email_limits_test.go` se repartieron, y `key_rotation_test.go` pasa a llamarse `two_factor_keys_test.go`.
   - `testutil.EncryptionKey` pasa de `twofactor.go` a `http.go`.
 - `checkToken` ya no usa el máximo de intentos del desafío del 2FA: los tokens que llegan por correo no gastan intentos.
+- **`make sqlc` borra `internal/store` antes de generar**, porque sqlc no borra el código de una consulta que ya no existe. `make check` falla si queda un archivo así.
+- Los tests de la limpieza de cada hora se separan por tabla (`TestCleanupDeletesOldNotifications`, `TestCleanupDeletesOldRealtimeMessages`), así quitar el tiempo real es borrar dos tests.
 
 ### Corregido
 
 - `docs/auth.md` decía que las sesiones y los tokens vencidos se borran al crear nuevos. Desde v0.4.0 los borra el trabajo de cada hora.
 - **"Quitar funciones" de `docs/auth.md` no funcionaba para el perfil, la verificación de email y el 2FA:** el código dejaba de compilar. Ahora cada receta dice todo lo que cambia, y se probó por separado: compila, pasa `go vet` y staticcheck, y avisa qué tests de otras funciones hay que ajustar.
-- **A "Quitar el tiempo real" y "Quitar la cola" les faltaban pasos:** `testutil` y los tests de streams de otros paquetes en la primera, y el campo `Jobs` de `server.Deps` y `rotate-keys` en la segunda.
+- **"Quitar el tiempo real" y "Quitar la cola" no llegaban a pasar `make check`.**
+  - A la primera le faltaban `testutil`, las constantes de la limpieza y los tests de otros paquetes que usan streams o la tabla `notifications`.
+  - A la segunda le faltaban el campo `Jobs` de `server.Deps`, `rotate-keys`, `JOBS_MAX_WORKERS`, `main_test.go` y el `Makefile`. Además, su paso para la limpieza de cada hora era vago: ahora la lleva a `cmd/api/cleanup.go` con un `time.Ticker`.
+  - Las dos, y la de quitar solo las notificaciones, se probaron en una copia, con una base creada solo con las migraciones que quedan.
 - El README no enlazaba "Quitar funciones" de auth desde "Usar como base de un proyecto nuevo", y un agente que leía el README o `AGENTS.md` no tenía cómo enterarse de que existía.
 
 ### Actualizar un proyecto existente

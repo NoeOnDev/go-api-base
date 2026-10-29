@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertest"
@@ -14,6 +15,32 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
+
+// runCleanup corre una vez el trabajo de limpieza. idle es el vencimiento por inactividad de las
+// sesiones (0: desactivado).
+func runCleanup(t *testing.T, pool *pgxpool.Pool, idle time.Duration) {
+	t.Helper()
+	worker := rivertest.NewWorker(t, riverpgxv5.New(pool), &river.Config{},
+		&cleanupWorker{q: store.New(pool), logger: slog.New(slog.DiscardHandler), idle: idle})
+	tx, err := pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(t.Context())
+	if _, err := worker.Work(t.Context(), t, tx, CleanupArgs{}, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// count cuenta las filas de la tabla.
+func count(t *testing.T, pool *pgxpool.Pool, table string) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM "+table).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
 
 func TestCleanupDeletesOnlyExpired(t *testing.T) {
 	pool := testutil.NewDB(t)
@@ -34,7 +61,30 @@ func TestCleanupDeletesOnlyExpired(t *testing.T) {
 		}
 	}
 
-	// Notificaciones: leída hace 100 días (se borra), leída hace 10 días y sin leer de hace un año.
+	// Límites de intentos: uno ya recargado (se borra) y otro que todavía no.
+	if _, err := pool.Exec(t.Context(), `INSERT INTO rate_limits (key, tat)
+		VALUES ('recargado', now() - interval '1 minute'), ('en uso', now() + interval '1 minute')`); err != nil {
+		t.Fatal(err)
+	}
+
+	runCleanup(t, pool, 0)
+
+	if n := count(t, pool, "sessions"); n != 1 {
+		t.Errorf("quedaron %d sesiones, se esperaba solo la vigente", n)
+	}
+	if n := count(t, pool, "user_tokens"); n != 1 {
+		t.Errorf("quedaron %d tokens, se esperaba solo el vigente", n)
+	}
+	if n := count(t, pool, "rate_limits"); n != 1 {
+		t.Errorf("quedaron %d límites, se esperaba solo el que no se recargó", n)
+	}
+}
+
+func TestCleanupDeletesOldNotifications(t *testing.T) {
+	pool := testutil.NewDB(t)
+	u, _ := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+
+	// Leída hace 100 días (se borra), leída hace 10 días y sin leer de hace un año.
 	for _, n := range []struct {
 		readAt  string
 		created string
@@ -45,48 +95,25 @@ func TestCleanupDeletesOnlyExpired(t *testing.T) {
 		}
 	}
 
-	// Límites de intentos: uno ya recargado (se borra) y otro que todavía no. Mensajes grandes del
-	// tiempo real: uno de hace una hora (se borra) y otro recién guardado.
-	if _, err := pool.Exec(t.Context(), `INSERT INTO rate_limits (key, tat)
-		VALUES ('recargado', now() - interval '1 minute'), ('en uso', now() + interval '1 minute')`); err != nil {
-		t.Fatal(err)
+	runCleanup(t, pool, 0)
+
+	if n := count(t, pool, "notifications"); n != 2 {
+		t.Errorf("quedaron %d notificaciones, se esperaban la leída reciente y la no leída", n)
 	}
+}
+
+func TestCleanupDeletesOldRealtimeMessages(t *testing.T) {
+	pool := testutil.NewDB(t)
+
+	// Mensajes grandes del tiempo real: uno de hace una hora (se borra) y otro recién guardado.
 	if _, err := pool.Exec(t.Context(), `INSERT INTO realtime_messages (payload, created_at)
 		VALUES ('{}', now() - interval '1 hour'), ('{}', now())`); err != nil {
 		t.Fatal(err)
 	}
 
-	driver := riverpgxv5.New(pool)
-	worker := rivertest.NewWorker(t, driver, &river.Config{}, &cleanupWorker{q: q, logger: slog.New(slog.DiscardHandler)})
-	tx, err := pool.Begin(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback(t.Context())
-	if _, err := worker.Work(t.Context(), t, tx, CleanupArgs{}, nil); err != nil {
-		t.Fatal(err)
-	}
+	runCleanup(t, pool, 0)
 
-	count := func(table string) int {
-		var n int
-		if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM "+table).Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		return n
-	}
-	if n := count("sessions"); n != 1 {
-		t.Errorf("quedaron %d sesiones, se esperaba solo la vigente", n)
-	}
-	if n := count("user_tokens"); n != 1 {
-		t.Errorf("quedaron %d tokens, se esperaba solo el vigente", n)
-	}
-	if n := count("notifications"); n != 2 {
-		t.Errorf("quedaron %d notificaciones, se esperaban la leída reciente y la no leída", n)
-	}
-	if n := count("rate_limits"); n != 1 {
-		t.Errorf("quedaron %d límites, se esperaba solo el que no se recargó", n)
-	}
-	if n := count("realtime_messages"); n != 1 {
+	if n := count(t, pool, "realtime_messages"); n != 1 {
 		t.Errorf("quedaron %d mensajes del tiempo real, se esperaba solo el reciente", n)
 	}
 }
@@ -103,22 +130,8 @@ func TestCleanupDeletesIdleSessions(t *testing.T) {
 		idle time.Duration
 		want int
 	}{{0, 2}, {time.Hour, 1}} { // sin vencimiento no borra la quieta; con 1 hora, sí
-		worker := rivertest.NewWorker(t, riverpgxv5.New(pool), &river.Config{},
-			&cleanupWorker{q: store.New(pool), logger: slog.New(slog.DiscardHandler), idle: tt.idle})
-		tx, err := pool.Begin(t.Context())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := worker.Work(t.Context(), t, tx, CleanupArgs{}, nil); err != nil {
-			t.Fatal(err)
-		}
-		_ = tx.Rollback(t.Context())
-
-		var n int
-		if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM sessions").Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		if n != tt.want {
+		runCleanup(t, pool, tt.idle)
+		if n := count(t, pool, "sessions"); n != tt.want {
 			t.Errorf("idle %v: quedaron %d sesiones, se esperaban %d", tt.idle, n, tt.want)
 		}
 	}

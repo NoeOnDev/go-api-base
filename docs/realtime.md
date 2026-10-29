@@ -240,8 +240,17 @@ Si un proyecto no lo necesita:
 1. Borrá `internal/realtime` e `internal/notifications`, las migraciones `00009_create_notifications.sql` y `00011_create_realtime_messages.sql`, y las consultas `notifications.sql` y `realtime.sql` de `internal/db/queries`.
 2. En `internal/server/routes.go`, quitá el campo `Broker` de `Deps`, el broker, el servicio de notificaciones, `GET /events` y `notifications.Register`. En las opciones de auth, quitá `Notifier` y `SessionWatcher` (son opcionales).
 3. En `internal/notes`, quitá el broker, las llamadas a `PublishToUser` y `events_test.go`. En `cmd/api/main.go`, quitá el broker, `Listen` y `RegisterOnShutdown`.
-4. En `internal/jobs/cleanup.go`, quitá el borrado de las notificaciones y de los mensajes del tiempo real.
-5. En `internal/testutil`, borrá `events.go` y `WithBroker` (en `http.go`). Los tests que abren un stream con `OpenEvents` en otros paquetes (`internal/auth`: `sessions_test.go` y `delete_account_test.go`; `internal/server`: `routes_test.go`) prueban que se corte al cerrar la sesión: borrá esos casos.
-6. `make sqlc` y `make check`.
+4. En `internal/jobs/cleanup.go`, quitá el borrado de las notificaciones y de los mensajes del tiempo real, con sus constantes (`notificationRetention` y `realtimeMessageRetention`) y sus líneas en el comentario de `CleanupArgs`. En `cleanup_test.go`, borrá `TestCleanupDeletesOldNotifications` y `TestCleanupDeletesOldRealtimeMessages`.
+5. En `internal/testutil`, borrá `events.go` y `WithBroker` (en `http.go`). En los tests de otros paquetes:
+   - borrá los que abren un stream con `OpenEvents`: `TestRevokeSessionCutsItsStream` y `TestDeleteAccountCutsStreams` en `internal/auth`, y `TestEventsEndToEnd` en `internal/server`;
+   - en `internal/auth`, `TestDeleteAccount` y `TestChangeEmail` también revisan la tabla `notifications`: quitá esas partes.
+6. `make sqlc` (borra también el código generado de las consultas que quitaste) y `make check`.
 
-Para quitar solo las notificaciones: en el paso 1, solo `internal/notifications`, su migración y `notifications.sql`; en el paso 2, solo el servicio, `notifications.Register` y el `Notifier` de auth; y en el paso 4, solo el borrado de las notificaciones.
+Para quitar solo las notificaciones y dejar el tiempo real:
+1. Borrá `internal/notifications`, la migración `00009_create_notifications.sql` y la consulta `notifications.sql`.
+2. En `internal/server/routes.go`, quitá el servicio de notificaciones, `notifications.Register` y el `Notifier` de las opciones de auth.
+3. En `internal/jobs/cleanup.go`, quitá el borrado de las notificaciones, `notificationRetention` y su línea en el comentario de `CleanupArgs`; en `cleanup_test.go`, borrá `TestCleanupDeletesOldNotifications`.
+4. En `internal/auth`, quitá las partes de `TestDeleteAccount` y `TestChangeEmail` que revisan la tabla `notifications`.
+5. `make sqlc` y `make check`.
+
+Las dos recetas se probaron en una copia del proyecto, con una base de pruebas creada solo con las migraciones que quedan.

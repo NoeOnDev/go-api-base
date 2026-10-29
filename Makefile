@@ -57,6 +57,8 @@ create-admin: ## Crea un administrador: make create-admin email=admin@ejemplo.co
 
 .PHONY: sqlc
 sqlc: ## Regenera internal/store a partir de migraciones y consultas
+	@# Todo internal/store es generado. Se borra antes, porque sqlc no borra el código de una consulta que ya no existe.
+	rm -f internal/store/*.go
 	$(SQLC) generate
 
 .PHONY: tidy
@@ -98,6 +100,7 @@ check: ## Todo lo que debe pasar antes de commitear
 	@test -z "$$(gofmt -l .)" || { echo "Archivos sin formatear (corré make fmt):"; gofmt -l .; exit 1; }
 	@echo "==> sqlc (código generado al día)"
 	@$(SQLC) diff || { echo "internal/store no coincide con las consultas: corré make sqlc"; exit 1; }
+	@for f in internal/store/*.sql.go; do test -f internal/db/queries/$$(basename $$f .go) || { echo "$$f es de una consulta que ya no existe: corré make sqlc"; exit 1; }; done
 	@echo "==> go vet"
 	@go vet ./...
 	@echo "==> staticcheck"

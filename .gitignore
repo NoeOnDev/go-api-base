@@ -1,15 +1,15 @@
-# Variables de entorno locales (pueden contener contraseñas)
+# Local environment variables (they may hold passwords)
 .env
 
-# Binarios compilados
+# Built binaries
 /bin/
 
-# Salida de tests y perfiles
+# Test output and profiles
 *.out
 *.test
 coverage.html
 
-# Editores y sistema
+# Editors and OS
 .idea/
 .vscode/
 .DS_Store

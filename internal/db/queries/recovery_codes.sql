@@ -1,5 +1,5 @@
--- ReplaceRecoveryCodes borra los códigos del usuario e inserta los nuevos en una sola
--- sentencia, así que es atómico: nunca quedan los viejos y los nuevos a la vez.
+-- ReplaceRecoveryCodes deletes the user's codes and inserts the new ones in a single
+-- statement, so it is atomic: the old and the new ones are never there at the same time.
 -- name: ReplaceRecoveryCodes :exec
 WITH deleted AS (
     DELETE FROM user_recovery_codes WHERE user_id = sqlc.arg('user_id')
@@ -11,13 +11,13 @@ SELECT unnest(sqlc.arg('code_hashes')::bytea[]), sqlc.arg('user_id'), sqlc.arg('
 DELETE FROM user_recovery_codes
 WHERE user_id = $1;
 
--- ConsumeRecoveryCode borra el código si es del usuario. Recibe el HMAC calculado con cada
--- clave del llavero, así funciona también con códigos generados antes de una rotación.
+-- ConsumeRecoveryCode deletes the code if it belongs to the user. It takes the HMAC computed with each
+-- key of the keyring, so it also works with codes generated before a rotation.
 -- name: ConsumeRecoveryCode :execrows
 DELETE FROM user_recovery_codes
 WHERE user_id = sqlc.arg('user_id') AND code_hash = ANY(sqlc.arg('code_hashes')::bytea[]);
 
--- CountRecoveryCodeUsersByKey cuenta cuántos usuarios tienen códigos de cada clave.
+-- CountRecoveryCodeUsersByKey counts how many users have codes of each key.
 -- name: CountRecoveryCodeUsersByKey :many
 SELECT key_id, count(DISTINCT user_id) AS users
 FROM user_recovery_codes

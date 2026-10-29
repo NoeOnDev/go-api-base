@@ -13,7 +13,7 @@ SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, tot
 FROM users
 WHERE id = $1;
 
--- UpdateUserProfile cambia el nombre y, si se indica, el idioma (locale NULL lo deja como está).
+-- UpdateUserProfile changes the name and, if given, the language (a NULL locale leaves it as it is).
 -- name: UpdateUserProfile :one
 UPDATE users
 SET name = sqlc.arg('name'), locale = coalesce(sqlc.narg('locale'), locale), updated_at = now()
@@ -29,9 +29,9 @@ UPDATE users
 SET password_hash = $2, updated_at = now()
 WHERE id = $1;
 
--- RehashPassword guarda la misma contraseña con un hash de parámetros nuevos. Solo lo cambia si
--- sigue siendo el que se verificó, así no pisa un cambio de contraseña hecho al mismo tiempo.
--- No toca updated_at: para el usuario, nada cambió.
+-- RehashPassword stores the same password with a hash of new parameters. It only changes it if it
+-- is still the one that was verified, so it does not overwrite a password change made at the same time.
+-- It does not touch updated_at: for the user, nothing changed.
 -- name: RehashPassword :execrows
 UPDATE users
 SET password_hash = sqlc.arg('new_hash')
@@ -47,8 +47,8 @@ UPDATE users
 SET totp_secret = $2, totp_last_step = NULL, updated_at = now()
 WHERE id = $1 AND totp_enabled_at IS NULL;
 
--- EnableTOTP activa el 2FA solo si el secreto sigue siendo el que se verificó: si mientras tanto
--- otra petición pidió un QR nuevo (setup), no activa uno que el usuario nunca escaneó.
+-- EnableTOTP turns on 2FA only if the secret is still the one that was verified: if meanwhile
+-- another request asked for a new QR code (setup), it does not turn on one the user never scanned.
 -- name: EnableTOTP :execrows
 UPDATE users
 SET totp_enabled_at = now(), totp_last_step = sqlc.arg('totp_last_step'), updated_at = now()
@@ -59,15 +59,15 @@ UPDATE users
 SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL, updated_at = now()
 WHERE id = $1;
 
--- UseTOTPStep registra el paso del código usado solo si es posterior al último: si devuelve
--- 0 filas, el código ya se había usado y se rechaza. Es atómico ante peticiones simultáneas.
+-- UseTOTPStep records the step of the used code only if it is later than the last one: if it returns
+-- 0 rows, the code was already used and is rejected. It is atomic against simultaneous requests.
 -- name: UseTOTPStep :execrows
 UPDATE users
 SET totp_last_step = $2
 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2);
 
--- UpdateTOTPSecret vuelve a cifrar el secreto con otra clave. Solo lo cambia si sigue siendo
--- el que se leyó, así no pisa un cambio hecho al mismo tiempo (por ejemplo, desactivar el 2FA).
+-- UpdateTOTPSecret encrypts the secret again with another key. It only changes it if it is still
+-- the one that was read, so it does not overwrite a change made at the same time (for example, turning off 2FA).
 -- name: UpdateTOTPSecret :execrows
 UPDATE users
 SET totp_secret = sqlc.arg('new_secret')
@@ -79,30 +79,30 @@ FROM users
 WHERE totp_secret IS NOT NULL
 ORDER BY id;
 
--- LockUser bloquea la fila del usuario hasta el final de la transacción. Ordena operaciones
--- simultáneas sobre el mismo usuario (por ejemplo, dos pedidos de enlace de recuperación).
+-- LockUser locks the user's row until the end of the transaction. It orders simultaneous
+-- operations on the same user (for example, two requests for a reset link).
 -- name: LockUser :exec
 SELECT id FROM users
 WHERE id = $1
 FOR UPDATE;
 
--- UpdateUserEmail cambia el email, ya confirmado desde la dirección nueva.
+-- UpdateUserEmail changes the email, already confirmed from the new address.
 -- name: UpdateUserEmail :one
 UPDATE users
 SET email = $2, email_verified_at = now(), updated_at = now()
 WHERE id = $1
 RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at;
 
--- LockAdmins devuelve los admins y bloquea sus filas hasta el final de la transacción: así dos
--- admins que borran su cuenta a la vez no pueden dejar la API sin ninguno.
+-- LockAdmins returns the admins and locks their rows until the end of the transaction: that way two
+-- admins deleting their accounts at once cannot leave the API without any.
 -- name: LockAdmins :many
 SELECT id FROM users
 WHERE role = 'admin'
 ORDER BY id
 FOR UPDATE;
 
--- DeleteUser borra el usuario. Sus sesiones, tokens, notas, notificaciones y códigos de
--- recuperación se borran solos (ON DELETE CASCADE).
+-- DeleteUser deletes the user. Their sessions, tokens, notes, notifications and recovery
+-- codes are deleted on their own (ON DELETE CASCADE).
 -- name: DeleteUser :execrows
 DELETE FROM users
 WHERE id = $1;

@@ -16,8 +16,8 @@ DELETE FROM rate_limits
 WHERE tat <= now()
 `
 
-// DeleteExpiredRateLimits borra las claves que ya recargaron todos sus intentos: equivalen a no
-// tener fila.
+// DeleteExpiredRateLimits deletes the keys that already refilled all their attempts: they are the same
+// as having no row.
 func (q *Queries) DeleteExpiredRateLimits(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteExpiredRateLimits)
 	if err != nil {
@@ -50,11 +50,11 @@ type TakeRateLimitParams struct {
 	Burst int32
 }
 
-// TakeRateLimit gasta un intento de la clave (ver internal/ratelimit) con el algoritmo GCRA. tat
-// es el momento en que la clave vuelve a tener todos sus intentos: cada intento lo corre un
-// "every" hacia adelante, y se permite mientras tat no quede a más de burst × every de ahora.
-// Afecta una fila si el intento se permitió, y ninguna si no (en ese caso no cambia nada). Es una
-// sola sentencia, así que dos instancias que gastan intentos a la vez no se pisan.
+// TakeRateLimit spends one attempt of the key (see internal/ratelimit) with the GCRA algorithm. tat
+// is the moment the key has all its attempts again: each attempt moves it one
+// "every" forward, and it is allowed while tat is no more than burst × every from now.
+// It affects one row if the attempt was allowed, and none if not (then nothing changes). It is a
+// single statement, so two instances spending attempts at once do not step on each other.
 func (q *Queries) TakeRateLimit(ctx context.Context, arg TakeRateLimitParams) (int64, error) {
 	result, err := q.db.Exec(ctx, takeRateLimit, arg.Key, arg.Every, arg.Burst)
 	if err != nil {

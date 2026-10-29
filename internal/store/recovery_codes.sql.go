@@ -19,8 +19,8 @@ type ConsumeRecoveryCodeParams struct {
 	CodeHashes [][]byte
 }
 
-// ConsumeRecoveryCode borra el código si es del usuario. Recibe el HMAC calculado con cada
-// clave del llavero, así funciona también con códigos generados antes de una rotación.
+// ConsumeRecoveryCode deletes the code if it belongs to the user. It takes the HMAC computed with each
+// key of the keyring, so it also works with codes generated before a rotation.
 func (q *Queries) ConsumeRecoveryCode(ctx context.Context, arg ConsumeRecoveryCodeParams) (int64, error) {
 	result, err := q.db.Exec(ctx, consumeRecoveryCode, arg.UserID, arg.CodeHashes)
 	if err != nil {
@@ -41,7 +41,7 @@ type CountRecoveryCodeUsersByKeyRow struct {
 	Users int64
 }
 
-// CountRecoveryCodeUsersByKey cuenta cuántos usuarios tienen códigos de cada clave.
+// CountRecoveryCodeUsersByKey counts how many users have codes of each key.
 func (q *Queries) CountRecoveryCodeUsersByKey(ctx context.Context) ([]CountRecoveryCodeUsersByKeyRow, error) {
 	rows, err := q.db.Query(ctx, countRecoveryCodeUsersByKey)
 	if err != nil {
@@ -86,8 +86,8 @@ type ReplaceRecoveryCodesParams struct {
 	KeyID      string
 }
 
-// ReplaceRecoveryCodes borra los códigos del usuario e inserta los nuevos en una sola
-// sentencia, así que es atómico: nunca quedan los viejos y los nuevos a la vez.
+// ReplaceRecoveryCodes deletes the user's codes and inserts the new ones in a single
+// statement, so it is atomic: the old and the new ones are never there at the same time.
 func (q *Queries) ReplaceRecoveryCodes(ctx context.Context, arg ReplaceRecoveryCodesParams) error {
 	_, err := q.db.Exec(ctx, replaceRecoveryCodes, arg.CodeHashes, arg.UserID, arg.KeyID)
 	return err

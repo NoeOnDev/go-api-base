@@ -1,8 +1,8 @@
 -- +goose Up
--- Códigos de recuperación del 2FA. Se guardan como HMAC-SHA256 (con una clave derivada de
--- ENCRYPTION_KEY), nunca en texto plano. Cada código se borra al usarlo.
--- key_id indica con qué clave se calculó el HMAC: hace falta para saber, durante una rotación,
--- qué usuarios todavía tienen códigos que dependen de una clave vieja.
+-- 2FA recovery codes. They are stored as HMAC-SHA256 (with a key derived from
+-- ENCRYPTION_KEY), never in plain text. Each code is deleted when used.
+-- key_id says which key computed the HMAC: it is needed to know, during a rotation,
+-- which users still have codes that depend on an old key.
 CREATE TABLE user_recovery_codes (
     code_hash  bytea       PRIMARY KEY,
     user_id    bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,

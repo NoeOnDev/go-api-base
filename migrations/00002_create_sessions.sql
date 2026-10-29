@@ -1,15 +1,15 @@
 -- +goose Up
 CREATE TABLE sessions (
-    -- Se guarda el SHA-256 del token, nunca el token: si alguien lee la base, no puede usar las sesiones.
+    -- The SHA-256 of the token is stored, never the token: whoever reads the database cannot use the sessions.
     token_hash   bytea       PRIMARY KEY,
-    -- id es el identificador público de la sesión (GET /auth/sessions): el hash nunca sale de la API.
+    -- id is the public identifier of the session (GET /auth/sessions): the hash never leaves the API.
     id           bigint      NOT NULL GENERATED ALWAYS AS IDENTITY UNIQUE,
     user_id      bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    -- Para que el usuario reconozca sus dispositivos: el navegador y la IP con la que inició sesión.
+    -- So the user recognizes their devices: the browser and the IP the session started from.
     user_agent   text        NOT NULL DEFAULT '',
     ip           text        NOT NULL DEFAULT '',
     expires_at   timestamptz NOT NULL,
-    -- Última actividad; se actualiza como mucho cada 5 minutos (ver auth.requireSession).
+    -- Last activity; it is updated at most every 5 minutes (see auth.requireSession).
     last_seen_at timestamptz NOT NULL DEFAULT now(),
     created_at   timestamptz NOT NULL DEFAULT now()
 );

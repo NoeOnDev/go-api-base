@@ -18,7 +18,7 @@ WHERE user_id = sqlc.arg('user_id') AND (NOT sqlc.arg('unread_only')::bool OR re
 SELECT count(*) FROM notifications
 WHERE user_id = $1 AND read_at IS NULL;
 
--- Si ya estaba leída, conserva la fecha original.
+-- If it was already read, it keeps the original date.
 -- name: MarkNotificationRead :one
 UPDATE notifications
 SET read_at = coalesce(read_at, now())
@@ -30,7 +30,7 @@ UPDATE notifications
 SET read_at = now()
 WHERE user_id = $1 AND read_at IS NULL;
 
--- DeleteReadNotificationsBefore borra las leídas antes de la fecha (la limpieza periódica).
+-- DeleteReadNotificationsBefore deletes the ones read before the date (the periodic cleanup).
 -- name: DeleteReadNotificationsBefore :execrows
 DELETE FROM notifications
 WHERE read_at < sqlc.arg('before')::timestamptz;

@@ -57,8 +57,8 @@ DELETE FROM users
 WHERE id = $1
 `
 
-// DeleteUser borra el usuario. Sus sesiones, tokens, notas, notificaciones y códigos de
-// recuperación se borran solos (ON DELETE CASCADE).
+// DeleteUser deletes the user. Their sessions, tokens, notes, notifications and recovery
+// codes are deleted on their own (ON DELETE CASCADE).
 func (q *Queries) DeleteUser(ctx context.Context, id int64) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteUser, id)
 	if err != nil {
@@ -90,8 +90,8 @@ type EnableTOTPParams struct {
 	TOTPSecret   *string
 }
 
-// EnableTOTP activa el 2FA solo si el secreto sigue siendo el que se verificó: si mientras tanto
-// otra petición pidió un QR nuevo (setup), no activa uno que el usuario nunca escaneó.
+// EnableTOTP turns on 2FA only if the secret is still the one that was verified: if meanwhile
+// another request asked for a new QR code (setup), it does not turn on one the user never scanned.
 func (q *Queries) EnableTOTP(ctx context.Context, arg EnableTOTPParams) (int64, error) {
 	result, err := q.db.Exec(ctx, enableTOTP, arg.TOTPLastStep, arg.ID, arg.TOTPSecret)
 	if err != nil {
@@ -203,8 +203,8 @@ ORDER BY id
 FOR UPDATE
 `
 
-// LockAdmins devuelve los admins y bloquea sus filas hasta el final de la transacción: así dos
-// admins que borran su cuenta a la vez no pueden dejar la API sin ninguno.
+// LockAdmins returns the admins and locks their rows until the end of the transaction: that way two
+// admins deleting their accounts at once cannot leave the API without any.
 func (q *Queries) LockAdmins(ctx context.Context) ([]int64, error) {
 	rows, err := q.db.Query(ctx, lockAdmins)
 	if err != nil {
@@ -231,8 +231,8 @@ WHERE id = $1
 FOR UPDATE
 `
 
-// LockUser bloquea la fila del usuario hasta el final de la transacción. Ordena operaciones
-// simultáneas sobre el mismo usuario (por ejemplo, dos pedidos de enlace de recuperación).
+// LockUser locks the user's row until the end of the transaction. It orders simultaneous
+// operations on the same user (for example, two requests for a reset link).
 func (q *Queries) LockUser(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, lockUser, id)
 	return err
@@ -261,9 +261,9 @@ type RehashPasswordParams struct {
 	OldHash string
 }
 
-// RehashPassword guarda la misma contraseña con un hash de parámetros nuevos. Solo lo cambia si
-// sigue siendo el que se verificó, así no pisa un cambio de contraseña hecho al mismo tiempo.
-// No toca updated_at: para el usuario, nada cambió.
+// RehashPassword stores the same password with a hash of new parameters. It only changes it if it
+// is still the one that was verified, so it does not overwrite a password change made at the same time.
+// It does not touch updated_at: for the user, nothing changed.
 func (q *Queries) RehashPassword(ctx context.Context, arg RehashPasswordParams) (int64, error) {
 	result, err := q.db.Exec(ctx, rehashPassword, arg.NewHash, arg.ID, arg.OldHash)
 	if err != nil {
@@ -303,8 +303,8 @@ type UpdateTOTPSecretParams struct {
 	OldSecret *string
 }
 
-// UpdateTOTPSecret vuelve a cifrar el secreto con otra clave. Solo lo cambia si sigue siendo
-// el que se leyó, así no pisa un cambio hecho al mismo tiempo (por ejemplo, desactivar el 2FA).
+// UpdateTOTPSecret encrypts the secret again with another key. It only changes it if it is still
+// the one that was read, so it does not overwrite a change made at the same time (for example, turning off 2FA).
 func (q *Queries) UpdateTOTPSecret(ctx context.Context, arg UpdateTOTPSecretParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateTOTPSecret, arg.NewSecret, arg.ID, arg.OldSecret)
 	if err != nil {
@@ -325,7 +325,7 @@ type UpdateUserEmailParams struct {
 	Email string
 }
 
-// UpdateUserEmail cambia el email, ya confirmado desde la dirección nueva.
+// UpdateUserEmail changes the email, already confirmed from the new address.
 func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (User, error) {
 	row := q.db.QueryRow(ctx, updateUserEmail, arg.ID, arg.Email)
 	var i User
@@ -375,7 +375,7 @@ type UpdateUserProfileParams struct {
 	ID     int64
 }
 
-// UpdateUserProfile cambia el nombre y, si se indica, el idioma (locale NULL lo deja como está).
+// UpdateUserProfile changes the name and, if given, the language (a NULL locale leaves it as it is).
 func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
 	row := q.db.QueryRow(ctx, updateUserProfile, arg.Name, arg.Locale, arg.ID)
 	var i User
@@ -407,8 +407,8 @@ type UseTOTPStepParams struct {
 	TOTPLastStep *int64
 }
 
-// UseTOTPStep registra el paso del código usado solo si es posterior al último: si devuelve
-// 0 filas, el código ya se había usado y se rechaza. Es atómico ante peticiones simultáneas.
+// UseTOTPStep records the step of the used code only if it is later than the last one: if it returns
+// 0 rows, the code was already used and is rejected. It is atomic against simultaneous requests.
 func (q *Queries) UseTOTPStep(ctx context.Context, arg UseTOTPStepParams) (int64, error) {
 	result, err := q.db.Exec(ctx, useTOTPStep, arg.ID, arg.TOTPLastStep)
 	if err != nil {

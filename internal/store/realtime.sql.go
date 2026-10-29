@@ -39,7 +39,7 @@ const listenRealtime = `-- name: ListenRealtime :exec
 LISTEN realtime
 `
 
-// ListenRealtime recibe los mensajes entre los brokers de las instancias de la API (ver
+// ListenRealtime receives the messages between the brokers of the API instances (see
 // internal/realtime/instances.go).
 func (q *Queries) ListenRealtime(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, listenRealtime)
@@ -50,7 +50,7 @@ const notifyRealtime = `-- name: NotifyRealtime :exec
 SELECT pg_notify('realtime', $1::text)
 `
 
-// NotifyRealtime envía un mensaje a todas las instancias.
+// NotifyRealtime sends a message to every instance.
 func (q *Queries) NotifyRealtime(ctx context.Context, payload string) error {
 	_, err := q.db.Exec(ctx, notifyRealtime, payload)
 	return err
@@ -69,8 +69,8 @@ type NotifyStoredRealtimeMessageParams struct {
 	Payload string
 }
 
-// NotifyStoredRealtimeMessage guarda un mensaje que no entra en un NOTIFY y envía solo su id.
-// El NOTIFY sale al terminar la sentencia, así que el mensaje ya está guardado cuando llega.
+// NotifyStoredRealtimeMessage stores a message that does not fit in a NOTIFY and sends only its id.
+// The NOTIFY goes out when the statement ends, so the message is already stored when it arrives.
 func (q *Queries) NotifyStoredRealtimeMessage(ctx context.Context, arg NotifyStoredRealtimeMessageParams) error {
 	_, err := q.db.Exec(ctx, notifyStoredRealtimeMessage, arg.Origin, arg.Payload)
 	return err

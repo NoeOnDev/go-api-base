@@ -39,8 +39,8 @@ DELETE FROM sessions
 WHERE expires_at <= now() OR last_seen_at <= $1::timestamptz
 `
 
-// DeleteExpiredSessions borra las vencidas y las inactivas desde antes de inactive_before
-// (sin vencimiento por inactividad, una fecha mínima).
+// DeleteExpiredSessions deletes the expired ones and the ones idle since before inactive_before
+// (without idle expiry, a minimum date).
 func (q *Queries) DeleteExpiredSessions(ctx context.Context, inactiveBefore time.Time) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteExpiredSessions, inactiveBefore)
 	if err != nil {
@@ -86,8 +86,8 @@ type DeleteUserSessionParams struct {
 	TokenHash []byte
 }
 
-// DeleteUserSession cierra una sesión del usuario, salvo la indicada (la de la petición).
-// Devuelve el hash del token, para cortar lo que dependía de esa sesión (los streams).
+// DeleteUserSession closes a session of the user, except the given one (the request's).
+// It returns the token hash, to cut what depended on that session (the streams).
 func (q *Queries) DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) ([]byte, error) {
 	row := q.db.QueryRow(ctx, deleteUserSession, arg.ID, arg.UserID, arg.TokenHash)
 	var token_hash []byte
@@ -124,9 +124,9 @@ type GetSessionUserRow struct {
 	LastSeenAt time.Time
 }
 
-// GetSessionUser busca la sesión vigente del token, con su usuario. active_since es el
-// vencimiento por inactividad: una sesión sin actividad desde entonces ya no sirve
-// (sin vencimiento, una fecha mínima).
+// GetSessionUser finds the valid session of the token, with its user. active_since is the
+// idle expiry: a session without activity since then no longer works
+// (without idle expiry, a minimum date).
 func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error) {
 	row := q.db.QueryRow(ctx, getSessionUser, arg.TokenHash, arg.ActiveSince)
 	var i GetSessionUserRow
@@ -170,8 +170,8 @@ type ListUserSessionsRow struct {
 	LastSeenAt time.Time
 }
 
-// ListUserSessions devuelve las sesiones que todavía sirven: sin vencer ni inactivas desde antes
-// de active_since, como en GetSessionUser.
+// ListUserSessions returns the sessions that still work: neither expired nor idle since before
+// active_since, as in GetSessionUser.
 func (q *Queries) ListUserSessions(ctx context.Context, arg ListUserSessionsParams) ([]ListUserSessionsRow, error) {
 	rows, err := q.db.Query(ctx, listUserSessions, arg.UserID, arg.ActiveSince)
 	if err != nil {

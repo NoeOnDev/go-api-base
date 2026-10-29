@@ -1,8 +1,8 @@
 -- +goose Up
--- Límites de intentos que valen para todas las instancias de la API: por cuenta en el login, por
--- usuario en el 2FA y en las acciones de la cuenta, y por destinatario en los correos (ver
--- internal/ratelimit). key es el SHA-256 del nombre del límite y la clave, que puede ser un email.
--- tat es el momento en que la clave vuelve a tener todos sus intentos (algoritmo GCRA).
+-- Attempt limits shared by every instance of the API: per account in the login, per
+-- user in the 2FA and the account actions, and per recipient in the emails (see
+-- internal/ratelimit). key is the SHA-256 of the limit's name and the key, which can be an email.
+-- tat is the moment the key has all its attempts again (GCRA algorithm).
 CREATE TABLE rate_limits (
     key bytea       PRIMARY KEY,
     tat timestamptz NOT NULL

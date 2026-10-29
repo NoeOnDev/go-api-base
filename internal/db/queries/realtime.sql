@@ -1,14 +1,14 @@
--- ListenRealtime recibe los mensajes entre los brokers de las instancias de la API (ver
+-- ListenRealtime receives the messages between the brokers of the API instances (see
 -- internal/realtime/instances.go).
 -- name: ListenRealtime :exec
 LISTEN realtime;
 
--- NotifyRealtime envía un mensaje a todas las instancias.
+-- NotifyRealtime sends a message to every instance.
 -- name: NotifyRealtime :exec
 SELECT pg_notify('realtime', sqlc.arg('payload')::text);
 
--- NotifyStoredRealtimeMessage guarda un mensaje que no entra en un NOTIFY y envía solo su id.
--- El NOTIFY sale al terminar la sentencia, así que el mensaje ya está guardado cuando llega.
+-- NotifyStoredRealtimeMessage stores a message that does not fit in a NOTIFY and sends only its id.
+-- The NOTIFY goes out when the statement ends, so the message is already stored when it arrives.
 -- name: NotifyStoredRealtimeMessage :exec
 WITH m AS (
     INSERT INTO realtime_messages (payload) VALUES (sqlc.arg('payload')) RETURNING id

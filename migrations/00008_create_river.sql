@@ -1,11 +1,11 @@
--- Tablas de River, la cola de trabajos en segundo plano (ver docs/jobs.md).
+-- Tables of River, the background job queue (see docs/jobs.md).
 --
--- GENERADO con la CLI de River, no editar a mano:
+-- GENERATED with the River CLI, do not edit by hand:
 --   make river-migration
--- (river migrate-get --all --exclude-version 1). Se excluye la versión 1, que es la tabla
--- del migrador propio de River: acá las migraciones las aplica goose.
--- Al actualizar River, revisá su CHANGELOG: si trae una migración nueva, creá otra migración
--- de goose con su SQL (make river-migration version=N).
+-- (river migrate-get --all --exclude-version 1). Version 1 is excluded: it is the table of
+-- River's own migrator, and here goose applies the migrations.
+-- When updating River, check its CHANGELOG: if it brings a new migration, create another goose
+-- migration with its SQL (make river-migration version=N).
 
 -- +goose Up
 -- +goose StatementBegin

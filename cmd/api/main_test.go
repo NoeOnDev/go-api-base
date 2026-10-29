@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// fakeJobs simula el cliente de River: tarda un poco en detenerse y anota cómo lo llamaron.
+// fakeJobs simulates the River client: it takes a while to stop and records how it was called.
 type fakeJobs struct {
 	mu            sync.Mutex
 	stopped       bool
@@ -23,21 +23,21 @@ func (f *fakeJobs) Stop(ctx context.Context) error {
 	f.hadTimeAtStop = time.Until(deadline)
 	f.mu.Unlock()
 
-	time.Sleep(50 * time.Millisecond) // terminar los trabajos en curso
+	time.Sleep(50 * time.Millisecond) // finish the running jobs
 	f.mu.Lock()
 	f.stopped = true
 	f.mu.Unlock()
 	return ctx.Err()
 }
 
-// Una petición trabada (por ejemplo, un stream que no termina) no puede impedir que los
-// trabajos en segundo plano se detengan en orden.
+// A stuck request (for example, a stream that never ends) cannot keep the background jobs from
+// stopping in order.
 func TestShutdownStopsJobsEvenIfHTTPTimesOut(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(entered)
-		<-release // trabada hasta que termina el test
+		<-release // stuck until the test ends
 	})}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -61,23 +61,23 @@ func TestShutdownStopsJobsEvenIfHTTPTimesOut(t *testing.T) {
 	shutdown(timeout, srv, jobs, slog.New(slog.DiscardHandler))
 
 	if d := time.Since(start); d > timeout+500*time.Millisecond {
-		t.Errorf("el apagado tardó %v (timeout %v)", d, timeout)
+		t.Errorf("the shutdown took %v (timeout %v)", d, timeout)
 	}
 	jobs.mu.Lock()
 	defer jobs.mu.Unlock()
 	if !jobs.stopped {
-		t.Fatal("los trabajos no se detuvieron porque el servidor HTTP se pasó del tiempo")
+		t.Fatal("the jobs did not stop because the HTTP server ran over time")
 	}
 	if jobs.hadTimeAtStop < timeout/2 {
-		t.Errorf("los trabajos recibieron solo %v para detenerse", jobs.hadTimeAtStop)
+		t.Errorf("the jobs got only %v to stop", jobs.hadTimeAtStop)
 	}
-	// La petición trabada se cortó, en lugar de quedar a medias.
+	// The stuck request was cut, instead of being left halfway.
 	select {
 	case err := <-clientErr:
 		if err == nil {
-			t.Error("la petición trabada debería haberse cortado")
+			t.Error("the stuck request should have been cut")
 		}
 	case <-time.After(time.Second):
-		t.Error("la conexión trabada sigue abierta después del apagado")
+		t.Error("the stuck connection is still open after the shutdown")
 	}
 }

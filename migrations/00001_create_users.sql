@@ -2,20 +2,20 @@
 CREATE TABLE users (
     id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name          text        NOT NULL,
-    -- La aplicación guarda el email en minúsculas y la base lo exige, así que UNIQUE alcanza para
-    -- evitar duplicados aunque alguien inserte a mano (Ana@x.com y ana@x.com serían dos cuentas).
+    -- The application stores the email in lowercase and the database demands it, so UNIQUE is enough to
+    -- prevent duplicates even if someone inserts by hand (Alice@x.com and alice@x.com would be two accounts).
     email         text        NOT NULL UNIQUE CONSTRAINT users_email_lowercase CHECK (email = lower(email)),
     password_hash text        NOT NULL,
     role          text        NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
-    -- NULL mientras el usuario no confirme su email con el enlace que se le envía.
+    -- NULL until the user confirms their email with the link sent to them.
     email_verified_at timestamptz,
-    -- 2FA: secreto TOTP cifrado con ENCRYPTION_KEY. Con totp_enabled_at NULL, el 2FA no está activo
-    -- (el secreto puede estar pendiente de confirmar). totp_last_step evita reutilizar un código.
+    -- 2FA: TOTP secret encrypted with ENCRYPTION_KEY. With totp_enabled_at NULL, 2FA is not on
+    -- (the secret may be waiting for confirmation). totp_last_step prevents reusing a code.
     totp_secret       text,
     totp_enabled_at   timestamptz,
     totp_last_step    bigint,
-    -- Idioma del usuario para los correos y las notificaciones que le llegan, por ejemplo 'es-MX'
-    -- (ver docs/i18n.md). NULL es el idioma por defecto (DEFAULT_LOCALE).
+    -- Language of the user's emails and notifications, for example 'es-MX'
+    -- (see docs/i18n.md). NULL is the default language (DEFAULT_LOCALE).
     locale            text,
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()

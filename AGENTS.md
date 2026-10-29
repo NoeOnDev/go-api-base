@@ -117,10 +117,11 @@ docs/                 guías y decisiones de diseño (ver "Dónde buscar"); link
 
 **Generales**
 - Go idiomático y simple. Preferir la librería estándar; **no agregar dependencias sin consultarlo**.
-- Nombres de código en inglés. Los comentarios todavía están en español (pasan a inglés en una próxima versión).
+- Todo lo interno en inglés: nombres de código, comentarios, errores internos, logs, tests, datos de ejemplo y salida de
+  los comandos.
 - **Ningún texto al usuario final en el código:** errores, validación, mensajes de éxito, correos y notificaciones salen de
   los catálogos de `internal/i18n` (inglés por defecto y es-MX con tú), en el idioma de la petición. Ver `docs/i18n.md`.
-- Errores envueltos con contexto: `fmt.Errorf("crear nota: %w", err)`. No usar `panic` para errores normales.
+- Errores envueltos con contexto: `fmt.Errorf("create note: %w", err)`. No usar `panic` para errores normales.
 - Pasar `r.Context()` a todo lo que hable con la base.
 
 **HTTP**

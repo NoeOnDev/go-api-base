@@ -1,4 +1,4 @@
--- La búsqueda con ILIKE '%…%' no usa índices; si la tabla crece, ver pg_trgm en
+-- The ILIKE '%…%' search does not use indexes; if the table grows, see pg_trgm in
 -- docs/adding-a-resource.md.
 -- name: ListProducts :many
 SELECT p.id, p.category_id, c.name AS category_name, p.name, p.slug, p.description,

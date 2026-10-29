@@ -71,7 +71,7 @@ DELETE FROM notifications
 WHERE read_at < $1::timestamptz
 `
 
-// DeleteReadNotificationsBefore borra las leídas antes de la fecha (la limpieza periódica).
+// DeleteReadNotificationsBefore deletes the ones read before the date (the periodic cleanup).
 func (q *Queries) DeleteReadNotificationsBefore(ctx context.Context, before time.Time) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteReadNotificationsBefore, before)
 	if err != nil {
@@ -153,7 +153,7 @@ type MarkNotificationReadParams struct {
 	UserID int64
 }
 
-// Si ya estaba leída, conserva la fecha original.
+// If it was already read, it keeps the original date.
 func (q *Queries) MarkNotificationRead(ctx context.Context, arg MarkNotificationReadParams) (Notification, error) {
 	row := q.db.QueryRow(ctx, markNotificationRead, arg.ID, arg.UserID)
 	var i Notification

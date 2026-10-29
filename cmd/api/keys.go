@@ -13,8 +13,8 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 )
 
-// runGenerateKey imprime una clave nueva para ENCRYPTION_KEY (equivale a `php artisan key:generate`,
-// pero no modifica ningún archivo). No necesita .env ni base de datos.
+// runGenerateKey prints a new key for ENCRYPTION_KEY (like `php artisan key:generate`, but it
+// does not modify any file). It needs neither .env nor a database.
 func runGenerateKey() error {
 	key, err := secretbox.GenerateKey()
 	if err != nil {
@@ -24,13 +24,13 @@ func runGenerateKey() error {
 	return nil
 }
 
-// runRotateKeys vuelve a cifrar con la clave actual todo lo que esté con claves anteriores e
-// informa lo que todavía depende de ellas. Termina con error si algo sigue dependiendo de una
-// clave vieja: en ese caso, todavía no hay que quitarla de ENCRYPTION_PREVIOUS_KEYS.
+// runRotateKeys encrypts again with the current key everything that is still under previous
+// keys and reports what still depends on them. It ends with an error if something still depends
+// on an old key: in that case, it must not be removed from ENCRYPTION_PREVIOUS_KEYS yet.
 func runRotateKeys() error {
 	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("configuración: %w", err)
+		return fmt.Errorf("configuration: %w", err)
 	}
 
 	ctx := context.Background()
@@ -57,57 +57,57 @@ func runRotateKeys() error {
 	}
 	report.AddQueuedEmails(queued)
 
-	fmt.Printf("Clave actual: %s\n", report.CurrentKeyID)
-	fmt.Printf("Secretos del 2FA vueltos a cifrar: %d. Ya con la clave actual: %d.\n",
+	fmt.Printf("Current key: %s\n", report.CurrentKeyID)
+	fmt.Printf("2FA secrets encrypted again: %d. Already with the current key: %d.\n",
 		report.Reencrypted, report.AlreadyCurrent)
 
 	if len(report.Undecryptable) > 0 {
-		fmt.Printf("\nSecretos del 2FA que no se pudieron descifrar (%d):\n", len(report.Undecryptable))
+		fmt.Printf("\n2FA secrets that could not be decrypted (%d):\n", len(report.Undecryptable))
 		for _, u := range report.Undecryptable {
-			fmt.Printf("  - usuario %d (clave %q): %s\n", u.UserID, u.KeyID, u.Reason)
+			fmt.Printf("  - user %d (key %q): %s\n", u.UserID, u.KeyID, u.Reason)
 		}
-		fmt.Println("  Agregá su clave a ENCRYPTION_PREVIOUS_KEYS y volvé a correr el comando, o desactivales el 2FA (ver docs/encryption.md).")
+		fmt.Println("  Add its key to ENCRYPTION_PREVIOUS_KEYS and run the command again, or turn off their 2FA (see docs/encryption.md).")
 	}
 
 	if len(report.OldRecoveryCodes) > 0 {
-		fmt.Println("\nCódigos de recuperación calculados con claves anteriores:")
+		fmt.Println("\nRecovery codes computed with previous keys:")
 		for _, k := range report.OldRecoveryCodes {
-			fmt.Printf("  - clave %s: %s\n", k.KeyID, users(k.Users))
+			fmt.Printf("  - key %s: %s\n", k.KeyID, users(k.Users))
 		}
-		fmt.Println("  No se pueden recalcular: esos usuarios tienen que regenerarlos desde su perfil.")
-		fmt.Println("  Si quitás la clave, sus códigos actuales dejan de servir (su app de autenticación sí sigue funcionando).")
+		fmt.Println("  They cannot be recomputed: those users have to regenerate them from their profile.")
+		fmt.Println("  If you remove the key, their current codes stop working (their authenticator app keeps working).")
 	}
 
 	if len(report.QueuedEmails) > 0 {
-		fmt.Println("\nCorreos en la cola cifrados con claves anteriores (todavía no salieron):")
+		fmt.Println("\nQueued emails encrypted with previous keys (not sent yet):")
 		for _, k := range report.QueuedEmails {
-			fmt.Printf("  - clave %s: %s\n", k.KeyID, emails(k.Count))
+			fmt.Printf("  - key %s: %s\n", k.KeyID, emails(k.Count))
 		}
-		fmt.Println("  Salen solos en segundos o minutos (si el SMTP falla, se reintentan); si quitás la clave antes, se cancelan.")
-		fmt.Println("  Esperá a que salgan y volvé a correr el comando.")
+		fmt.Println("  They go out on their own in seconds or minutes (if SMTP fails, they are retried); if you remove the key before, they are cancelled.")
+		fmt.Println("  Wait until they go out and run the command again.")
 	}
 
 	if len(report.RemovableKeys) > 0 {
-		fmt.Printf("\nClaves anteriores que ya no se usan y se pueden quitar de ENCRYPTION_PREVIOUS_KEYS: %v\n", report.RemovableKeys)
+		fmt.Printf("\nPrevious keys no longer in use that can be removed from ENCRYPTION_PREVIOUS_KEYS: %v\n", report.RemovableKeys)
 	}
 
 	if !report.Done() {
-		return errors.New("todavía hay datos que dependen de claves anteriores: no las quites de ENCRYPTION_PREVIOUS_KEYS")
+		return errors.New("there is still data that depends on previous keys: do not remove them from ENCRYPTION_PREVIOUS_KEYS")
 	}
-	fmt.Println("\nListo: nada depende de claves anteriores.")
+	fmt.Println("\nDone: nothing depends on previous keys.")
 	return nil
 }
 
 func users(n int64) string {
 	if n == 1 {
-		return "1 usuario"
+		return "1 user"
 	}
-	return fmt.Sprintf("%d usuarios", n)
+	return fmt.Sprintf("%d users", n)
 }
 
 func emails(n int64) string {
 	if n == 1 {
-		return "1 correo"
+		return "1 email"
 	}
-	return fmt.Sprintf("%d correos", n)
+	return fmt.Sprintf("%d emails", n)
 }

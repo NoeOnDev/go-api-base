@@ -1,9 +1,9 @@
-# sqlc genera código Go con tipos a partir de SQL normal.
-# - schema: lee las migraciones de goose para saber cómo son las tablas (ignora las secciones Down).
-#   Incluye las de River, así que internal/store también trae sus tipos (RiverJob…): no los uses,
-#   a River se le habla con su propio cliente (internal/jobs).
-# - queries: las consultas que escribís, con un comentario "-- name: Nombre :tipo" cada una.
-# Para regenerar después de cambiar migraciones o consultas: make sqlc
+# sqlc generates typed Go code from plain SQL.
+# - schema: reads the goose migrations to learn what the tables look like (it ignores the Down sections).
+#   It includes River's, so internal/store also has their types (RiverJob…): don't use them,
+#   River is talked to through its own client (internal/jobs).
+# - queries: the queries you write, each with a "-- name: Name :kind" comment.
+# To regenerate after changing migrations or queries: make sqlc
 version: "2"
 sql:
   - engine: "postgresql"
@@ -14,15 +14,15 @@ sql:
         package: "store"
         out: "internal/store"
         sql_package: "pgx/v5"
-        # Los listados vacíos devuelven [] en lugar de nil.
+        # Empty lists return [] instead of nil.
         emit_empty_slices: true
-        # Las columnas que admiten NULL se generan como punteros (*string) en lugar de pgtype.Text.
+        # Nullable columns are generated as pointers (*string) instead of pgtype.Text.
         emit_pointers_for_null_types: true
-        # Siglas que se escriben en mayúsculas en los nombres de Go (UserID, TOTPSecret).
+        # Initialisms written in uppercase in Go names (UserID, TOTPSecret).
         initialisms: ["id", "totp", "ip"]
         overrides:
-          # Las fechas se generan como time.Time en lugar de pgtype.Timestamptz,
-          # y como *time.Time si la columna admite NULL.
+          # Dates are generated as time.Time instead of pgtype.Timestamptz,
+          # and as *time.Time if the column is nullable.
           - db_type: "timestamptz"
             go_type: "time.Time"
           - db_type: "timestamptz"
@@ -30,9 +30,9 @@ sql:
             go_type:
               type: "time.Time"
               pointer: true
-          # jsonb se genera como json.RawMessage: se guarda y se devuelve tal cual, sin decodificar.
+          # jsonb is generated as json.RawMessage: it is stored and returned as is, without decoding.
           - db_type: "jsonb"
             go_type: "encoding/json.RawMessage"
-          # interval se genera como time.Duration (pgx lo convierte solo).
+          # interval is generated as time.Duration (pgx converts it on its own).
           - db_type: "pg_catalog.interval"
             go_type: "time.Duration"

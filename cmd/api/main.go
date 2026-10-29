@@ -1,4 +1,4 @@
-// Comando api arranca el servidor HTTP de la aplicación.
+// Command api starts the application's HTTP server.
 package main
 
 import (
@@ -26,8 +26,8 @@ import (
 func main() {
 	var err error
 
-	// Sin argumentos se levanta el servidor. Los subcomandos son tareas de administración
-	// que usan la misma configuración y el mismo binario.
+	// Without arguments it starts the server. The subcommands are administration tasks that use the
+	// same configuration and the same binary.
 	switch {
 	case len(os.Args) < 2:
 		err = run()
@@ -38,7 +38,7 @@ func main() {
 	case os.Args[1] == "rotate-keys":
 		err = runRotateKeys()
 	default:
-		err = fmt.Errorf("comando desconocido %q (disponibles: create-admin, generate-key, rotate-keys)", os.Args[1])
+		err = fmt.Errorf("unknown command %q (available: create-admin, generate-key, rotate-keys)", os.Args[1])
 	}
 
 	if err != nil {
@@ -47,16 +47,16 @@ func main() {
 	}
 }
 
-// run contiene el arranque real. Devolver errores en lugar de llamar a os.Exit
-// permite que los defer se ejecuten y facilita probar el arranque.
+// run holds the real startup. Returning errors instead of calling os.Exit lets the defers run and
+// makes the startup easier to test.
 func run() error {
-	// ctx se cancela al recibir Ctrl+C (SIGINT) o la señal de apagado de systemd/Docker (SIGTERM).
+	// ctx is cancelled on Ctrl+C (SIGINT) or on the shutdown signal of systemd/Docker (SIGTERM).
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("configuración: %w", err)
+		return fmt.Errorf("configuration: %w", err)
 	}
 
 	logger := newLogger(cfg)
@@ -75,13 +75,13 @@ func run() error {
 		return err
 	}
 
-	// config.Load ya validó las claves.
+	// config.Load already validated the keys.
 	box, err := secretbox.New(cfg.EncryptionKey, cfg.EncryptionPreviousKeys...)
 	if err != nil {
 		return fmt.Errorf("ENCRYPTION_KEY: %w", err)
 	}
 
-	// config.Load ya validó DEFAULT_LOCALE.
+	// config.Load already validated DEFAULT_LOCALE.
 	catalog, err := i18n.New(cfg.DefaultLocale)
 	if err != nil {
 		return fmt.Errorf("DEFAULT_LOCALE: %w", err)
@@ -92,29 +92,29 @@ func run() error {
 		return err
 	}
 
-	// Trabajos en segundo plano: los workers corren en este mismo proceso.
-	// Se arrancan sin el ctx de las señales: así la señal no los corta de golpe, y shutdown los
-	// detiene con Stop y su propio plazo, dejando terminar lo que está en curso.
+	// Background jobs: the workers run in this same process.
+	// They start without the signals' ctx: that way the signal does not cut them abruptly, and
+	// shutdown stops them with Stop and its own deadline, letting what is running finish.
 	jobsClient, err := jobs.New(pool, logger, jobs.Config{MaxWorkers: cfg.JobsMaxWorkers}, jobs.Deps{
 		Queries: store.New(pool),
 		Logger:  logger,
 		Mailer:  sender,
 		Box:     box,
-		// Para que la limpieza borre también las sesiones inactivas.
+		// So the cleanup also deletes the idle sessions.
 		SessionIdleTimeout: cfg.SessionIdleTimeout,
 	})
 	if err != nil {
 		return err
 	}
 	if err := jobsClient.Start(context.WithoutCancel(ctx)); err != nil {
-		return fmt.Errorf("arrancar los trabajos en segundo plano: %w", err)
+		return fmt.Errorf("start the background jobs: %w", err)
 	}
 
-	// La app no envía los correos: los encola, y los envía un worker (con reintentos).
+	// The app does not send the emails: it queues them, and a worker sends them (with retries).
 	mailer := jobs.NewMailSender(jobsClient, box)
 
-	// Con LISTEN/NOTIFY, los eventos en tiempo real y los cierres de sesión llegan a todas las
-	// instancias de la API. Sigue escuchando hasta la señal de apagado.
+	// With LISTEN/NOTIFY, the real-time events and the session closings reach every instance of
+	// the API. It keeps listening until the shutdown signal.
 	broker := realtime.NewBroker()
 	if err := broker.Listen(ctx, pool, logger); err != nil {
 		return err
@@ -130,48 +130,48 @@ func run() error {
 		Box:    box,
 		I18n:   catalog,
 	}), logger)
-	// Al apagar se cierran los streams SSE; si no, Shutdown esperaría hasta el timeout.
+	// On shutdown the SSE streams are closed; otherwise, Shutdown would wait until the timeout.
 	srv.RegisterOnShutdown(broker.Close)
 
-	// El servidor corre en otra goroutine para que esta pueda esperar la señal de apagado.
+	// The server runs in another goroutine so this one can wait for the shutdown signal.
 	serverErr := make(chan error, 1)
 	go func() {
-		logger.Info("servidor escuchando", "addr", cfg.HTTPAddr, "env", cfg.Env)
+		logger.Info("server listening", "addr", cfg.HTTPAddr, "env", cfg.Env)
 		serverErr <- srv.ListenAndServe()
 	}()
 
 	select {
 	case err := <-serverErr:
-		// ListenAndServe solo vuelve antes del apagado si no pudo arrancar (por ejemplo, puerto ocupado).
-		return fmt.Errorf("servidor: %w", err)
+		// ListenAndServe only returns before the shutdown if it could not start (for example, port in use).
+		return fmt.Errorf("server: %w", err)
 	case <-ctx.Done():
 	}
 
-	// Apagado limpio: deja de aceptar conexiones y espera a que terminen las peticiones en curso
-	// y los trabajos que se están ejecutando.
-	logger.Info("apagando servidor", "timeout", cfg.ShutdownTimeout.String())
+	// Graceful shutdown: stop accepting connections and wait for the running requests and the jobs
+	// being executed to finish.
+	logger.Info("shutting down server", "timeout", cfg.ShutdownTimeout.String())
 	shutdown(cfg.ShutdownTimeout, srv, jobsClient, logger)
 	if err := <-serverErr; !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("servidor: %w", err)
+		return fmt.Errorf("server: %w", err)
 	}
 
-	logger.Info("servidor detenido")
+	logger.Info("server stopped")
 	return nil
 }
 
-// stopper es lo que shutdown necesita de los trabajos en segundo plano (el cliente de River).
+// stopper is what shutdown needs from the background jobs (the River client).
 type stopper interface {
 	Stop(ctx context.Context) error
 }
 
-// shutdown apaga el servidor HTTP y los trabajos en segundo plano al mismo tiempo, cada uno con
-// el timeout completo. Así una petición trabada no les quita tiempo a los trabajos para
-// detenerse en orden: uno cortado a mitad de camino River lo reintenta recién a la hora.
+// shutdown stops the HTTP server and the background jobs at the same time, each with the full
+// timeout. That way a stuck request does not take time away from the jobs to stop in order: one
+// cut halfway River retries only an hour later.
 //
-// Apagarlos a la vez es seguro: una petición que todavía está terminando puede encolar un
-// trabajo después de que River dejó de procesar; queda en la base y se ejecuta al arrancar.
+// Stopping them at once is safe: a request that is still finishing can queue a job after River
+// stopped processing; it stays in the database and runs on the next start.
 //
-// No devuelve error: lo que no terminó a tiempo queda en el log.
+// It returns no error: what did not finish in time is left in the log.
 func shutdown(timeout time.Duration, srv *http.Server, jobs stopper, logger *slog.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -180,29 +180,29 @@ func shutdown(timeout time.Duration, srv *http.Server, jobs stopper, logger *slo
 	go func() { jobsDone <- jobs.Stop(ctx) }()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		// Las conexiones que quedan (por ejemplo, una trabada) se cortan, en lugar de dejarlas a medias.
-		logger.Warn("quedaron peticiones en curso al apagar; se cortan", "error", err)
+		// The remaining connections (for example, a stuck one) are cut, instead of being left halfway.
+		logger.Warn("requests still running at shutdown; cutting them", "error", err)
 		_ = srv.Close()
 	}
 	if err := <-jobsDone; err != nil {
-		logger.Warn("quedaron trabajos a medio hacer al apagar; River los reintentará en una hora", "error", err)
+		logger.Warn("jobs left halfway at shutdown; River will retry them in an hour", "error", err)
 	}
 }
 
-// newMailSender crea el envío de correos según MAIL_DRIVER.
+// newMailSender creates the email sender according to MAIL_DRIVER.
 func newMailSender(cfg config.Config, logger *slog.Logger) (mail.Sender, error) {
 	if cfg.Mail.Driver == config.MailDriverSMTP {
 		s, err := mail.NewSMTPSender(cfg.Mail.SMTPHost, cfg.Mail.SMTPPort, cfg.Mail.SMTPUser, cfg.Mail.SMTPPass, cfg.Mail.From)
 		if err != nil {
-			return nil, fmt.Errorf("configuración de correo: %w", err)
+			return nil, fmt.Errorf("mail configuration: %w", err)
 		}
 		return s, nil
 	}
 	return mail.LogSender{Logger: logger}, nil
 }
 
-// newLogger devuelve un logger en texto legible para desarrollo y en JSON para producción,
-// que es el formato que esperan las herramientas que procesan logs.
+// newLogger returns a logger in readable text for development and in JSON for production,
+// which is the format that log processing tools expect.
 func newLogger(cfg config.Config) *slog.Logger {
 	opts := &slog.HandlerOptions{Level: cfg.LogLevel}
 	if cfg.IsProduction() {

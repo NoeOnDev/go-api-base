@@ -1,6 +1,6 @@
 -- +goose Up
--- Notificaciones dentro del sistema (ver internal/notifications). kind es el tipo, que el frontend
--- usa para elegir cómo mostrarla; data, lo que necesita para hacerlo. read_at NULL = sin leer.
+-- In-app notifications (see internal/notifications). kind is the kind, which the frontend
+-- uses to choose how to show it; data, what it needs to do so. read_at NULL = unread.
 CREATE TABLE notifications (
     id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id    bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -10,7 +10,7 @@ CREATE TABLE notifications (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Todas las consultas filtran por usuario; el índice parcial cuenta rápido las no leídas.
+-- Every query filters by user; the partial index counts the unread ones fast.
 CREATE INDEX notifications_user_id_idx ON notifications (user_id, id DESC);
 CREATE INDEX notifications_unread_idx ON notifications (user_id) WHERE read_at IS NULL;
 

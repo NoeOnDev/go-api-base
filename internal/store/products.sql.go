@@ -150,7 +150,7 @@ type ListProductsRow struct {
 	UpdatedAt    time.Time
 }
 
-// La búsqueda con ILIKE '%…%' no usa índices; si la tabla crece, ver pg_trgm en
+// The ILIKE '%…%' search does not use indexes; if the table grows, see pg_trgm in
 // docs/adding-a-resource.md.
 func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]ListProductsRow, error) {
 	rows, err := q.db.Query(ctx, listProducts,

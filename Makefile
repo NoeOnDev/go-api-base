@@ -1,20 +1,20 @@
-# Comandos del proyecto. Ejecutá "make" o "make help" para ver la lista.
+# Project commands. Run "make" or "make help" to see the list.
 
-# Carga .env si existe, para no tener que exportar las variables a mano en desarrollo.
-# Nota: make interpreta "$" en los valores; evitá ese carácter en las contraseñas de .env.
+# Loads .env if it exists, so the variables don't have to be exported by hand in development.
+# Note: make interprets "$" in the values; avoid that character in the passwords of .env.
 ifneq (,$(wildcard .env))
 include .env
 export
 endif
 
-# Herramientas de desarrollo con versión fija. "go run paquete@versión" las descarga
-# (verificadas contra la base de checksums de Go) y las compila la primera vez; después
-# usa la caché. No agregan nada al go.mod de la aplicación.
+# Development tools with a pinned version. "go run package@version" downloads them
+# (verified against Go's checksum database) and builds them the first time; after that
+# it uses the cache. They add nothing to the application's go.mod.
 SQLC_VERSION        := v1.31.1
 GOOSE_VERSION       := v3.29.0
 GOVULNCHECK_VERSION := v1.9.0
 STATICCHECK_VERSION := v0.8.2
-# Tiene que coincidir con la versión de github.com/riverqueue/river del go.mod.
+# It must match the version of github.com/riverqueue/river in go.mod.
 RIVER_VERSION       := v0.49.0
 
 SQLC        := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
@@ -23,84 +23,84 @@ GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 STATICCHECK := go run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 RIVER_CLI   := go run github.com/riverqueue/river/cmd/river@$(RIVER_VERSION)
 
-# Los comandos de goose llevan @ para que make no imprima la URL con la contraseña.
+# The goose commands carry @ so make does not print the URL with the password.
 GOOSE := $(GOOSE_CLI) -dir migrations postgres "$(DATABASE_URL)"
 
 .DEFAULT_GOAL := help
 
 .PHONY: help
-help: ## Muestra esta ayuda
+help: ## Shows this help
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-## --- Desarrollo
+## --- Development
 
 .PHONY: run
-run: ## Levanta la API (aplica las migraciones al arrancar)
+run: ## Starts the API (applies the migrations on startup)
 	go run ./cmd/api
 
 .PHONY: build
-build: ## Compila un binario estático y liviano en bin/api
+build: ## Builds a small static binary in bin/api
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/api ./cmd/api
 
 .PHONY: key
-key: ## Genera una clave nueva para ENCRYPTION_KEY (ver docs/encryption.md)
+key: ## Generates a new key for ENCRYPTION_KEY (see docs/encryption.md)
 	@go run ./cmd/api generate-key
 
 .PHONY: rotate-keys
-rotate-keys: ## Vuelve a cifrar con ENCRYPTION_KEY lo que esté con claves anteriores e informa qué falta
+rotate-keys: ## Encrypts again with ENCRYPTION_KEY what is under previous keys and reports what is left
 	go run ./cmd/api rotate-keys
 
 .PHONY: create-admin
-create-admin: ## Crea un administrador: make create-admin email=admin@ejemplo.com name="Admin"
-	@test -n "$(email)" || { echo "Falta el email: make create-admin email=admin@ejemplo.com"; exit 1; }
-	go run ./cmd/api create-admin -email "$(email)" -name "$(or $(name),Administrador)"
+create-admin: ## Creates an administrator: make create-admin email=admin@example.com name="Admin"
+	@test -n "$(email)" || { echo "Missing the email: make create-admin email=admin@example.com"; exit 1; }
+	go run ./cmd/api create-admin -email "$(email)" -name "$(or $(name),Administrator)"
 
 .PHONY: sqlc
-sqlc: ## Regenera internal/store a partir de migraciones y consultas
-	@# Todo internal/store es generado. Se borra antes, porque sqlc no borra el código de una consulta que ya no existe.
+sqlc: ## Regenerates internal/store from the migrations and queries
+	@# All of internal/store is generated. It is deleted first, because sqlc does not delete the code of a query that no longer exists.
 	rm -f internal/store/*.go
 	$(SQLC) generate
 
 .PHONY: tidy
-tidy: ## Ordena las dependencias de go.mod
+tidy: ## Tidies the dependencies in go.mod
 	go mod tidy
 
 .PHONY: clean
-clean: ## Borra los binarios compilados
+clean: ## Deletes the built binaries
 	rm -rf bin
 
-## --- Calidad
+## --- Quality
 
 .PHONY: fmt
-fmt: ## Formatea el código
+fmt: ## Formats the code
 	gofmt -w .
 
 .PHONY: vet
-vet: ## Busca errores comunes con go vet
+vet: ## Looks for common mistakes with go vet
 	go vet ./...
 
 .PHONY: lint
-lint: ## Busca errores y código sin uso con staticcheck
+lint: ## Looks for bugs and unused code with staticcheck
 	$(STATICCHECK) ./...
 
 .PHONY: test
-# -p 1 corre los paquetes de a uno: los tests de integración comparten la base de pruebas
-# y vacían tablas, así que en paralelo se pisarían entre sí.
-test: ## Corre los tests (los de base de datos usan TEST_DATABASE_URL)
-	@test -n "$(TEST_DATABASE_URL)" || echo "AVISO: TEST_DATABASE_URL no está definida: los tests de integración NO van a correr (se saltean). Ver .env.example."
+# -p 1 runs the packages one at a time: the integration tests share the test database
+# and empty tables, so in parallel they would step on each other.
+test: ## Runs the tests (the database ones use TEST_DATABASE_URL)
+	@test -n "$(TEST_DATABASE_URL)" || echo "WARNING: TEST_DATABASE_URL is not set: the integration tests will NOT run (they are skipped). See .env.example."
 	go test -p 1 ./...
 
 .PHONY: vuln
-vuln: ## Busca vulnerabilidades conocidas en el código y sus dependencias
+vuln: ## Looks for known vulnerabilities in the code and its dependencies
 	$(GOVULNCHECK) ./...
 
 .PHONY: check
-check: ## Todo lo que debe pasar antes de commitear
+check: ## Everything that must pass before committing
 	@echo "==> gofmt"
-	@test -z "$$(gofmt -l .)" || { echo "Archivos sin formatear (corré make fmt):"; gofmt -l .; exit 1; }
-	@echo "==> sqlc (código generado al día)"
-	@$(SQLC) diff || { echo "internal/store no coincide con las consultas: corré make sqlc"; exit 1; }
-	@for f in internal/store/*.sql.go; do test -f internal/db/queries/$$(basename $$f .go) || { echo "$$f es de una consulta que ya no existe: corré make sqlc"; exit 1; }; done
+	@test -z "$$(gofmt -l .)" || { echo "Unformatted files (run make fmt):"; gofmt -l .; exit 1; }
+	@echo "==> sqlc (generated code up to date)"
+	@$(SQLC) diff || { echo "internal/store does not match the queries: run make sqlc"; exit 1; }
+	@for f in internal/store/*.sql.go; do test -f internal/db/queries/$$(basename $$f .go) || { echo "$$f belongs to a query that no longer exists: run make sqlc"; exit 1; }; done
 	@echo "==> go vet"
 	@go vet ./...
 	@echo "==> staticcheck"
@@ -110,22 +110,22 @@ check: ## Todo lo que debe pasar antes de commitear
 	@echo "==> govulncheck"
 	@$(GOVULNCHECK) ./...
 
-## --- Migraciones (en desarrollo; la API también migra al arrancar)
+## --- Migrations (in development; the API also migrates on startup)
 
 .PHONY: migrate-up
-migrate-up: ## Aplica las migraciones pendientes
+migrate-up: ## Applies the pending migrations
 	@$(GOOSE) up
 
 .PHONY: migrate-down
-migrate-down: ## Revierte la última migración
+migrate-down: ## Reverts the last migration
 	@$(GOOSE) down
 
 .PHONY: migrate-status
-migrate-status: ## Muestra qué migraciones están aplicadas
+migrate-status: ## Shows which migrations are applied
 	@$(GOOSE) status
 
 .PHONY: river-migration
-river-migration: ## SQL de las migraciones de River para goose: make river-migration [version=N]
+river-migration: ## SQL of River's migrations for goose: make river-migration [version=N]
 	@if [ -n "$(version)" ]; then \
 		echo "-- +goose Up"; echo "-- +goose StatementBegin"; $(RIVER_CLI) migrate-get --version $(version) --up; echo "-- +goose StatementEnd"; \
 		echo; echo "-- +goose Down"; echo "-- +goose StatementBegin"; $(RIVER_CLI) migrate-get --version $(version) --down; echo "-- +goose StatementEnd"; \
@@ -134,6 +134,6 @@ river-migration: ## SQL de las migraciones de River para goose: make river-migra
 	fi
 
 .PHONY: migrate-new
-migrate-new: ## Crea una migración: make migrate-new name=create_products
-	@test -n "$(name)" || { echo "Falta el nombre: make migrate-new name=create_products"; exit 1; }
+migrate-new: ## Creates a migration: make migrate-new name=create_products
+	@test -n "$(name)" || { echo "Missing the name: make migrate-new name=create_products"; exit 1; }
 	$(GOOSE_CLI) -dir migrations -s create $(name) sql

@@ -21,8 +21,8 @@ type ConsumeEmailChangeTokenRow struct {
 	Email  string
 }
 
-// ConsumeEmailChangeToken borra el token de cambio de email y devuelve el usuario y el email
-// nuevo, en una sola operación (no se puede usar dos veces).
+// ConsumeEmailChangeToken deletes the email change token and returns the user and the new
+// email, in a single operation (it cannot be used twice).
 func (q *Queries) ConsumeEmailChangeToken(ctx context.Context, tokenHash []byte) (ConsumeEmailChangeTokenRow, error) {
 	row := q.db.QueryRow(ctx, consumeEmailChangeToken, tokenHash)
 	var i ConsumeEmailChangeTokenRow
@@ -41,8 +41,8 @@ type ConsumeUserTokenParams struct {
 	Purpose   string
 }
 
-// ConsumeUserToken borra el token y devuelve su usuario en una sola operación, así que
-// dos peticiones simultáneas con el mismo token no pueden usarlo las dos.
+// ConsumeUserToken deletes the token and returns its user in a single operation, so
+// two simultaneous requests with the same token cannot both use it.
 func (q *Queries) ConsumeUserToken(ctx context.Context, arg ConsumeUserTokenParams) (int64, error) {
 	row := q.db.QueryRow(ctx, consumeUserToken, arg.TokenHash, arg.Purpose)
 	var user_id int64
@@ -125,8 +125,8 @@ type GetUserTokenUserParams struct {
 	MaxAttempts int32
 }
 
-// GetUserTokenUser busca un token vigente sin consumirlo (el desafío del 2FA sigue
-// sirviendo después de un código incorrecto, hasta agotar sus intentos).
+// GetUserTokenUser finds a valid token without consuming it (the 2FA challenge keeps
+// working after a wrong code, until its attempts run out).
 func (q *Queries) GetUserTokenUser(ctx context.Context, arg GetUserTokenUserParams) (int64, error) {
 	row := q.db.QueryRow(ctx, getUserTokenUser, arg.TokenHash, arg.Purpose, arg.MaxAttempts)
 	var user_id int64
@@ -148,8 +148,8 @@ type UseUserTokenAttemptParams struct {
 	MaxAttempts int32
 }
 
-// UseUserTokenAttempt gasta un intento del token y devuelve cuántos lleva. Es una sola
-// sentencia, así que varias peticiones simultáneas no pueden pasarse del máximo.
+// UseUserTokenAttempt spends one attempt of the token and returns how many it has used. It is a single
+// statement, so several simultaneous requests cannot go over the maximum.
 func (q *Queries) UseUserTokenAttempt(ctx context.Context, arg UseUserTokenAttemptParams) (int32, error) {
 	row := q.db.QueryRow(ctx, useUserTokenAttempt, arg.TokenHash, arg.Purpose, arg.MaxAttempts)
 	var attempts int32

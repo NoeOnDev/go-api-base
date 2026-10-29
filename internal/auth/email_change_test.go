@@ -41,7 +41,7 @@ func TestChangeEmail(t *testing.T) {
 
 	token := testutil.TokenFromEmail(t, link)
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/email/confirm", confirmBody(token)); w.Code != http.StatusNoContent {
-		t.Fatalf("confirmar: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("confirm: status = %d; body: %s", w.Code, w.Body)
 	}
 	u := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK)
 	if u.Email != "alice.new@example.com" || !u.EmailVerified() {
@@ -125,7 +125,7 @@ func TestConfirmEmailChangeRevokesPasswordReset(t *testing.T) {
 	testutil.Do(t, api, cookie, http.MethodPut, "/auth/email", changeToNew)
 	link, _ := mails.Last("alice.new@example.com")
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/email/confirm", confirmBody(testutil.TokenFromEmail(t, link))); w.Code != http.StatusNoContent {
-		t.Fatalf("confirmar: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("confirm: status = %d; body: %s", w.Code, w.Body)
 	}
 
 	testutil.Decode[testutil.APIError](t,

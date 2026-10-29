@@ -66,7 +66,7 @@ func TestResetPassword(t *testing.T) {
 	})
 
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(token, newPassword)); w.Code != http.StatusNoContent {
-		t.Fatalf("reset: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("reset: status = %d; body: %s", w.Code, w.Body)
 	}
 
 	// Every session of the user was closed.
@@ -114,7 +114,7 @@ func TestResetPasswordInvalidTokens(t *testing.T) {
 	}
 
 	for name, token := range map[string]string{
-		"inventado":               "token-inventado",
+		"made up":                 "made-up-token",
 		"empty":                   "",
 		"replaced by another one": first,
 		"expired":                 expired,

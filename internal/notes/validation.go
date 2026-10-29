@@ -8,24 +8,24 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
-// Límites de longitud, en caracteres.
+// Length limits, in characters.
 const (
 	maxTitleLen = 200
 	maxBodyLen  = 10000
 )
 
-// noteInput es el cuerpo que se acepta al crear o editar una nota.
+// noteInput is the body accepted when creating or editing a note.
 type noteInput struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
 }
 
-// normalize limpia los datos antes de validarlos.
+// normalize cleans the data before validating it.
 func (in *noteInput) normalize() {
 	in.Title = strings.TrimSpace(in.Title)
 }
 
-// validate revisa las reglas y devuelve un error de validación con todos los campos que fallan.
+// validate checks the rules and returns a validation error with every field that fails.
 func (in noteInput) validate() error {
 	fields := httpx.Fields{}
 

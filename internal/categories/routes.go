@@ -7,7 +7,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
 
-// Register agrega las rutas: lectura pública, escritura solo para administradores.
+// Register adds the routes: public reads, writes only for administrators.
 func Register(mux *http.ServeMux, h *Handler, authn *auth.Service) {
 	mux.Handle("GET /categories", httpx.Handle(h.list))
 	mux.Handle("GET /categories/{id}", httpx.Handle(h.get))

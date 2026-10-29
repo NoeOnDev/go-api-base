@@ -121,7 +121,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 
 	if apiErr.Status >= http.StatusInternalServerError {
-		LoggerFrom(r.Context()).Error("error interno", "error", err)
+		LoggerFrom(r.Context()).Error("internal error", "error", err)
 	}
 	writeBody(w, r, apiErr)
 }

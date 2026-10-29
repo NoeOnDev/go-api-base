@@ -214,7 +214,7 @@ func TestRotateKeys(t *testing.T) {
 	// A second pass encrypts nothing again.
 	again, err := service.RotateKeys(t.Context())
 	if err != nil || again.Reencrypted != 0 || again.AlreadyCurrent != 3 {
-		t.Errorf("segunda pasada inesperada: %+v (%v)", again, err)
+		t.Errorf("unexpected second pass: %+v (%v)", again, err)
 	}
 
 	// When both users regenerate their codes with the new key, the rotation finishes.

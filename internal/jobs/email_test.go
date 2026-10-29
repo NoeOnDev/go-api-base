@@ -99,7 +99,7 @@ func TestSendEmailWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.Job.State != rivertype.JobStateCompleted {
-		t.Errorf("estado = %s", res.Job.State)
+		t.Errorf("state = %s", res.Job.State)
 	}
 	if msg, ok := recorder.Last("alice@example.com"); !ok || msg.Subject != "Reset your password" {
 		t.Errorf("the email was not sent: %+v", recorder.Messages())

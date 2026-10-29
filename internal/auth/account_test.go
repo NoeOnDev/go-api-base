@@ -64,7 +64,7 @@ func TestChangePassword(t *testing.T) {
 
 	body := `{"current_password":"test-password","password":"a-new-password"}`
 	if w := do(t, api, http.MethodPut, "/auth/password", body, current); w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("status = %d; body: %s", w.Code, w.Body)
 	}
 
 	// The current session stays active; the one on the other device was closed.

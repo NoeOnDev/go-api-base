@@ -56,7 +56,7 @@ func TestEmailVerificationRequired(t *testing.T) {
 
 	// With the new link it is verified, and the protected routes work.
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/email/verify", verifyBody(testutil.TokenFromEmail(t, second))); w.Code != http.StatusNoContent {
-		t.Fatalf("verify: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("verify: status = %d; body: %s", w.Code, w.Body)
 	}
 	me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK)
 	if !me.EmailVerified() {
@@ -110,7 +110,7 @@ func TestVerifyEmailInvalidToken(t *testing.T) {
 	api := testutil.NewAPI(pool)
 
 	resp := testutil.Decode[testutil.APIError](t,
-		testutil.Do(t, api, nil, http.MethodPost, "/auth/email/verify", verifyBody("token-inventado")),
+		testutil.Do(t, api, nil, http.MethodPost, "/auth/email/verify", verifyBody("made-up-token")),
 		http.StatusUnprocessableEntity)
 	if resp.Error.Fields["token"] == "" {
 		t.Errorf("want an error on token: %+v", resp.Error)
@@ -141,7 +141,7 @@ func TestResendVerificationRecipientLimit(t *testing.T) {
 		}
 		resp := testutil.Decode[testutil.APIError](t, w, http.StatusTooManyRequests)
 		if resp.Error.Code != "too_many_emails" || w.Header().Get("Retry-After") != "1200" {
-			t.Errorf("respuesta inesperada: %+v, Retry-After %q", resp.Error, w.Header().Get("Retry-After"))
+			t.Errorf("unexpected response: %+v, Retry-After %q", resp.Error, w.Header().Get("Retry-After"))
 		}
 	}
 

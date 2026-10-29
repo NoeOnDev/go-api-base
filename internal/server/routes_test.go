@@ -46,7 +46,7 @@ func TestHealthz(t *testing.T) {
 	api.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"status":"ok"`) {
-		t.Errorf("status = %d, cuerpo = %s", w.Code, w.Body)
+		t.Errorf("status = %d, body = %s", w.Code, w.Body)
 	}
 	if w.Header().Get("X-Request-ID") == "" {
 		t.Error("missing X-Request-ID in the response")
@@ -115,7 +115,7 @@ func TestCORSPreflight(t *testing.T) {
 	api.ServeHTTP(w, r)
 
 	if w.Code != http.StatusNoContent || w.Header().Get("Access-Control-Allow-Origin") != frontend {
-		t.Errorf("status = %d, encabezados = %v", w.Code, w.Header())
+		t.Errorf("status = %d, headers = %v", w.Code, w.Header())
 	}
 }
 

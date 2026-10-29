@@ -44,11 +44,11 @@ func TestNotificationsOwnership(t *testing.T) {
 	// Each one sees only their own, from the newest to the oldest.
 	list := testutil.Decode[listResponse](t, testutil.Do(t, api, aliceCookie, http.MethodGet, "/notifications", ""), http.StatusOK)
 	if len(list.Data) != 2 || list.Meta.Total != 2 || list.Unread != 2 || string(list.Data[0].Data) != `{"task_id":2}` {
-		t.Fatalf("listado de Alice: %+v", list)
+		t.Fatalf("Alice's list: %+v", list)
 	}
 	bobList := testutil.Decode[listResponse](t, testutil.Do(t, api, bobCookie, http.MethodGet, "/notifications", ""), http.StatusOK)
 	if len(bobList.Data) != 1 {
-		t.Fatalf("listado de Bob: %+v", bobList)
+		t.Fatalf("Bob's list: %+v", bobList)
 	}
 
 	// Another user's answers 404, as in notes.
@@ -79,7 +79,7 @@ func TestNotificationsOwnership(t *testing.T) {
 	}
 
 	// Errores.
-	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, aliceCookie, http.MethodGet, "/notifications?unread=si", ""), http.StatusUnprocessableEntity)
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, aliceCookie, http.MethodGet, "/notifications?unread=yes", ""), http.StatusUnprocessableEntity)
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodGet, "/notifications", ""), http.StatusUnauthorized)
 	if w := testutil.Do(t, api, aliceCookie, http.MethodGet, "/notifications", ""); w.Header().Get("Cache-Control") != "no-store" {
 		t.Error("notifications should not be cached")
@@ -154,7 +154,7 @@ func TestSecurityChangesNotify(t *testing.T) {
 	// The text is built on read (it is not stored): no message is left in data.
 	if len(list.Data) != 1 || list.Data[0].Kind != auth.NotifyPasswordChanged ||
 		!strings.Contains(list.Data[0].Message, "password was changed") || string(list.Data[0].Data) != "{}" {
-		t.Errorf("notificaciones guardadas: %+v", list)
+		t.Errorf("stored notifications: %+v", list)
 	}
 }
 
@@ -170,6 +170,6 @@ func TestTwoFactorChangesNotify(t *testing.T) {
 
 	list := testutil.Decode[listResponse](t, testutil.Do(t, api, cookie, http.MethodGet, "/notifications", ""), http.StatusOK)
 	if len(list.Data) != 2 || list.Data[0].Kind != auth.NotifyTwoFactorDisabled || list.Data[1].Kind != auth.NotifyTwoFactorEnabled {
-		t.Errorf("notificaciones: %+v", list.Data)
+		t.Errorf("notifications: %+v", list.Data)
 	}
 }

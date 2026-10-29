@@ -71,7 +71,7 @@ func TestGenerateSecret(t *testing.T) {
 	}
 	b, _ := GenerateSecret()
 	if a == b || len(a) != 32 {
-		t.Errorf("secretos inesperados: %q %q", a, b)
+		t.Errorf("unexpected secrets: %q %q", a, b)
 	}
 	if _, err := Code(a, time.Now()); err != nil {
 		t.Errorf("the generated secret does not work: %v", err)
@@ -88,7 +88,7 @@ func TestURI(t *testing.T) {
 		t.Fatal(err)
 	}
 	if u.Scheme != "otpauth" || u.Host != "totp" || !strings.HasPrefix(u.Path, "/My App:alice@example.com") {
-		t.Errorf("URI inesperada: %s", uri)
+		t.Errorf("unexpected URI: %s", uri)
 	}
 	if strings.Contains(uri, "+") {
 		t.Errorf("spaces should be encoded as %%20: %s", uri)

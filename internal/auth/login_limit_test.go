@@ -38,7 +38,7 @@ func TestLoginAccountLimit(t *testing.T) {
 		w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/login", loginBodyFor(" "+email, "test-password"))
 		resp := testutil.Decode[testutil.APIError](t, w, http.StatusTooManyRequests)
 		if resp.Error.Code != "too_many_requests" || w.Header().Get("Retry-After") != "60" {
-			t.Errorf("%s: respuesta inesperada: %+v, Retry-After %q", email, resp.Error, w.Header().Get("Retry-After"))
+			t.Errorf("%s: unexpected response: %+v, Retry-After %q", email, resp.Error, w.Header().Get("Retry-After"))
 		}
 	}
 

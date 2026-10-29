@@ -125,7 +125,7 @@ func TestRequireUserRejectsInvalidSessions(t *testing.T) {
 
 	for name, c := range map[string]*http.Cookie{
 		"without a cookie": nil,
-		"token inventado":  {Name: auth.CookieName, Value: "token-inventado"},
+		"made-up token":    {Name: auth.CookieName, Value: "made-up-token"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			resp := decode[apiError](t, do(t, api, http.MethodGet, "/auth/me", "", c), http.StatusUnauthorized)

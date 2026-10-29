@@ -1,6 +1,6 @@
-// Package validate reúne reglas de validación que comparten varios recursos.
-// Cada función devuelve el mensaje de error para el campo (por traducir; ver internal/i18n), o un
-// mensaje vacío si el valor es válido: if msg := validate.Required(v, 100); !msg.IsZero() {…}.
+// Package validate gathers validation rules shared by several resources.
+// Each function returns the error message for the field (to be translated; see internal/i18n),
+// or an empty message if the value is valid: if msg := validate.Required(v, 100); !msg.IsZero() {…}.
 package validate
 
 import (
@@ -11,7 +11,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
-// Required exige un texto no vacío de hasta max caracteres.
+// Required demands a non-empty text of up to max characters.
 func Required(value string, max int) i18n.Message {
 	switch {
 	case strings.TrimSpace(value) == "":
@@ -32,8 +32,8 @@ func MaxLen(value string, max int) i18n.Message {
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// Slug exige un identificador para URLs: minúsculas, números y guiones simples,
-// por ejemplo "cafe-de-especialidad".
+// Slug demands an identifier for URLs: lowercase letters, numbers and single hyphens,
+// for example "specialty-coffee".
 func Slug(value string, max int) i18n.Message {
 	if msg := Required(value, max); !msg.IsZero() {
 		return msg
@@ -44,7 +44,7 @@ func Slug(value string, max int) i18n.Message {
 	return i18n.Message{}
 }
 
-// NonNegative exige un número mayor o igual a cero.
+// NonNegative demands a number greater than or equal to zero.
 func NonNegative[T int32 | int64](value T) i18n.Message {
 	if value < 0 {
 		return i18n.M("validation.negative")

@@ -10,7 +10,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/validate"
 )
 
-// productInput es el cuerpo para crear o reemplazar un producto.
+// productInput is the body to create or replace a product.
 type productInput struct {
 	CategoryID  int64  `json:"category_id"`
 	Name        string `json:"name"`
@@ -18,7 +18,7 @@ type productInput struct {
 	Description string `json:"description"`
 	PriceCents  int64  `json:"price_cents"`
 	Stock       int32  `json:"stock"`
-	// Active es un puntero para distinguir "no enviado" (se usa true) de false.
+	// Active is a pointer to tell "not sent" (true is used) apart from false.
 	Active *bool `json:"active"`
 }
 
@@ -60,8 +60,8 @@ func (in productInput) validate() error {
 	return nil
 }
 
-// filters son los filtros opcionales del listado: ?category_id=3&q=café&active=true.
-// Un campo nil significa "sin filtro".
+// filters are the optional filters of the list: ?category_id=3&q=café&active=true.
+// A nil field means "no filter".
 type filters struct {
 	CategoryID *int64
 	Search     *string
@@ -103,8 +103,8 @@ func parseFilters(r *http.Request) (filters, error) {
 	return f, nil
 }
 
-// escapeLike escapa los comodines de ILIKE (%, _ y \) para que se busquen como texto literal:
-// buscar "50%" debe encontrar "Descuento 50%", no cualquier cosa que empiece con "50".
+// escapeLike escapes the ILIKE wildcards (%, _ and \) so they are searched as literal text:
+// searching "50%" must find "Discount 50%", not anything that starts with "50".
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 func escapeLike(s string) string {

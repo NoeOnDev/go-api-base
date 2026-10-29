@@ -30,10 +30,10 @@ func TestDecode(t *testing.T) {
 		{"empty", ``, http.StatusBadRequest},
 		{"malformed", `{"name":`, http.StatusBadRequest},
 		{"invalid syntax", `{"name" "Alice"}`, http.StatusBadRequest},
-		{"tipo incorrecto", `{"age":"treinta"}`, http.StatusBadRequest},
+		{"wrong type", `{"age":"thirty"}`, http.StatusBadRequest},
 		{"unknown field", `{"name":"Alice","admin":true}`, http.StatusBadRequest},
 		{"two objects", `{"name":"Alice"}{"name":"Bob"}`, http.StatusBadRequest},
-		{"demasiado grande", `{"name":"` + strings.Repeat("a", MaxBodyBytes) + `"}`, http.StatusRequestEntityTooLarge},
+		{"too large", `{"name":"` + strings.Repeat("a", MaxBodyBytes) + `"}`, http.StatusRequestEntityTooLarge},
 	}
 
 	for _, tt := range tests {
@@ -100,14 +100,14 @@ func TestWriteErrorFormats(t *testing.T) {
 		}
 	})
 
-	t.Run("error interno no expone detalles", func(t *testing.T) {
+	t.Run("internal error does not expose details", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		WriteError(w, r, errors.New("database password: secret"))
 
 		if w.Code != http.StatusInternalServerError {
 			t.Errorf("status = %d", w.Code)
 		}
-		if strings.Contains(w.Body.String(), "secreta") {
+		if strings.Contains(w.Body.String(), "database password") {
 			t.Error("the response exposes the internal error")
 		}
 		if got := decodeErrorBody(t, w.Body); got.Code != "internal_error" {
@@ -126,7 +126,7 @@ func TestRequestID(t *testing.T) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 		if len(seen) != 32 || w.Header().Get(RequestIDHeader) != seen {
-			t.Errorf("id = %q, encabezado = %q", seen, w.Header().Get(RequestIDHeader))
+			t.Errorf("id = %q, header = %q", seen, w.Header().Get(RequestIDHeader))
 		}
 	})
 
@@ -232,7 +232,7 @@ func TestRecoverAfterResponseStarted(t *testing.T) {
 	srv := httptest.NewServer(Chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("data: parte\n\n"))
+		_, _ = w.Write([]byte("data: part\n\n"))
 		_ = http.NewResponseController(w).Flush()
 		panic("fails in the middle of the stream")
 	}), RequestID(logger), Logger, Recover))

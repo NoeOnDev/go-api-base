@@ -7,7 +7,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
 
-// Register agrega las rutas de notas al mux. Todas requieren una sesión.
+// Register adds the note routes to the mux. All of them require a session.
 func Register(mux *http.ServeMux, h *Handler, authn *auth.Service) {
 	mux.Handle("GET /notes", authn.RequireUser(httpx.Handle(h.list)))
 	mux.Handle("POST /notes", authn.RequireUser(httpx.Handle(h.create)))

@@ -41,7 +41,7 @@ func TestEnableTwoFactor(t *testing.T) {
 	u, err := url.Parse(setup.OTPAuthURL)
 	if err != nil || u.Scheme != "otpauth" || u.Query().Get("secret") != setup.Secret || u.Query().Get("issuer") != "Test App" ||
 		!strings.Contains(u.Path, "alice@example.com") {
-		t.Fatalf("otpauth_url inesperada: %s", setup.OTPAuthURL)
+		t.Fatalf("unexpected otpauth_url: %s", setup.OTPAuthURL)
 	}
 
 	// In the database the secret is encrypted, not in base32.
@@ -136,7 +136,7 @@ func TestDisableTwoFactor(t *testing.T) {
 	}
 
 	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"test-password"}`); w.Code != http.StatusNoContent {
-		t.Fatalf("disable: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("disable: status = %d; body: %s", w.Code, w.Body)
 	}
 
 	me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK)

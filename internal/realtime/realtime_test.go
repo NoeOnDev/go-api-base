@@ -192,13 +192,13 @@ func TestEventsHandler(t *testing.T) {
 	// Past the WriteTimeout, the stream is still alive, with heartbeats.
 	time.Sleep(300 * time.Millisecond)
 	if c := alice.NextComment(t, time.Second); c != "ping" {
-		t.Errorf("latido = %q", c)
+		t.Errorf("heartbeat = %q", c)
 	}
 
 	// Each one gets what belongs to its channel and topics, and nothing else.
-	b.PublishToUser(t.Context(), 1, Event{Type: "notification", Data: "hola Alice"})
+	b.PublishToUser(t.Context(), 1, Event{Type: "notification", Data: "hello Alice"})
 	b.Publish(t.Context(), "project:42", Event{Type: "task.moved", Data: 5})
-	if ev := alice.Next(t, time.Second); ev.Type != "notification" || ev.Data != `"hola Alice"` {
+	if ev := alice.Next(t, time.Second); ev.Type != "notification" || ev.Data != `"hello Alice"` {
 		t.Errorf("event of the user: %+v", ev)
 	}
 	if ev := alice.Next(t, time.Second); ev.Type != "task.moved" || ev.Data != "5" {

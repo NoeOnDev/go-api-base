@@ -115,7 +115,7 @@ func (b *Broker) deliver(channel string, ev Event) {
 		select {
 		case sub.events <- ev:
 		default:
-			sub.close() // cliente demasiado lento
+			sub.close() // client too slow
 		}
 	}
 }

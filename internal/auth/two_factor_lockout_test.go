@@ -108,7 +108,7 @@ func TestChallengeUserLimitAcrossIPs(t *testing.T) {
 	w := challengeFromIP(t, api, addr.next(), loginFromIP(t, api, addr.next()), codeBody(tf.Code(t)))
 	resp := testutil.Decode[testutil.APIError](t, w, http.StatusTooManyRequests)
 	if resp.Error.Code != "too_many_requests" || w.Header().Get("Retry-After") != "360" {
-		t.Errorf("respuesta inesperada: %+v, Retry-After %q", resp.Error, w.Header().Get("Retry-After"))
+		t.Errorf("unexpected response: %+v, Retry-After %q", resp.Error, w.Header().Get("Retry-After"))
 	}
 
 	// One notice per used-up challenge.

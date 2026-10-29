@@ -18,28 +18,28 @@ func TestClientIP(t *testing.T) {
 		{"no proxy", "203.0.113.7:4321", nil, nil, "203.0.113.7"},
 		{"ignores XFF without TRUST_PROXY", "203.0.113.7:4321", []string{"1.1.1.1"}, nil, "203.0.113.7"},
 		{"uses the last XFF with a proxy on localhost", "127.0.0.1:5000", []string{"1.1.1.1, 198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
-		{"proxy en localhost IPv6", "[::1]:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
+		{"proxy on IPv6 localhost", "[::1]:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
 		{"proxy on a Docker network", "172.18.0.2:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
 		{"proxy on a private network", "10.0.0.5:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
 		{"several headers: the last one is the proxy's", "127.0.0.1:5000", []string{"1.1.1.1", "198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
 		{"proxy without XFF", "127.0.0.1:5000", nil, DefaultTrustedProxies, "127.0.0.1"},
-		{"XFF that is not an IP", "127.0.0.1:5000", []string{"inventado"}, DefaultTrustedProxies, "127.0.0.1"},
+		{"XFF that is not an IP", "127.0.0.1:5000", []string{"made-up"}, DefaultTrustedProxies, "127.0.0.1"},
 		// With TRUST_PROXY and the port open to the internet by mistake: a made-up XFF is not believed.
 		{"direct connection from the internet", "203.0.113.7:4321", []string{"1.1.1.1"}, DefaultTrustedProxies, "203.0.113.7"},
 		{"IPv6", "[2001:db8::1]:443", nil, nil, "2001:db8::1"},
 		// With TRUSTED_PROXIES: only the given proxy, even if another address is on a private network.
-		{"proxy indicado", "10.0.0.5:5000", []string{"198.51.100.4"}, mustProxies(t, "10.0.0.5"), "198.51.100.4"},
+		{"configured proxy", "10.0.0.5:5000", []string{"198.51.100.4"}, mustProxies(t, "10.0.0.5"), "198.51.100.4"},
 		{"another one on the private network, not listed", "10.0.0.6:5000", []string{"1.1.1.1"}, mustProxies(t, "10.0.0.5"), "10.0.0.6"},
-		{"rango indicado", "10.0.0.6:5000", []string{"198.51.100.4"}, mustProxies(t, "10.0.0.0/29"), "198.51.100.4"},
+		{"configured range", "10.0.0.6:5000", []string{"198.51.100.4"}, mustProxies(t, "10.0.0.0/29"), "198.51.100.4"},
 		// With two proxies (Cloudflare in front of Caddy): XFF is walked from right to left skipping the
 		// trusted ones.
-		{"Cloudflare y Caddy", "127.0.0.1:5000", []string{"203.0.113.7, 173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
+		{"Cloudflare and Caddy", "127.0.0.1:5000", []string{"203.0.113.7, 173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
 		{"ignores what the client makes up on the left", "127.0.0.1:5000", []string{"6.6.6.6, 203.0.113.7, 173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
 		{"the chain across several headers", "127.0.0.1:5000", []string{"203.0.113.7", "173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
 		{"client on the private network", "127.0.0.1:5000", []string{"192.168.1.5"}, DefaultTrustedProxies, "192.168.1.5"},
 		{"all trusted: the leftmost one", "127.0.0.1:5000", []string{"192.168.1.5, 10.0.0.9"}, DefaultTrustedProxies, "192.168.1.5"},
-		{"an invalid value stops the search", "127.0.0.1:5000", []string{"inventado, 10.0.0.9"}, DefaultTrustedProxies, "10.0.0.9"},
-		{"garbage to the left of a valid client", "127.0.0.1:5000", []string{"inventado, 203.0.113.7"}, DefaultTrustedProxies, "203.0.113.7"},
+		{"an invalid value stops the search", "127.0.0.1:5000", []string{"made-up, 10.0.0.9"}, DefaultTrustedProxies, "10.0.0.9"},
+		{"garbage to the left of a valid client", "127.0.0.1:5000", []string{"made-up, 203.0.113.7"}, DefaultTrustedProxies, "203.0.113.7"},
 	}
 
 	for _, tt := range tests {
@@ -115,7 +115,7 @@ func TestCORS(t *testing.T) {
 	})
 	h := CORS([]string{"https://app.example.com"})(next)
 
-	t.Run("preflight de un origen permitido", func(t *testing.T) {
+	t.Run("preflight from an allowed origin", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodOptions, "/notes", nil)
 		r.Header.Set("Origin", "https://app.example.com")
 		r.Header.Set("Access-Control-Request-Method", "POST")
@@ -128,7 +128,7 @@ func TestCORS(t *testing.T) {
 		if w.Header().Get("Access-Control-Allow-Origin") != "https://app.example.com" ||
 			w.Header().Get("Access-Control-Allow-Credentials") != "true" ||
 			w.Header().Get("Access-Control-Allow-Methods") == "" {
-			t.Errorf("encabezados incompletos: %v", w.Header())
+			t.Errorf("missing headers: %v", w.Header())
 		}
 	})
 
@@ -139,11 +139,11 @@ func TestCORS(t *testing.T) {
 		h.ServeHTTP(w, r)
 
 		if w.Code != http.StatusTeapot || w.Header().Get("Access-Control-Allow-Origin") != "https://app.example.com" {
-			t.Errorf("status = %d, encabezados = %v", w.Code, w.Header())
+			t.Errorf("status = %d, headers = %v", w.Code, w.Header())
 		}
 	})
 
-	t.Run("origen no permitido", func(t *testing.T) {
+	t.Run("origin not allowed", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, "/notes", nil)
 		r.Header.Set("Origin", "https://other-site.com")
 		w := httptest.NewRecorder()
@@ -161,7 +161,7 @@ func TestCORS(t *testing.T) {
 		CORS(nil)(next).ServeHTTP(w, r)
 
 		if len(w.Header()) != 0 {
-			t.Errorf("encabezados inesperados: %v", w.Header())
+			t.Errorf("unexpected headers: %v", w.Header())
 		}
 	})
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-// Otra pestaña del mismo usuario ve los cambios en vivo; la de otro usuario, no.
+// Another tab of the same user sees the changes live; another user's does not.
 func TestNoteChangesArriveLive(t *testing.T) {
 	pool := testutil.NewDB(t)
 	srv := testutil.NewServer(t, pool)
@@ -36,25 +36,25 @@ func TestNoteChangesArriveLive(t *testing.T) {
 		return resp
 	}
 
-	resp := send(http.MethodPost, "/notes", `{"title":"Comprar pan"}`)
+	resp := send(http.MethodPost, "/notes", `{"title":"Buy bread"}`)
 	var created struct{ ID int64 }
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil || resp.StatusCode != http.StatusCreated {
-		t.Fatalf("crear: status %d (%v)", resp.StatusCode, err)
+		t.Fatalf("create: status %d (%v)", resp.StatusCode, err)
 	}
-	if ev := otherTab.Next(t, 2*time.Second); ev.Type != notes.EventCreated || !strings.Contains(ev.Data, "Comprar pan") {
-		t.Errorf("creada: %+v", ev)
+	if ev := otherTab.Next(t, 2*time.Second); ev.Type != notes.EventCreated || !strings.Contains(ev.Data, "Buy bread") {
+		t.Errorf("created: %+v", ev)
 	}
 
 	id := strconv.FormatInt(created.ID, 10)
 	path := "/notes/" + id
-	send(http.MethodPut, path, `{"title":"Comprar pan y leche"}`)
-	if ev := otherTab.Next(t, 2*time.Second); ev.Type != notes.EventUpdated || !strings.Contains(ev.Data, "leche") {
-		t.Errorf("actualizada: %+v", ev)
+	send(http.MethodPut, path, `{"title":"Buy bread and milk"}`)
+	if ev := otherTab.Next(t, 2*time.Second); ev.Type != notes.EventUpdated || !strings.Contains(ev.Data, "milk") {
+		t.Errorf("updated: %+v", ev)
 	}
 
 	send(http.MethodDelete, path, "")
 	if ev := otherTab.Next(t, 2*time.Second); ev.Type != notes.EventDeleted || ev.Data != `{"id":`+id+`}` {
-		t.Errorf("borrada: %+v", ev)
+		t.Errorf("deleted: %+v", ev)
 	}
 
 	bobTab.Nothing(t, 100*time.Millisecond)

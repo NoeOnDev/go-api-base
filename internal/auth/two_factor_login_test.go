@@ -90,7 +90,7 @@ func TestTOTPCodeCannotBeReused(t *testing.T) {
 	code := tf.Code(t)
 
 	if w := challenge(t, api, loginWithTwoFactor(t, api), codeBody(code)); w.Code != http.StatusOK {
-		t.Fatalf("primer uso: status = %d", w.Code)
+		t.Fatalf("first use: status = %d", w.Code)
 	}
 
 	// The same code, still within its time window, no longer works.

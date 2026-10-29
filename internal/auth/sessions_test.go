@@ -38,7 +38,7 @@ func loginFrom(t *testing.T, api http.Handler, email, userAgent, ip string) *htt
 	w := httptest.NewRecorder()
 	api.ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
-		t.Fatalf("login: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("login: status = %d; body: %s", w.Code, w.Body)
 	}
 	return sessionCookie(t, w)
 }
@@ -67,7 +67,7 @@ func TestListSessions(t *testing.T) {
 	testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
 	laptop := loginFrom(t, api, "alice@example.com", "Firefox on the laptop", "198.51.100.1")
 	loginFrom(t, api, "alice@example.com", "Safari on the phone", "198.51.100.2")
-	loginFrom(t, api, "bob@example.com", "Chrome de Bob", "198.51.100.3")
+	loginFrom(t, api, "bob@example.com", "Bob's Chrome", "198.51.100.3")
 
 	sessions := listSessions(t, api, laptop)
 	// Alice's two through the API, plus the testutil.Login one. None of Bob's.
@@ -178,7 +178,7 @@ func TestRevokeOtherSessions(t *testing.T) {
 	}
 
 	if w := testutil.Do(t, api, laptop, http.MethodPost, "/auth/sessions/revoke-others", `{"password":"test-password"}`); w.Code != http.StatusNoContent {
-		t.Fatalf("revoke-others: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("revoke-others: status = %d; body: %s", w.Code, w.Body)
 	}
 	for _, c := range []*http.Cookie{phone, tablet} {
 		testutil.Decode[testutil.APIError](t, testutil.Do(t, api, c, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
@@ -287,7 +287,7 @@ func TestStartSessionReplacesBrowserSession(t *testing.T) {
 	// Login in the same browser, which still sends the old cookie.
 	w := testutil.Do(t, api, old, http.MethodPost, "/auth/login", loginBody)
 	if w.Code != http.StatusOK {
-		t.Fatalf("login: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("login: status = %d; body: %s", w.Code, w.Body)
 	}
 	current := sessionCookie(t, w)
 
@@ -302,7 +302,7 @@ func TestStartSessionReplacesBrowserSession(t *testing.T) {
 	// Change of account in the same browser: registering Bob closes that session of Alice's.
 	w = testutil.Do(t, api, current, http.MethodPost, "/auth/register", `{"name":"Bob","email":"bob@example.com","password":"a-long-password"}`)
 	if w.Code != http.StatusCreated {
-		t.Fatalf("registro: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("register: status = %d; body: %s", w.Code, w.Body)
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, current, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
 	if w := testutil.Do(t, api, phone, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {

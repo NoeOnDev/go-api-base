@@ -28,7 +28,7 @@ func TestSecureCookiesUseHostPrefix(t *testing.T) {
 
 	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/register", registerBody)
 	if w.Code != http.StatusCreated {
-		t.Fatalf("registro: status = %d", w.Code)
+		t.Fatalf("register: status = %d", w.Code)
 	}
 	session := cookieNamed(t, w, "__Host-session")
 	if !session.Secure || !session.HttpOnly || session.Path != "/" || session.Domain != "" || session.SameSite != http.SameSiteLaxMode {

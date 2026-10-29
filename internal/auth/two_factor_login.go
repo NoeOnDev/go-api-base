@@ -38,6 +38,11 @@ var (
 	}
 )
 
+// ChallengeCookieName es la cookie del desafío del 2FA: el login con la contraseña correcta
+// la envía, y POST /auth/two-factor/challenge la usa para saber qué usuario está entrando.
+// Con CookieSecure también lleva el prefijo __Host-.
+const ChallengeCookieName = "two_factor_challenge"
+
 // Frenos contra la fuerza bruta del código, que hace alguien que ya tiene la contraseña:
 //   - Cada desafío admite maxChallengeAttempts intentos; después hay que volver a poner la contraseña.
 //   - Cada usuario tiene twoFactorLimitBurst intentos seguidos y luego uno cada twoFactorLimitEvery
@@ -211,4 +216,19 @@ func (s *Service) useTOTPCode(r *http.Request, u store.User, code string) error 
 		return errWrongCode // el código ya se usó
 	}
 	return nil
+}
+
+// setChallengeCookie envía la cookie del desafío del 2FA, con la misma protección que la de sesión.
+func (s *Service) setChallengeCookie(w http.ResponseWriter, token string, expires time.Time) {
+	c := s.cookie(token, expires)
+	c.Name = s.cookieName(ChallengeCookieName)
+	http.SetCookie(w, c)
+}
+
+// clearChallengeCookie le pide al navegador que borre la cookie del desafío.
+func (s *Service) clearChallengeCookie(w http.ResponseWriter) {
+	c := s.cookie("", time.Unix(0, 0))
+	c.Name = s.cookieName(ChallengeCookieName)
+	c.MaxAge = -1
+	http.SetCookie(w, c)
 }

@@ -1,21 +1,17 @@
 package auth_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
-
-const newPassword = "una-clave-nueva"
-
-func resetBody(token, password string) string {
-	return fmt.Sprintf(`{"token":%q,"password":%q}`, token, password)
-}
 
 func TestForgotPasswordDoesNotRevealEmails(t *testing.T) {
 	pool := testutil.NewDB(t)
@@ -128,5 +124,94 @@ func TestResetPasswordInvalidTokens(t *testing.T) {
 				testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(token, newPassword)),
 				http.StatusUnprocessableEntity)
 		})
+	}
+}
+
+// Si un paso de la recuperación falla, no cambia nada y el enlace sigue sirviendo.
+func TestResetPasswordIsAtomic(t *testing.T) {
+	pool := testutil.NewDB(t)
+	mails := &mail.Recorder{}
+	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
+	testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser) // una sesión que cerrar
+
+	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
+	msg, _ := mails.Last("ana@ejemplo.com")
+	body := resetBody(testutil.TokenFromEmail(t, msg), newPassword)
+
+	exec := func(sql string) error { _, err := pool.Exec(context.Background(), sql); return err }
+	failSessionDeletes(t, exec)
+
+	// Falla el cierre de sesiones, el último paso: se deshace todo.
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", body), http.StatusInternalServerError)
+
+	service := auth.NewService(pool, auth.Options{})
+	if _, err := service.Authenticate(t.Context(), "ana@ejemplo.com", "contraseña-de-prueba"); err != nil {
+		t.Errorf("la contraseña no debería haber cambiado: %v", err)
+	}
+
+	// Sin la falla, el mismo enlace funciona: no se gastó.
+	if err := exec("DROP TRIGGER test_fail_session_delete ON sessions"); err != nil {
+		t.Fatal(err)
+	}
+	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", body); w.Code != http.StatusNoContent {
+		t.Fatalf("el enlace debería seguir sirviendo: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+	if _, err := service.Authenticate(t.Context(), "ana@ejemplo.com", newPassword); err != nil {
+		t.Errorf("la contraseña nueva debería funcionar: %v", err)
+	}
+}
+
+// Varios pedidos de enlace simultáneos para el mismo usuario dejan un solo enlace válido.
+// (Sin el bloqueo de la fila del usuario, este test fallaría o no según coincidieran en el
+// tiempo; con el bloqueo pasa siempre.)
+func TestConcurrentForgotLeavesOneToken(t *testing.T) {
+	pool := testutil.NewDB(t)
+	testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+
+	for round := range 5 {
+		api := testutil.NewAPI(pool) // límites nuevos en cada ronda
+		var wg sync.WaitGroup
+		for i := range 3 {
+			wg.Go(func() {
+				ip := fmt.Sprintf("198.51.%d.%d", round, i+1)
+				testutil.DoFromIP(t, api, ip, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
+			})
+		}
+		wg.Wait()
+
+		var n int
+		if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM user_tokens WHERE purpose = 'password_reset'").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Fatalf("ronda %d: quedaron %d enlaces válidos, se esperaba 1", round+1, n)
+		}
+	}
+}
+
+// Los límites por destinatario frenan a quien pide correos para otra persona desde muchas IPs:
+// cada petición sale de una IP distinta, así que el límite por IP no interviene.
+func TestForgotPasswordRecipientLimit(t *testing.T) {
+	pool := testutil.NewDB(t)
+	mails := &mail.Recorder{}
+	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
+	testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+
+	for i := range 4 {
+		ip := fmt.Sprintf("198.51.100.%d", i+1)
+		w := testutil.DoFromIP(t, api, ip, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
+		// Siempre la misma respuesta, para no revelar nada.
+		testutil.Decode[map[string]string](t, w, http.StatusAccepted)
+	}
+
+	if n := len(mails.Messages()); n != 3 {
+		t.Fatalf("se enviaron %d correos, se esperaban 3", n)
+	}
+
+	// El cuarto pedido no invalidó el último enlace enviado.
+	last, _ := mails.Last("ana@ejemplo.com")
+	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(testutil.TokenFromEmail(t, last), newPassword))
+	if w.Code != http.StatusNoContent {
+		t.Errorf("el último enlace debería seguir sirviendo: status = %d; cuerpo: %s", w.Code, w.Body)
 	}
 }

@@ -246,15 +246,16 @@ Después:
 - **Conservá `TEMPLATE_VERSION`:** dice de qué versión de la plantilla salió el proyecto. Cuando lleves al proyecto los cambios del [CHANGELOG](CHANGELOG.md) de versiones más nuevas, actualizalo a la última que aplicaste. Así siempre sabés desde dónde leer.
 - Conservá la autenticación.
 - Quedate con los ejemplos que se parezcan a tu proyecto y borrá el resto (su paquete, sus consultas, sus migraciones y su registro en `internal/server/routes.go`).
-- Si no necesitás la cola de trabajos o el tiempo real, [docs/jobs.md](docs/jobs.md) y [docs/realtime.md](docs/realtime.md) explican cómo quitarlos.
+- Si no necesitás alguna función de auth (registro abierto, 2FA, cambio de email…), [docs/auth.md](docs/auth.md#quitar-funciones) dice qué borrar.
+- Si no necesitás la cola de trabajos o el tiempo real, [docs/jobs.md](docs/jobs.md#quitar-la-cola) y [docs/realtime.md](docs/realtime.md#quitar-el-tiempo-real) explican cómo quitarlos.
 - Agregá tus recursos siguiendo [docs/adding-a-resource.md](docs/adding-a-resource.md).
 
 ## Documentación
 
-- [Autenticación](docs/auth.md): cómo funciona y cómo usarla desde React.
+- [Autenticación](docs/auth.md): cómo funciona, cómo usarla desde React y cómo quitar las funciones que no uses.
 - [Cifrado y `ENCRYPTION_KEY`](docs/encryption.md): qué protege, cómo guardarla y cómo rotarla.
-- [Trabajos en segundo plano](docs/jobs.md): crear trabajos, encolar en una transacción, periódicos y reintentos.
-- [Tiempo real](docs/realtime.md): eventos con SSE desde React, temas con permiso y streams para agentes de IA.
+- [Trabajos en segundo plano](docs/jobs.md): crear trabajos, encolar en una transacción, periódicos, reintentos y cómo quitar la cola.
+- [Tiempo real](docs/realtime.md): eventos con SSE desde React, temas con permiso, streams para agentes de IA, varias instancias y cómo quitarlo.
 - [Cómo agregar un recurso](docs/adding-a-resource.md)
-- [Decisiones de diseño](docs/decisions.md)
-- [AGENTS.md](AGENTS.md): convenciones para agentes de código (Claude Code, Codex, Copilot).
+- [Decisiones de diseño](docs/decisions.md): por qué está hecho así, cómo funciona con varias instancias y qué no incluye.
+- [AGENTS.md](AGENTS.md): convenciones para agentes de código (Claude Code, Codex, Copilot), con un índice de dónde está cada tema.

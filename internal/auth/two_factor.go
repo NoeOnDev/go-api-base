@@ -22,16 +22,6 @@ func totpAAD(userID int64) []byte {
 	return []byte("users.totp_secret:" + strconv.FormatInt(userID, 10))
 }
 
-// errNoBox indica que falta ENCRYPTION_KEY: sin ella no se puede guardar el secreto del 2FA.
-var errNoBox = errors.New("2FA no disponible: falta configurar ENCRYPTION_KEY")
-
-func (s *Service) box() (*secretbox.Box, error) {
-	if s.opts.Box == nil {
-		return nil, errNoBox
-	}
-	return s.opts.Box, nil
-}
-
 var (
 	errTwoFactorEnabled    = httpx.Conflict("el 2FA ya está activo", "")
 	errTwoFactorNotEnabled = httpx.Conflict("el 2FA no está activo", "")
@@ -170,10 +160,6 @@ func (s *Service) enableTwoFactor(w http.ResponseWriter, r *http.Request) error 
 	return nil
 }
 
-type passwordInput struct {
-	Password string `json:"password"`
-}
-
 // disableTwoFactor responde POST /auth/two-factor/disable. Pide la contraseña, borra el secreto
 // y los códigos de recuperación, y cierra las demás sesiones.
 func (s *Service) disableTwoFactor(w http.ResponseWriter, r *http.Request) error {
@@ -296,4 +282,58 @@ func (s *Service) reencryptSecret(ctx context.Context, box *secretbox.Box, u sto
 		return
 	}
 	httpx.LoggerFrom(ctx).Info("secreto del 2FA cifrado con la clave actual", "user_id", u.ID, "key_id", box.KeyID())
+}
+
+// rotateTwoFactorKeys es la parte del 2FA de RotateKeys: vuelve a cifrar con la clave actual los
+// secretos que estén con una anterior, y cuenta los códigos de recuperación calculados con claves
+// anteriores (esos no se pueden recalcular). Anota en inUse las claves que todavía hacen falta.
+func (s *Service) rotateTwoFactorKeys(ctx context.Context, box *secretbox.Box, report *KeyReport, inUse map[string]bool) error {
+	users, err := s.q.ListUsersWithTOTPSecret(ctx)
+	if err != nil {
+		return fmt.Errorf("listar secretos del 2FA: %w", err)
+	}
+
+	for _, u := range users {
+		old := *u.TOTPSecret
+		if !box.NeedsRotation(old) {
+			report.AlreadyCurrent++
+			continue
+		}
+
+		secret, err := box.Decrypt(old, totpAAD(u.ID))
+		if err != nil {
+			reason := "dato dañado o de una clave distinta"
+			if errors.Is(err, secretbox.ErrUnknownKey) {
+				reason = "su clave no está configurada"
+			}
+			keyID := secretbox.KeyIDOf(old)
+			report.Undecryptable = append(report.Undecryptable, UndecryptableSecret{UserID: u.ID, KeyID: keyID, Reason: reason})
+			inUse[keyID] = true
+			continue
+		}
+
+		encrypted, err := box.Encrypt(secret, totpAAD(u.ID))
+		if err != nil {
+			return err
+		}
+		rows, err := s.q.UpdateTOTPSecret(ctx, store.UpdateTOTPSecretParams{ID: u.ID, OldSecret: &old, NewSecret: &encrypted})
+		if err != nil {
+			return fmt.Errorf("guardar secreto del usuario %d: %w", u.ID, err)
+		}
+		if rows == 1 {
+			report.Reencrypted++
+		}
+	}
+
+	codes, err := s.q.CountRecoveryCodeUsersByKey(ctx)
+	if err != nil {
+		return fmt.Errorf("contar códigos de recuperación: %w", err)
+	}
+	for _, c := range codes {
+		if c.KeyID != box.KeyID() {
+			report.OldRecoveryCodes = append(report.OldRecoveryCodes, KeyUsage{KeyID: c.KeyID, Users: c.Users})
+			inUse[c.KeyID] = true
+		}
+	}
+	return nil
 }

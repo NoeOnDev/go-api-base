@@ -33,20 +33,3 @@ func TestAccountLimitIsPerUser(t *testing.T) {
 		t.Errorf("error inesperado: %+v", resp.Error)
 	}
 }
-
-// El segundo paso del 2FA tiene su propio límite: no gasta los intentos del login. Con el límite
-// compartido de antes (5 por IP), este test se cortaba en el tercer login.
-func TestTwoFactorChallengeHasItsOwnLimit(t *testing.T) {
-	pool := testutil.NewDB(t)
-	api := testutil.NewAPI(pool)
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	testutil.EnableTwoFactor(t, api, session, testutil.Password)
-
-	// 10 logins con su segundo paso (con un código incorrecto), todos desde la misma IP.
-	for i := range 10 {
-		pending := loginWithTwoFactor(t, api) // falla el test si el login no responde 202
-		if w := challenge(t, api, pending, codeBody("000000")); w.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("intento %d del 2FA: status = %d, se esperaba 422", i+1, w.Code)
-		}
-	}
-}

@@ -44,21 +44,6 @@ func TestSecureCookiesUseHostPrefix(t *testing.T) {
 		t.Errorf("/auth/me con la cookie sin prefijo: status = %d", w.Code)
 	}
 
-	// El login con 2FA usa __Host-two_factor_challenge.
-	tf := testutil.EnableTwoFactor(t, api, session, "una-clave-larga")
-	w = testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBodyFor("ana@ejemplo.com", "una-clave-larga"))
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("login: status = %d", w.Code)
-	}
-	pending := cookieNamed(t, w, "__Host-two_factor_challenge")
-	if !pending.Secure || pending.Path != "/" || pending.Domain != "" {
-		t.Errorf("la cookie del desafío no cumple las reglas de __Host-: %+v", pending)
-	}
-	w = challenge(t, api, pending, codeBody(tf.Code(t)))
-	if w.Code != http.StatusOK {
-		t.Fatalf("desafío: status = %d; cuerpo: %s", w.Code, w.Body)
-	}
-	cookieNamed(t, w, "__Host-session")
 }
 
 func TestLoginHelperWithSecureCookies(t *testing.T) {

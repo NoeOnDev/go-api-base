@@ -7,12 +7,9 @@ import (
 	"testing"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
-	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
-
-func requireVerification(c *config.Config) { c.RequireEmailVerification = true }
 
 func verifyBody(token string) string { return fmt.Sprintf(`{"token":%q}`, token) }
 
@@ -119,4 +116,36 @@ func TestVerifyEmailInvalidToken(t *testing.T) {
 		t.Errorf("se esperaba error en token: %+v", resp.Error)
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodPost, "/auth/email/resend", ""), http.StatusUnauthorized)
+}
+
+// Los límites por destinatario frenan a quien pide correos para otra persona desde muchas IPs:
+// cada petición sale de una IP distinta, así que el límite por IP no interviene.
+func TestResendVerificationRecipientLimit(t *testing.T) {
+	pool := testutil.NewDB(t)
+	mails := &mail.Recorder{}
+	api := testutil.NewAPI(pool, testutil.WithMailer(mails), testutil.WithConfig(requireVerification))
+
+	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/register", registerBody)
+	testutil.Decode[auth.User](t, w, http.StatusCreated)
+	cookie := sessionCookie(t, w)
+
+	// El correo del registro no cuenta: después se pueden pedir 3 más.
+	for i := range 4 {
+		ip := fmt.Sprintf("198.51.100.%d", i+1)
+		w := testutil.DoFromIP(t, api, ip, cookie, http.MethodPost, "/auth/email/resend", "")
+		if i < 3 {
+			if w.Code != http.StatusAccepted {
+				t.Fatalf("resend %d: status = %d", i+1, w.Code)
+			}
+			continue
+		}
+		resp := testutil.Decode[testutil.APIError](t, w, http.StatusTooManyRequests)
+		if resp.Error.Code != "too_many_requests" || w.Header().Get("Retry-After") != "1200" {
+			t.Errorf("respuesta inesperada: %+v, Retry-After %q", resp.Error, w.Header().Get("Retry-After"))
+		}
+	}
+
+	if n := len(mails.Messages()); n != 4 {
+		t.Errorf("se enviaron %d correos, se esperaban 4 (registro y 3 reenvíos)", n)
+	}
 }

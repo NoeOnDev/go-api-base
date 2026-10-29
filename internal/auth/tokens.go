@@ -73,25 +73,6 @@ func (s *Service) issueToken(ctx context.Context, userID int64, purpose string, 
 	return token, nil
 }
 
-// checkToken comprueba que el token sea válido, sin gastarlo. Sirve para no hacer trabajo caro
-// (como calcular un hash de argon2) con un enlace inventado o vencido; después hay que
-// consumirlo con consumeToken, que lo vuelve a comprobar.
-func (s *Service) checkToken(ctx context.Context, token, purpose string) error {
-	if token == "" {
-		return errInvalidToken
-	}
-	// Los tokens que se envían por correo no usan intentos (attempts queda en 0): el máximo
-	// es el del desafío del 2FA, que acá no limita nada.
-	_, err := s.q.GetUserTokenUser(ctx, store.GetUserTokenUserParams{TokenHash: hashToken(token), Purpose: purpose, MaxAttempts: maxChallengeAttempts})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return errInvalidToken
-	}
-	if err != nil {
-		return fmt.Errorf("buscar token: %w", err)
-	}
-	return nil
-}
-
 // consumeToken valida el token y lo borra en la misma operación, así que no se puede usar dos veces.
 // Usa las consultas q, que pueden ser las de una transacción: si la transacción se deshace, el
 // token vuelve a servir. Devuelve el usuario al que pertenece, o errInvalidToken.

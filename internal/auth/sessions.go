@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -106,5 +107,23 @@ func (s *Service) revokeOtherSessions(w http.ResponseWriter, r *http.Request) er
 	}
 
 	httpx.Write(w, http.StatusNoContent, nil)
+	return nil
+}
+
+// currentSessionID devuelve el id de la sesión de la petición, en las rutas con sesión.
+func currentSessionID(ctx context.Context) int64 {
+	id, _ := ctx.Value(sessionIDKey{}).(int64)
+	return id
+}
+
+// endOtherSessions cierra todas las sesiones del usuario salvo la de esta petición, y avisa al
+// SessionWatcher. Es para cuando no hay nada más que guardar junto (POST /auth/sessions/revoke-others);
+// si lo hay, deleteOtherSessions dentro de la transacción y sessionsEnded después del commit.
+func (s *Service) endOtherSessions(r *http.Request, userID int64) error {
+	keep, err := s.deleteOtherSessions(r, s.q, userID)
+	if err != nil {
+		return err
+	}
+	s.sessionsEnded(r.Context(), userID, keep)
 	return nil
 }

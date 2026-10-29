@@ -29,6 +29,43 @@ verificación de email opcional, 2FA con TOTP, sesiones por dispositivo, cambio 
 | `internal/categories` | Lectura pública, escritura solo admin, valor único (409), no borrar si está en uso (409) |
 | `internal/products` | Relación con otra tabla (JOIN), filtros y búsqueda, FK inexistente (422), datos visibles según el rol |
 
+## Dónde buscar
+
+La documentación está en español, en `docs/` y en el `README.md`, y responde casi todo lo que suele preguntar un
+proyecto. **Antes de decir que algo falta, no existe o no está documentado, buscalo:** en esta tabla, con
+`grep -rni '<tema>' docs/ README.md` y en los comentarios del código. Si existe, citá el archivo y la sección. Los títulos
+de cada guía se listan con `grep -n '^#' docs/*.md`.
+
+| Tema | Dónde |
+|---|---|
+| Agregar un recurso, paso a paso | [docs/adding-a-resource.md](docs/adding-a-resource.md) |
+| Sesiones con cookie, endpoints de auth y roles | [docs/auth.md](docs/auth.md#cómo-funcionan-las-sesiones), [roles](docs/auth.md#roles) |
+| Proteger una ruta nueva (sesión, admin, ruta pública) | [docs/auth.md](docs/auth.md#proteger-rutas-nuevas) |
+| 2FA, recuperar la contraseña, verificar y cambiar el email, sesiones por dispositivo, borrar la cuenta | Una sección cada uno en [docs/auth.md](docs/auth.md#2fa-verificación-en-dos-pasos) |
+| Correos: variables, plantillas, reintentos y Mailpit | [docs/auth.md](docs/auth.md#correos) |
+| Límites de intentos: valores y dónde se cambian | [docs/auth.md](docs/auth.md#seguridad-incluida) |
+| Límites de intentos: por qué en memoria o en PostgreSQL | [docs/decisions.md](docs/decisions.md#límites-de-intentos) |
+| Frontend en React, en el mismo dominio o en otro | [docs/auth.md](docs/auth.md#desde-el-frontend-react), [docs/realtime.md](docs/realtime.md#desde-el-frontend-react) |
+| Trabajos en segundo plano y periódicos | [docs/jobs.md](docs/jobs.md) |
+| Tiempo real: publicar eventos y temas con permiso | [docs/realtime.md](docs/realtime.md#publicar-eventos) |
+| Transmitir la respuesta de un agente de IA | [docs/realtime.md](docs/realtime.md#transmitir-la-respuesta-de-un-agente-de-ia) |
+| Varias instancias de la API | [docs/decisions.md](docs/decisions.md#varias-instancias) |
+| Cifrado, `ENCRYPTION_KEY` y su rotación | [docs/encryption.md](docs/encryption.md) |
+| Variables de entorno | [README.md](README.md#configuración) |
+| Qué revisar antes de producción | [README.md](README.md#antes-de-producción) |
+| Empezar un proyecto con la plantilla | [README.md](README.md#usar-como-base-de-un-proyecto-nuevo) |
+| **Quitar** funciones de auth que no se usen (registro abierto, 2FA, cambio de email…) | [docs/auth.md](docs/auth.md#quitar-funciones) |
+| **Quitar** la cola de trabajos | [docs/jobs.md](docs/jobs.md#quitar-la-cola) |
+| **Quitar** el tiempo real o solo las notificaciones | [docs/realtime.md](docs/realtime.md#quitar-el-tiempo-real) |
+| Por qué está hecho así (cada decisión de diseño) | [docs/decisions.md](docs/decisions.md) |
+| Lo que la plantilla no incluye a propósito: mirarlo antes de proponer una función nueva | [docs/decisions.md](docs/decisions.md#qué-no-incluye), [docs/auth.md](docs/auth.md#qué-no-incluye) |
+| Qué cambió en cada versión, y el SQL para llevarlo a un proyecto ya desplegado | [CHANGELOG.md](CHANGELOG.md) |
+
+**Al cambiar el comportamiento, actualizá la documentación en el mismo commit:** la guía que lo describe, las recetas
+de "Quitar…" si cambian rutas, archivos o tablas, esta tabla si agregás una guía o una sección que valga la pena
+encontrar, y `CHANGELOG.md`. `make check` comprueba que los enlaces de la documentación y las menciones a `docs/*.md`
+apunten a archivos y secciones que existen (`docs/links_test.go`).
+
 ## Comandos
 
 | Comando | Para qué |
@@ -51,12 +88,13 @@ con las versiones fijas al principio del `Makefile`; no hace falta instalarlas. 
 ## Estructura
 
 ```
-cmd/api/              arranque (main.go) y subcomando create-admin (admin.go)
+cmd/api/              arranque (main.go) y subcomandos create-admin (admin.go), generate-key y rotate-keys (keys.go)
 internal/config/      configuración desde variables de entorno
 internal/httpx/       JSON, errores, paginación, middlewares, CORS, límite de peticiones por IP, IP del cliente
 internal/server/      http.Server con timeouts, rutas, CSRF y orden de middlewares (routes.go)
-internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/RequireAdmin, perfil,
-                      recuperación y verificación; plantillas de correo en emails/*.txt
+internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/RequireAdmin y un archivo por función
+                      (perfil, recuperación, verificación, 2FA…; ver "Quitar funciones" en docs/auth.md). Lo común a
+                      varias, en account.go, session.go y tokens.go; plantillas de correo en emails/*.txt
 internal/ratelimit/   límites de intentos por cuenta o usuario, guardados en PostgreSQL (valen para todas las instancias)
 internal/mail/        envío de correos: LogSender, SMTPSender y Recorder (tests)
 internal/jobs/        trabajos en segundo plano con River: cliente, workers (workers.go), periódicos, MailSender
@@ -70,7 +108,7 @@ internal/validate/    reglas de validación compartidas (obligatorio, longitud, 
 internal/<recurso>/   un paquete por recurso: handlers.go, validation.go, routes.go, handlers_test.go
 internal/testutil/    ayudas para tests de integración (NewDB, Login, NewAPI, Do, Decode)
 migrations/           migraciones SQL de goose, embebidas en el binario
-docs/                 guías (recursos, autenticación) y decisiones de diseño
+docs/                 guías y decisiones de diseño (ver "Dónde buscar"); links_test.go revisa sus enlaces
 ```
 
 ## Convenciones

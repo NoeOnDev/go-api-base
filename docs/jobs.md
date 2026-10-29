@@ -192,6 +192,6 @@ No viene armado, porque un solo proceso alcanza para la mayoría de los proyecto
 Si un proyecto no la necesita:
 
 1. Borrá `internal/jobs` y `migrations/00008_create_river.sql`.
-2. En `cmd/api/main.go`, quitá el cliente y usá el `mail.Sender` directo (`newMailSender`) como `Mailer`. Los correos se enviarían dentro de la petición.
+2. En `cmd/api/main.go`, quitá el cliente y usá el `mail.Sender` directo (`newMailSender`) como `Mailer`. Los correos se enviarían dentro de la petición. En `internal/server/routes.go`, quitá el campo `Jobs` de `Deps`. En `cmd/api/keys.go`, `rotate-keys` informa los correos encolados con `jobs.QueuedEmailKeys`: quitá esa parte.
 3. Volvé a poner la limpieza de vencidos en `StartSession` y `issueToken` (`DeleteExpiredSessions` y `DeleteExpiredUserTokens`). Sin la limpieza de cada hora, también se acumulan las filas viejas de `rate_limits` y `realtime_messages`: borralas en otro lado, por ejemplo con un `time.Ticker` en `cmd/api/main.go` que llame a `DeleteExpiredRateLimits` y `DeleteRealtimeMessagesBefore`.
-4. `go mod tidy` y `make check`.
+4. `make sqlc` (el esquema de River también genera tipos en `internal/store`), `go mod tidy` y `make check`.

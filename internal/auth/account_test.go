@@ -1,25 +1,14 @@
 package auth_test
 
 import (
+	"context"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"testing"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
-
-// newSession inicia otra sesión para el mismo usuario, como si entrara desde otro dispositivo.
-func newSession(t *testing.T, pool *pgxpool.Pool, userID int64) *http.Cookie {
-	t.Helper()
-	w := httptest.NewRecorder()
-	if err := auth.NewService(pool, auth.Options{}).StartSession(w, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/login", nil), userID); err != nil {
-		t.Fatalf("iniciar sesión: %v", err)
-	}
-	return sessionCookie(t, w)
-}
 
 func TestUpdateProfile(t *testing.T) {
 	api, pool := newAPI(t)
@@ -93,5 +82,23 @@ func TestChangePassword(t *testing.T) {
 	}
 	if _, err := service.Authenticate(t.Context(), "ana@ejemplo.com", "contraseña-de-prueba"); err == nil {
 		t.Error("la contraseña vieja todavía funciona")
+	}
+}
+
+// Lo mismo al cambiar la contraseña desde el perfil.
+func TestChangePasswordIsAtomic(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBody) // otra sesión, que se cerraría
+
+	exec := func(sql string) error { _, err := pool.Exec(context.Background(), sql); return err }
+	failSessionDeletes(t, exec)
+
+	body := fmt.Sprintf(`{"current_password":"contraseña-de-prueba","password":%q}`, newPassword)
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodPut, "/auth/password", body), http.StatusInternalServerError)
+
+	if _, err := auth.NewService(pool, auth.Options{}).Authenticate(t.Context(), "ana@ejemplo.com", "contraseña-de-prueba"); err != nil {
+		t.Errorf("la contraseña no debería haber cambiado: %v", err)
 	}
 }

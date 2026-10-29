@@ -1,7 +1,6 @@
 package testutil
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,9 +8,6 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/totp"
 )
-
-// EncryptionKey es la ENCRYPTION_KEY de los tests: 32 bytes fijos, no es un secreto.
-var EncryptionKey = bytes.Repeat([]byte{1}, 32)
 
 // TwoFactor es el 2FA activado de un usuario de prueba.
 type TwoFactor struct {

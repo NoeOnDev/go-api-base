@@ -7,28 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
 const deleteBody = `{"password":"contraseña-de-prueba"}`
-
-// countRows cuenta las filas del usuario en la tabla (en users, la del propio usuario).
-func countRows(t *testing.T, pool *pgxpool.Pool, table string, userID int64) int {
-	t.Helper()
-	column := "user_id"
-	if table == "users" {
-		column = "id"
-	}
-	var n int
-	if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM "+table+" WHERE "+column+" = $1", userID).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	return n
-}
 
 func TestDeleteAccount(t *testing.T) {
 	pool := testutil.NewDB(t)

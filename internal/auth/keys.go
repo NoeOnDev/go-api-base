@@ -4,11 +4,9 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
-	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
 // KeyReport es el resultado de RotateKeys: qué se volvió a cifrar y qué sigue dependiendo
@@ -73,6 +71,17 @@ func (r *KeyReport) AddQueuedEmails(byKey map[string]int64) {
 	slices.SortFunc(r.QueuedEmails, func(a, b KeyCount) int { return cmp.Compare(a.KeyID, b.KeyID) })
 }
 
+// errNoBox indica que falta ENCRYPTION_KEY: sin ella no se puede guardar el secreto del 2FA.
+var errNoBox = errors.New("2FA no disponible: falta configurar ENCRYPTION_KEY")
+
+// box devuelve el llavero de ENCRYPTION_KEY, o errNoBox si no se configuró.
+func (s *Service) box() (*secretbox.Box, error) {
+	if s.opts.Box == nil {
+		return nil, errNoBox
+	}
+	return s.opts.Box, nil
+}
+
 // RotateKeys vuelve a cifrar con la clave actual todos los secretos del 2FA que estén con una
 // clave anterior, e informa lo que todavía depende de claves viejas. Se puede correr las veces
 // que haga falta: lo que ya está con la clave actual no se toca.
@@ -84,52 +93,9 @@ func (s *Service) RotateKeys(ctx context.Context) (KeyReport, error) {
 	report := KeyReport{CurrentKeyID: box.KeyID()}
 	inUse := map[string]bool{}
 
-	users, err := s.q.ListUsersWithTOTPSecret(ctx)
-	if err != nil {
-		return report, fmt.Errorf("listar secretos del 2FA: %w", err)
-	}
-
-	for _, u := range users {
-		old := *u.TOTPSecret
-		if !box.NeedsRotation(old) {
-			report.AlreadyCurrent++
-			continue
-		}
-
-		secret, err := box.Decrypt(old, totpAAD(u.ID))
-		if err != nil {
-			reason := "dato dañado o de una clave distinta"
-			if errors.Is(err, secretbox.ErrUnknownKey) {
-				reason = "su clave no está configurada"
-			}
-			keyID := secretbox.KeyIDOf(old)
-			report.Undecryptable = append(report.Undecryptable, UndecryptableSecret{UserID: u.ID, KeyID: keyID, Reason: reason})
-			inUse[keyID] = true
-			continue
-		}
-
-		encrypted, err := box.Encrypt(secret, totpAAD(u.ID))
-		if err != nil {
-			return report, err
-		}
-		rows, err := s.q.UpdateTOTPSecret(ctx, store.UpdateTOTPSecretParams{ID: u.ID, OldSecret: &old, NewSecret: &encrypted})
-		if err != nil {
-			return report, fmt.Errorf("guardar secreto del usuario %d: %w", u.ID, err)
-		}
-		if rows == 1 {
-			report.Reencrypted++
-		}
-	}
-
-	codes, err := s.q.CountRecoveryCodeUsersByKey(ctx)
-	if err != nil {
-		return report, fmt.Errorf("contar códigos de recuperación: %w", err)
-	}
-	for _, c := range codes {
-		if c.KeyID != box.KeyID() {
-			report.OldRecoveryCodes = append(report.OldRecoveryCodes, KeyUsage{KeyID: c.KeyID, Users: c.Users})
-			inUse[c.KeyID] = true
-		}
+	// Lo que cifra o protege el 2FA (ver two_factor.go).
+	if err := s.rotateTwoFactorKeys(ctx, box, &report, inUse); err != nil {
+		return report, err
 	}
 
 	for _, id := range box.KeyIDs()[1:] {

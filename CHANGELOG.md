@@ -13,7 +13,7 @@ el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
 ## [Sin publicar]
 
-La API funciona con varias instancias. Cambia el esquema: ver **Actualizar un proyecto existente**.
+La API funciona con varias instancias, y la documentación tiene un índice para los agentes. Cambia el esquema: ver **Actualizar un proyecto existente**.
 
 ### Agregado
 
@@ -21,16 +21,29 @@ La API funciona con varias instancias. Cambia el esquema: ver **Actualizar un pr
   - **`internal/ratelimit`:** límites de intentos guardados en la tabla `rate_limits`, con el algoritmo GCRA (una fecha por clave y una sola sentencia atómica por intento). Los usan el login (por cuenta), el 2FA (por usuario), los correos (por destinatario) y las acciones de la cuenta. Ahora valen para todas las instancias y no se reinician al desplegar. Los límites por IP siguen en memoria.
   - **El broker del tiempo real reparte los eventos entre las instancias** con `LISTEN/NOTIFY` (`Broker.Listen`, que llama `main.go`), y también los cierres de sesión: un logout en una instancia corta en el acto los streams de esa sesión en las demás. Un mensaje de más de 8000 bytes se guarda en la tabla `realtime_messages`, y viaja su id. Si se corta la conexión de `LISTEN`, se reconecta y corta los streams abiertos, para que el navegador pida el estado.
 - La limpieza de cada hora también borra las claves de los límites que ya se recargaron y los mensajes viejos de `realtime_messages`.
+- **"Dónde buscar" en `AGENTS.md`:** una tabla de cada tema con su guía y su sección, y la regla de buscar en la documentación antes de decir que algo falta. También pide actualizar la guía, las recetas de "Quitar…" y el índice en el mismo commit que el cambio.
+- **`docs/links_test.go`:** `make check` comprueba que los enlaces de la documentación (incluidas las secciones, `#ancla`) y las menciones a `docs/*.md` en el código apunten a lo que existe.
 
 ### Cambiado
 
 - `auth.Limits.Account` es un `*ratelimit.Limiter` (`ratelimit.New(queries, "account", 12*time.Second, 5)`) en lugar de un `*httpx.RateLimiter`.
 - **Hace falta una conexión directa a PostgreSQL**, o PgBouncer en modo `session`: `LISTEN` no funciona con PgBouncer en modo `transaction`.
 - `sqlc.yaml` genera `interval` como `time.Duration`.
+- **En `internal/auth`, cada función de la cuenta está en sus archivos, y lo que comparten varias, en archivos comunes.** Así se puede quitar una sin romper las demás:
+  - `checkPassword` y `savePassword` (antes en `profile.go`) pasan a `account.go` nuevo, junto con `passwordInput`, que estaba en `two_factor.go`.
+  - `deleteOtherSessions` y `sessionsEnded` pasan a `session.go`.
+  - Lo de una sola función va a su archivo: `endOtherSessions` y `currentSessionID` a `sessions.go`, `checkToken` a `password_reset.go`, y la cookie del desafío del 2FA a `two_factor_login.go`.
+  - `RotateKeys` deja la parte del 2FA en `rotateTwoFactorKeys` (`two_factor.go`), y `box()` pasa a `keys.go`.
+  - Los tests siguen la misma división: las ayudas comunes van a `helpers_test.go`, y los tests de cada función a su archivo. `transactions_test.go` y `email_limits_test.go` se repartieron, y `key_rotation_test.go` pasa a llamarse `two_factor_keys_test.go`.
+  - `testutil.EncryptionKey` pasa de `twofactor.go` a `http.go`.
+- `checkToken` ya no usa el máximo de intentos del desafío del 2FA: los tokens que llegan por correo no gastan intentos.
 
 ### Corregido
 
 - `docs/auth.md` decía que las sesiones y los tokens vencidos se borran al crear nuevos. Desde v0.4.0 los borra el trabajo de cada hora.
+- **"Quitar funciones" de `docs/auth.md` no funcionaba para el perfil, la verificación de email y el 2FA:** el código dejaba de compilar. Ahora cada receta dice todo lo que cambia, y se probó por separado: compila, pasa `go vet` y staticcheck, y avisa qué tests de otras funciones hay que ajustar.
+- **A "Quitar el tiempo real" y "Quitar la cola" les faltaban pasos:** `testutil` y los tests de streams de otros paquetes en la primera, y el campo `Jobs` de `server.Deps` y `rotate-keys` en la segunda.
+- El README no enlazaba "Quitar funciones" de auth desde "Usar como base de un proyecto nuevo", y un agente que leía el README o `AGENTS.md` no tenía cómo enterarse de que existía.
 
 ### Actualizar un proyecto existente
 

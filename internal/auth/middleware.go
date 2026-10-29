@@ -13,12 +13,6 @@ type ctxKey struct{}
 // sessionIDKey guarda en el contexto el id de la sesión de la petición (ver currentSessionID).
 type sessionIDKey struct{}
 
-// currentSessionID devuelve el id de la sesión de la petición, en las rutas con sesión.
-func currentSessionID(ctx context.Context) int64 {
-	id, _ := ctx.Value(sessionIDKey{}).(int64)
-	return id
-}
-
 // RequireUser deja pasar solo peticiones con una sesión válida (si no, responde 401)
 // y guarda el usuario en el contexto. Los handlers lo obtienen con UserFrom o MustUser.
 //

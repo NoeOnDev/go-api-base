@@ -23,11 +23,6 @@ import (
 // Con CookieSecure se le agrega el prefijo __Host- (ver cookieName).
 const CookieName = "session"
 
-// ChallengeCookieName es la cookie del desafío del 2FA: el login con la contraseña correcta
-// la envía, y POST /auth/two-factor/challenge la usa para saber qué usuario está entrando.
-// Con CookieSecure también lleva el prefijo __Host-.
-const ChallengeCookieName = "two_factor_challenge"
-
 // hostPrefix hace que el navegador solo acepte la cookie si es Secure, tiene Path=/ y no
 // tiene Domain. Así ningún subdominio (por ejemplo, uno comprometido) puede crearla ni pisarla.
 const hostPrefix = "__Host-"
@@ -219,21 +214,6 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
-// setChallengeCookie envía la cookie del desafío del 2FA, con la misma protección que la de sesión.
-func (s *Service) setChallengeCookie(w http.ResponseWriter, token string, expires time.Time) {
-	c := s.cookie(token, expires)
-	c.Name = s.cookieName(ChallengeCookieName)
-	http.SetCookie(w, c)
-}
-
-// clearChallengeCookie le pide al navegador que borre la cookie del desafío.
-func (s *Service) clearChallengeCookie(w http.ResponseWriter) {
-	c := s.cookie("", time.Unix(0, 0))
-	c.Name = s.cookieName(ChallengeCookieName)
-	c.MaxAge = -1
-	http.SetCookie(w, c)
-}
-
 // cookie arma la cookie de sesión:
 //   - HttpOnly: JavaScript no puede leerla, así que un ataque XSS no puede robar la sesión.
 //   - SameSite=Lax: el navegador no la envía en peticiones que otro sitio dispara
@@ -250,5 +230,32 @@ func (s *Service) cookie(value string, expires time.Time) *http.Cookie {
 		HttpOnly: true,
 		Secure:   s.opts.CookieSecure,
 		SameSite: http.SameSiteLaxMode,
+	}
+}
+
+// deleteOtherSessions borra todas las sesiones del usuario salvo la de esta petición, con las
+// consultas q (pueden ser las de una transacción). Devuelve la clave de la sesión que sigue,
+// para avisar con sessionsEnded después del commit.
+func (s *Service) deleteOtherSessions(r *http.Request, q *store.Queries, userID int64) (string, error) {
+	c, err := r.Cookie(s.cookieName(CookieName))
+	if err != nil {
+		return "", fmt.Errorf("leer la cookie de sesión: %w", err)
+	}
+	hash := hashToken(c.Value)
+	if err := q.DeleteOtherSessions(r.Context(), store.DeleteOtherSessionsParams{
+		UserID:    userID,
+		TokenHash: hash,
+	}); err != nil {
+		return "", fmt.Errorf("cerrar otras sesiones: %w", err)
+	}
+	return hex.EncodeToString(hash), nil
+}
+
+// sessionsEnded avisa al SessionWatcher que se cerraron las sesiones del usuario salvo keep
+// (vacío: todas), para cortar los streams abiertos con ellas. Va después del commit: si fuera
+// antes, un stream cortado podría reconectarse con una sesión que todavía no se borró.
+func (s *Service) sessionsEnded(ctx context.Context, userID int64, keep string) {
+	if s.opts.SessionWatcher != nil {
+		s.opts.SessionWatcher.UserSessionsEnded(ctx, userID, keep)
 	}
 }

@@ -1,86 +1,23 @@
 package auth_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/argon2"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
-	"github.com/NoeOnDev/go-api-base/internal/config"
-	"github.com/NoeOnDev/go-api-base/internal/secretbox"
-	"github.com/NoeOnDev/go-api-base/internal/server"
+	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
-
-type apiError struct {
-	Error struct {
-		Code   string            `json:"code"`
-		Fields map[string]string `json:"fields"`
-	} `json:"error"`
-}
-
-func newAPI(t *testing.T) (http.Handler, *pgxpool.Pool) {
-	t.Helper()
-	pool := testutil.NewDB(t)
-	box, err := secretbox.New(testutil.EncryptionKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	api := server.NewHandler(server.Deps{
-		Logger: slog.New(slog.DiscardHandler),
-		DB:     pool,
-		Config: config.Config{SessionTTL: time.Hour},
-		Box:    box,
-	})
-	return api, pool
-}
-
-func do(t *testing.T, api http.Handler, method, path, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
-	t.Helper()
-	r := httptest.NewRequest(method, path, strings.NewReader(body))
-	r.Header.Set("Content-Type", "application/json")
-	if cookie != nil {
-		r.AddCookie(cookie)
-	}
-	w := httptest.NewRecorder()
-	api.ServeHTTP(w, r)
-	return w
-}
-
-func decode[T any](t *testing.T, w *httptest.ResponseRecorder, wantStatus int) T {
-	t.Helper()
-	if w.Code != wantStatus {
-		t.Fatalf("status = %d, se esperaba %d; cuerpo: %s", w.Code, wantStatus, w.Body)
-	}
-	var v T
-	if err := json.NewDecoder(w.Body).Decode(&v); err != nil {
-		t.Fatalf("respuesta no es JSON válido: %v", err)
-	}
-	return v
-}
-
-func sessionCookie(t *testing.T, w *httptest.ResponseRecorder) *http.Cookie {
-	t.Helper()
-	for _, c := range w.Result().Cookies() {
-		if c.Name == auth.CookieName {
-			return c
-		}
-	}
-	t.Fatal("la respuesta no tiene cookie de sesión")
-	return nil
-}
 
 const registerBody = `{"name":"Ana","email":"Ana@Ejemplo.com","password":"una-clave-larga"}`
 
@@ -314,3 +251,21 @@ func TestEmailIsLowercaseInDatabase(t *testing.T) {
 		t.Fatalf("se esperaba la violación de users_email_lowercase, llegó %v", err)
 	}
 }
+
+// Si el correo de verificación no se puede encolar, la cuenta igual quedó creada: se responde
+// 201, y el usuario puede pedir otro enlace.
+func TestRegisterSucceedsWhenVerificationEmailFails(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool, testutil.WithMailer(failingMailer{}), testutil.WithConfig(requireVerification))
+
+	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/register", registerBody)
+	u := testutil.Decode[auth.User](t, w, http.StatusCreated)
+	if u.EmailVerified() {
+		t.Error("el email no debería estar verificado")
+	}
+	sessionCookie(t, w) // y quedó la sesión
+}
+
+type failingMailer struct{}
+
+func (failingMailer) Send(context.Context, mail.Message) error { return errors.New("cola caída") }

@@ -28,8 +28,8 @@ type Limits struct {
 
 // Register agrega las rutas de autenticación al mux.
 //
-// Para quitar una función que un proyecto no necesita, borrá sus rutas acá
-// (y su archivo: password_reset.go, profile.go…). docs/auth.md lo detalla.
+// Para quitar una función que un proyecto no necesita, borrá sus rutas acá (y su archivo:
+// password_reset.go, profile.go…). "Quitar funciones" en docs/auth.md dice qué más cambia.
 func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	// Ninguna respuesta de /auth se guarda en caché: algunas llevan secretos (el del 2FA,
 	// los códigos de recuperación) y las demás, datos de la cuenta. NoStore va por fuera

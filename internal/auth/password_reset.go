@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
 type forgotPasswordInput struct {
@@ -137,5 +139,24 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	s.notify(r.Context(), userID, NotifyPasswordChanged, "Se cambió la contraseña de tu cuenta con un enlace de recuperación.")
 
 	httpx.Write(w, http.StatusNoContent, nil)
+	return nil
+}
+
+// checkToken comprueba que el token sea válido, sin gastarlo. Sirve para no hacer trabajo caro
+// (como calcular un hash de argon2) con un enlace inventado o vencido; después hay que
+// consumirlo con consumeToken, que lo vuelve a comprobar.
+func (s *Service) checkToken(ctx context.Context, token, purpose string) error {
+	if token == "" {
+		return errInvalidToken
+	}
+	// Los tokens que se envían por correo no gastan intentos (attempts queda en 0): con un
+	// máximo de 1, solo se exige que sigan sin usar.
+	_, err := s.q.GetUserTokenUser(ctx, store.GetUserTokenUserParams{TokenHash: hashToken(token), Purpose: purpose, MaxAttempts: 1})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errInvalidToken
+	}
+	if err != nil {
+		return fmt.Errorf("buscar token: %w", err)
+	}
 	return nil
 }

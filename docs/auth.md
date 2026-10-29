@@ -331,22 +331,22 @@ user := auth.MustUser(r.Context())
 
 ## Quitar funciones
 
-Todas las rutas están en `internal/auth/routes.go`. Para quitar una función, borrá sus rutas y su archivo:
+Todas las rutas están en `internal/auth/routes.go`. Para quitar una función, borrá sus rutas, sus archivos y sus tests, y hacé los cambios de la última columna. Lo que comparten varias funciones está en archivos que no se borran: `account.go`, `session.go`, `tokens.go` y `emails.go`, y en los tests, `helpers_test.go`.
 
-| Función | Rutas | Archivo |
-|---|---|---|
-| Registro abierto (solo admins con `create-admin`) | `POST /auth/register` | `register` en `handlers.go` |
-| Perfil y cambio de contraseña | `PUT /auth/me`, `PUT /auth/password` | `profile.go` |
-| Sesiones por dispositivo | `/auth/sessions…` | `sessions.go` |
-| Cambiar el email | `PUT /auth/email`, `/auth/email/confirm` | `email_change.go` y `emails/email_change*.txt` |
-| Borrar la cuenta | `DELETE /auth/me` | `delete_account.go` y `emails/account_deleted.txt` |
-| Recuperar la contraseña | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go` y `emails/password_reset.txt` |
-| Verificar el email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go` y `emails/verify_email.txt` (y dejá `REQUIRE_EMAIL_VERIFICATION=false`) |
-| 2FA | `/auth/two-factor/...` y el bloque `if u.TwoFactorEnabled` del login en `handlers.go` | `two_factor.go`, `two_factor_login.go` y `recovery_codes.go` (también se pueden borrar `internal/totp` y la tabla `user_recovery_codes`) |
+| Función | Rutas | Archivos que se borran | Además |
+|---|---|---|---|
+| Registro abierto (solo admins con `create-admin`) | `POST /auth/register` | La función `register` de `handlers.go`, y los `TestRegister…` de `handlers_test.go` | Varios tests crean el usuario con `POST /auth/register`: pasalos a `testutil.Login` |
+| Perfil y cambio de contraseña | `PUT /auth/me`, `PUT /auth/password` | `profile.go`, `account_test.go` | |
+| Sesiones por dispositivo | `/auth/sessions…` | `sessions.go`, `sessions_test.go` | |
+| Cambiar el email | `PUT /auth/email`, `/auth/email/confirm` | `email_change.go`, `email_change_test.go`, `emails/email_change*.txt` | |
+| Borrar la cuenta | `DELETE /auth/me` | `delete_account.go`, `delete_account_test.go`, `emails/account_deleted.txt` | |
+| Recuperar la contraseña | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go`, `password_reset_test.go`, `emails/password_reset.txt` | |
+| Verificar el email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go`, `email_verification_test.go`, `emails/verify_email.txt` | En `register` (`handlers.go`), el bloque `if s.opts.RequireVerifiedEmail`. Dejá `REQUIRE_EMAIL_VERIFICATION=false` |
+| 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/two_factor_locked.txt` | En `handlers.go`, el bloque `if u.TwoFactorEnabled` del login; en `auth.go`, `twoFactorLimiter`; en `password_reset.go`, su `resetLimit`; en `keys.go`, la llamada a `rotateTwoFactorKeys`. Si querés, también `internal/totp`, `testutil/twofactor.go` (con `TestTwoFactorChangesNotify` de `internal/notifications`) y la migración `00007` con `recovery_codes.sql` (después, `make sqlc`) |
 
-Si no queda ninguna función que envíe correos, también se pueden borrar `internal/mail`, `emails.go`, `tokens.go`, la tabla `user_tokens` y las variables de correo.
+Al final, `make check`. Si falla un test de otra función, es uno que usaba la que quitaste: para preparar el caso, o para probar cómo se combinan las dos (por ejemplo, que cambiar la contraseña cancele un cambio de email pendiente). Borrá ese caso, o pasá su preparación a `testutil.Login`.
 
-Borrá también sus tests (`account_test.go`, `password_reset_test.go`, `email_verification_test.go`, `two_factor*_test.go`) y corré `make check` para confirmar que todo compila y pasa.
+Cada receta se probó por separado, en una copia del proyecto: compila, pasa `go vet` y staticcheck, y los tests que fallan son solo los de arriba. Para quitar varias funciones, hacé los pasos de cada una; si algo queda sin uso, staticcheck lo señala. Si cambiás auth, mantené esta tabla al día.
 
 ## Qué no incluye
 

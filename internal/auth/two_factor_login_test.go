@@ -8,14 +8,13 @@ import (
 	"testing"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
 // Ojo: el login, enable y el desafío comparten el límite de 5 intentos por IP,
 // así que cada test hace como mucho 5 peticiones a esas rutas.
-
-const loginBody = `{"email":"ana@ejemplo.com","password":"contraseña-de-prueba"}`
 
 // loginWithTwoFactor hace el primer paso del login y devuelve la cookie del desafío.
 func loginWithTwoFactor(t *testing.T, api http.Handler) *http.Cookie {
@@ -157,4 +156,44 @@ func TestPasswordResetDoesNotBypassTwoFactor(t *testing.T) {
 
 	// Después de recuperar la contraseña, el login sigue pidiendo el segundo factor.
 	loginWithTwoFactor(t, api)
+}
+
+// El segundo paso del 2FA tiene su propio límite: no gasta los intentos del login. Con el límite
+// compartido de antes (5 por IP), este test se cortaba en el tercer login.
+func TestTwoFactorChallengeHasItsOwnLimit(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	testutil.EnableTwoFactor(t, api, session, testutil.Password)
+
+	// 10 logins con su segundo paso (con un código incorrecto), todos desde la misma IP.
+	for i := range 10 {
+		pending := loginWithTwoFactor(t, api) // falla el test si el login no responde 202
+		if w := challenge(t, api, pending, codeBody("000000")); w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("intento %d del 2FA: status = %d, se esperaba 422", i+1, w.Code)
+		}
+	}
+}
+
+// En producción (COOKIE_SECURE=true) la cookie del desafío también lleva el prefijo __Host-.
+func TestChallengeCookieUsesHostPrefix(t *testing.T) {
+	pool := testutil.NewDB(t)
+	secure := testutil.WithConfig(func(c *config.Config) { c.CookieSecure = true })
+	api := testutil.NewAPI(pool, secure)
+	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser, secure)
+	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
+
+	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBody)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("login: status = %d", w.Code)
+	}
+	pending := cookieNamed(t, w, "__Host-two_factor_challenge")
+	if !pending.Secure || !pending.HttpOnly || pending.Path != "/" || pending.Domain != "" {
+		t.Errorf("la cookie del desafío no cumple las reglas de __Host-: %+v", pending)
+	}
+	w = challenge(t, api, pending, codeBody(tf.Code(t)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("desafío: status = %d; cuerpo: %s", w.Code, w.Body)
+	}
+	cookieNamed(t, w, "__Host-session")
 }

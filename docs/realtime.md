@@ -238,9 +238,10 @@ SSE cubre todo lo de arriba: en esos casos el navegador envía poco (con REST no
 Si un proyecto no lo necesita:
 
 1. Borrá `internal/realtime` e `internal/notifications`, las migraciones `00009_create_notifications.sql` y `00011_create_realtime_messages.sql`, y las consultas `notifications.sql` y `realtime.sql` de `internal/db/queries`.
-2. En `internal/server/routes.go`, quitá el broker, el servicio de notificaciones, `GET /events` y `notifications.Register`. Pasale `nil` como `Notifier` a auth.
-3. En `internal/notes`, quitá el broker y las llamadas a `PublishToUser`. En `cmd/api/main.go`, quitá el broker, `Listen` y `RegisterOnShutdown`.
+2. En `internal/server/routes.go`, quitá el campo `Broker` de `Deps`, el broker, el servicio de notificaciones, `GET /events` y `notifications.Register`. En las opciones de auth, quitá `Notifier` y `SessionWatcher` (son opcionales).
+3. En `internal/notes`, quitá el broker, las llamadas a `PublishToUser` y `events_test.go`. En `cmd/api/main.go`, quitá el broker, `Listen` y `RegisterOnShutdown`.
 4. En `internal/jobs/cleanup.go`, quitá el borrado de las notificaciones y de los mensajes del tiempo real.
-5. `make sqlc` y `make check`.
+5. En `internal/testutil`, borrá `events.go` y `WithBroker` (en `http.go`). Los tests que abren un stream con `OpenEvents` en otros paquetes (`internal/auth`: `sessions_test.go` y `delete_account_test.go`; `internal/server`: `routes_test.go`) prueban que se corte al cerrar la sesión: borrá esos casos.
+6. `make sqlc` y `make check`.
 
-Para quitar solo las notificaciones, hacé los pasos 1, 2 y 4 únicamente con lo de las notificaciones.
+Para quitar solo las notificaciones: en el paso 1, solo `internal/notifications`, su migración y `notifications.sql`; en el paso 2, solo el servicio, `notifications.Register` y el `Notifier` de auth; y en el paso 4, solo el borrado de las notificaciones.

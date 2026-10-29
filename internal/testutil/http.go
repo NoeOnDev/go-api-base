@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,9 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 )
+
+// EncryptionKey es la ENCRYPTION_KEY de los tests: 32 bytes fijos, no es un secreto.
+var EncryptionKey = bytes.Repeat([]byte{1}, 32)
 
 // APIError es el formato de error de la API, para leerlo en los tests.
 type APIError struct {

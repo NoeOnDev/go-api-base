@@ -15,14 +15,6 @@ import (
 // Estos tests simulan un atacante que tiene la contraseña y reparte sus intentos entre
 // muchas IPs: cada petición sale de una IP distinta, así que el límite por IP no lo frena.
 
-// ips entrega una IP nueva en cada llamada.
-type ips struct{ n int }
-
-func (p *ips) next() string {
-	p.n++
-	return fmt.Sprintf("198.51.100.%d", p.n)
-}
-
 func loginFromIP(t *testing.T, api http.Handler, ip string) *http.Cookie {
 	t.Helper()
 	w := testutil.DoFromIP(t, api, ip, nil, http.MethodPost, "/auth/login", loginBody)

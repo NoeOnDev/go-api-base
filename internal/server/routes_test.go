@@ -35,7 +35,7 @@ func errorCode(t *testing.T, w *httptest.ResponseRecorder) string {
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("respuesta no es JSON válido: %v", err)
+		t.Fatalf("the response is not valid JSON: %v", err)
 	}
 	return resp.Error.Code
 }
@@ -49,7 +49,7 @@ func TestHealthz(t *testing.T) {
 		t.Errorf("status = %d, cuerpo = %s", w.Code, w.Body)
 	}
 	if w.Header().Get("X-Request-ID") == "" {
-		t.Error("falta X-Request-ID en la respuesta")
+		t.Error("missing X-Request-ID in the response")
 	}
 }
 
@@ -67,7 +67,7 @@ func TestCSRFProtection(t *testing.T) {
 	api := newAPI(t)
 	body := `{"email":"a@b.com","password":"x"}`
 
-	t.Run("rechaza un POST de otro sitio", func(t *testing.T) {
+	t.Run("rejects a POST from another site", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
 		r.Header.Set("Origin", "https://sitio-malicioso.com")
 		r.Header.Set("Sec-Fetch-Site", "cross-site")
@@ -75,33 +75,33 @@ func TestCSRFProtection(t *testing.T) {
 		api.ServeHTTP(w, r)
 
 		if w.Code != http.StatusForbidden || errorCode(t, w) != "cross_origin_rejected" {
-			t.Errorf("status = %d, se esperaba 403", w.Code)
+			t.Errorf("status = %d, want 403", w.Code)
 		}
 	})
 
-	t.Run("acepta un POST del frontend configurado", func(t *testing.T) {
+	t.Run("accepts a POST from the configured frontend", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
 		r.Header.Set("Origin", frontend)
 		r.Header.Set("Sec-Fetch-Site", "cross-site")
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 
-		// Llega al handler: credenciales incorrectas, no bloqueo por origen.
+		// It reaches the handler: wrong credentials, not an origin block.
 		if w.Code != http.StatusUnauthorized {
-			t.Errorf("status = %d, se esperaba 401", w.Code)
+			t.Errorf("status = %d, want 401", w.Code)
 		}
 		if w.Header().Get("Access-Control-Allow-Origin") != frontend {
-			t.Error("falta el encabezado CORS para el frontend")
+			t.Error("missing the CORS header for the frontend")
 		}
 	})
 
-	t.Run("acepta peticiones sin encabezados de navegador (curl, apps)", func(t *testing.T) {
+	t.Run("accepts requests without browser headers (curl, apps)", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 
 		if w.Code != http.StatusUnauthorized {
-			t.Errorf("status = %d, se esperaba 401", w.Code)
+			t.Errorf("status = %d, want 401", w.Code)
 		}
 	})
 }
@@ -122,7 +122,7 @@ func TestCORSPreflight(t *testing.T) {
 func TestLoginRateLimit(t *testing.T) {
 	api := newAPI(t)
 
-	// 20 seguidos por IP: el número 21 se rechaza.
+	// 20 in a row per IP: number 21 is rejected.
 	var last *httptest.ResponseRecorder
 	for range 21 {
 		r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{"email":"a@b.com","password":"x"}`))
@@ -131,14 +131,14 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 
 	if last.Code != http.StatusTooManyRequests || errorCode(t, last) != "too_many_requests" {
-		t.Errorf("intento 21: status = %d, se esperaba 429", last.Code)
+		t.Errorf("attempt 21: status = %d, want 429", last.Code)
 	}
 	if last.Header().Get("Retry-After") == "" {
-		t.Error("falta Retry-After")
+		t.Error("missing Retry-After")
 	}
-	// El 429 del límite por IP también lleva los encabezados de /auth.
+	// The 429 of the per-IP limit carries the /auth headers too.
 	if last.Header().Get("Cache-Control") != "no-store" || last.Header().Get("X-Content-Type-Options") != "nosniff" {
-		t.Errorf("encabezados del 429: %v", last.Header())
+		t.Errorf("headers of the 429: %v", last.Header())
 	}
 }
 
@@ -149,7 +149,7 @@ func TestSecurityHeaders(t *testing.T) {
 		path    string
 		noStore bool
 	}{
-		{"/auth/me", true}, // 401 sin sesión: igual no se guarda
+		{"/auth/me", true}, // 401 without a session: still not cached
 		{"/products", false},
 		{"/no-existe", false},
 	} {
@@ -169,21 +169,21 @@ func TestEventsEndToEnd(t *testing.T) {
 	broker := realtime.NewBroker()
 	srv := testutil.NewServer(t, pool, testutil.WithBroker(broker))
 
-	// Sin sesión no se puede escuchar.
+	// Without a session there is no listening.
 	resp, err := srv.Client().Get(srv.URL + "/events")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("sin sesión: status = %d", resp.StatusCode)
+		t.Errorf("without a session: status = %d", resp.StatusCode)
 	}
 
-	// Con sesión, a través de todos los middlewares de la API, el evento llega.
+	// With a session, through every middleware of the API, the event arrives.
 	u, cookie := testutil.Login(t, pool, "alice@example.com", "user")
 	events := testutil.OpenEvents(t, srv, cookie, "")
 	broker.PublishToUser(t.Context(), u.ID, realtime.Event{Type: "notification", Data: "hola"})
 	if ev := events.Next(t, 2*time.Second); ev.Type != "notification" || ev.Data != `"hola"` {
-		t.Errorf("evento: %+v", ev)
+		t.Errorf("event: %+v", ev)
 	}
 }

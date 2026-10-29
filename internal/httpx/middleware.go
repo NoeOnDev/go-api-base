@@ -11,11 +11,11 @@ import (
 	"time"
 )
 
-// Middleware envuelve un http.Handler para agregarle comportamiento.
+// Middleware wraps an http.Handler to add behavior to it.
 type Middleware func(http.Handler) http.Handler
 
-// Chain aplica los middlewares en el orden en que se reciben: el primero es el más externo,
-// es decir, el primero en ver la petición y el último en ver la respuesta.
+// Chain applies the middlewares in the order given: the first one is the outermost, that is,
+// the first to see the request and the last to see the response.
 func Chain(h http.Handler, mws ...Middleware) http.Handler {
 	for i := len(mws) - 1; i >= 0; i-- {
 		h = mws[i](h)
@@ -30,12 +30,12 @@ const (
 	loggerKey
 )
 
-// RequestIDHeader es el encabezado que transporta el identificador de la petición.
+// RequestIDHeader is the header that carries the request ID.
 const RequestIDHeader = "X-Request-ID"
 
-// RequestID asigna un identificador a cada petición. Respeta el que envíe un proxy
-// (si es razonable) y si no genera uno. Lo devuelve en la respuesta y guarda en el contexto
-// un logger que lo incluye en cada línea, para poder seguir una petición en los logs.
+// RequestID gives each request an ID. It keeps the one sent by a proxy (if it is reasonable)
+// and otherwise generates one. It returns it in the response and stores in the context a logger
+// that includes it in every line, to follow a request through the logs.
 func RequestID(logger *slog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,23 +52,23 @@ func RequestID(logger *slog.Logger) Middleware {
 	}
 }
 
-// RequestIDFrom devuelve el identificador de la petición, o "" si no hay.
+// RequestIDFrom returns the request ID, or "" if there is none.
 func RequestIDFrom(ctx context.Context) string {
 	id, _ := ctx.Value(requestIDKey).(string)
 	return id
 }
 
-// requestLogger es el logger de una petición. Se guarda como puntero en el contexto para que
-// AddLogAttrs pueda ampliarlo desde un middleware interno y el cambio lo vean también los
-// middlewares externos, como Logger al escribir la línea final de la petición.
+// requestLogger is the logger of a request. It is stored as a pointer in the context so
+// AddLogAttrs can extend it from an inner middleware and outer middlewares see the change too,
+// like Logger when it writes the final line of the request.
 type requestLogger struct {
 	mu     sync.Mutex
 	logger *slog.Logger
-	quiet  bool // la línea final va en debug salvo errores (ver Quiet)
+	quiet  bool // the final line is logged at debug except for errors (see Quiet)
 }
 
-// LoggerFrom devuelve el logger de la petición (con su request_id y los atributos agregados
-// con AddLogAttrs) o el logger por defecto.
+// LoggerFrom returns the logger of the request (with its request_id and the attributes added
+// with AddLogAttrs) or the default logger.
 func LoggerFrom(ctx context.Context) *slog.Logger {
 	if rl, ok := ctx.Value(loggerKey).(*requestLogger); ok {
 		rl.mu.Lock()
@@ -78,8 +78,8 @@ func LoggerFrom(ctx context.Context) *slog.Logger {
 	return slog.Default()
 }
 
-// AddLogAttrs agrega atributos a todas las líneas de log de la petición, incluida la línea
-// final de Logger. Por ejemplo, auth agrega el user_id cuando identifica al usuario.
+// AddLogAttrs adds attributes to every log line of the request, including the final Logger
+// line. For example, auth adds the user_id when it identifies the user.
 func AddLogAttrs(ctx context.Context, args ...any) {
 	if rl, ok := ctx.Value(loggerKey).(*requestLogger); ok {
 		rl.mu.Lock()
@@ -90,12 +90,12 @@ func AddLogAttrs(ctx context.Context, args ...any) {
 
 func newRequestID() string {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b) // crypto/rand.Read no falla en los sistemas soportados
+	_, _ = rand.Read(b) // crypto/rand.Read does not fail on the supported systems
 	return hex.EncodeToString(b)
 }
 
-// validRequestID acepta solo identificadores cortos y con caracteres seguros,
-// para que un cliente no pueda meter texto arbitrario en los logs.
+// validRequestID accepts only short IDs with safe characters, so a client cannot put arbitrary
+// text in the logs.
 func validRequestID(id string) bool {
 	if id == "" || len(id) > 64 {
 		return false
@@ -108,8 +108,8 @@ func validRequestID(id string) bool {
 	return true
 }
 
-// Logger registra una línea por petición con método, ruta, status, bytes y duración.
-// Las respuestas 5xx se registran como error, y las de las rutas con Quiet, en debug.
+// Logger logs one line per request with method, path, status, bytes and duration.
+// 5xx responses are logged as errors, and those of routes wrapped in Quiet, at debug.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -124,7 +124,7 @@ func Logger(next http.Handler) http.Handler {
 		case isQuiet(r.Context()):
 			level = slog.LevelDebug
 		}
-		LoggerFrom(r.Context()).Log(r.Context(), level, "petición",
+		LoggerFrom(r.Context()).Log(r.Context(), level, "request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rec.status,
@@ -134,9 +134,9 @@ func Logger(next http.Handler) http.Handler {
 	})
 }
 
-// Quiet hace que la línea final de Logger de la ruta vaya en debug, salvo que la respuesta sea
-// un error del servidor (5xx), que se sigue registrando como error. Es para las rutas que se
-// consultan muy seguido, como el health check de un monitor, que si no llenarían el log.
+// Quiet makes the final Logger line of the route go at debug, unless the response is a server
+// error (5xx), which is still logged as an error. It is for routes that are hit very often, like
+// a monitor's health check, which would flood the log otherwise.
 func Quiet(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if rl, ok := r.Context().Value(loggerKey).(*requestLogger); ok {
@@ -148,7 +148,7 @@ func Quiet(next http.Handler) http.Handler {
 	})
 }
 
-// isQuiet indica si la petición pasó por Quiet.
+// isQuiet reports whether the request went through Quiet.
 func isQuiet(ctx context.Context) bool {
 	rl, ok := ctx.Value(loggerKey).(*requestLogger)
 	if !ok {
@@ -159,13 +159,13 @@ func isQuiet(ctx context.Context) bool {
 	return rl.quiet
 }
 
-// Milliseconds convierte una duración a milisegundos con tres decimales.
-// slog registraría un time.Duration en nanosegundos en JSON, que es difícil de leer.
+// Milliseconds turns a duration into milliseconds with three decimals.
+// slog would log a time.Duration as nanoseconds in JSON, which is hard to read.
 func Milliseconds(d time.Duration) float64 {
 	return float64(d.Microseconds()) / 1000
 }
 
-// statusRecorder guarda el status y los bytes escritos para poder registrarlos.
+// statusRecorder keeps the status and the bytes written, to log them.
 type statusRecorder struct {
 	http.ResponseWriter
 	status      int
@@ -188,15 +188,15 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 	return n, err
 }
 
-// Unwrap permite que http.ResponseController acceda al ResponseWriter original.
+// Unwrap lets http.ResponseController reach the original ResponseWriter.
 func (rec *statusRecorder) Unwrap() http.ResponseWriter { return rec.ResponseWriter }
 
-// Recover captura los panics de los handlers, los registra con su stack trace y responde 500,
-// para que un error inesperado no deje la conexión sin respuesta.
+// Recover catches the panics of the handlers, logs them with their stack trace and answers 500,
+// so an unexpected error does not leave the connection without a response.
 //
-// Si la respuesta ya había empezado (por ejemplo, a mitad de un stream SSE), no se puede
-// responder un 500: el JSON quedaría mezclado con lo que ya se envió. En ese caso se registra
-// el error y se corta la conexión, con http.ErrAbortHandler.
+// If the response had already started (for example, in the middle of an SSE stream), a 500
+// cannot be sent: the JSON would get mixed with what was already sent. In that case the error is
+// logged and the connection is cut, with http.ErrAbortHandler.
 func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sw := &startedWriter{ResponseWriter: w}
@@ -206,23 +206,23 @@ func Recover(next http.Handler) http.Handler {
 				return
 			}
 			if v == http.ErrAbortHandler {
-				// Señal intencional de net/http para abortar la respuesta: no es un error.
+				// A deliberate net/http signal to abort the response: not an error.
 				panic(v)
 			}
 			log := LoggerFrom(r.Context())
 			if sw.started {
-				log.Error("panic con la respuesta ya empezada; se corta la conexión", "panic", v, "stack", string(debug.Stack()))
+				log.Error("panic after the response started; cutting the connection", "panic", v, "stack", string(debug.Stack()))
 				panic(http.ErrAbortHandler)
 			}
 			log.Error("panic recuperado", "panic", v, "stack", string(debug.Stack()))
-			// El panic ya quedó en el log, con su stack: se responde sin volver a registrarlo.
+			// The panic is already in the log, with its stack: answer without logging it again.
 			writeBody(w, r, Internal(nil))
 		}()
 		next.ServeHTTP(sw, r)
 	})
 }
 
-// startedWriter anota si la respuesta ya empezó (se envió el status o algún byte).
+// startedWriter notes whether the response has started (the status or some byte was sent).
 type startedWriter struct {
 	http.ResponseWriter
 	started bool
@@ -238,12 +238,12 @@ func (w *startedWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-// Unwrap deja que http.ResponseController llegue al writer original (Flush, plazos de escritura).
+// Unwrap lets http.ResponseController reach the original writer (Flush, write deadlines).
 func (w *startedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-// SecurityHeaders agrega a todas las respuestas X-Content-Type-Options: nosniff, que le impide
-// al navegador interpretar una respuesta como otro tipo de contenido (por ejemplo, un JSON
-// como HTML o JavaScript).
+// SecurityHeaders adds X-Content-Type-Options: nosniff to every response, which stops the
+// browser from reading a response as another type of content (for example, a JSON as HTML or
+// JavaScript).
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -251,8 +251,8 @@ func SecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// NoStore agrega Cache-Control: no-store, para que ni el navegador ni un proxy guarden la
-// respuesta. Se usa en las rutas que devuelven secretos o datos personales (todo /auth).
+// NoStore adds Cache-Control: no-store, so neither the browser nor a proxy keeps the response.
+// It is used on the routes that return secrets or personal data (all of /auth).
 func NoStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")

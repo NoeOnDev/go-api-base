@@ -1,7 +1,7 @@
-// Package docs tiene las guías de la plantilla. Este test comprueba que la documentación no
-// apunte a lo que ya no existe: los enlaces entre documentos (incluidas las secciones, #ancla) y
-// las menciones a docs/*.md en el código y en los documentos. Así el índice de AGENTS.md y las
-// referencias cruzadas no quedan rotos cuando se renombra un archivo o el título de una sección.
+// Package docs holds the guides of the template. This test checks that the documentation does
+// not point to what no longer exists: the links between documents (including sections, #anchor)
+// and the mentions of docs/*.md in the code and the documents. That way the index of AGENTS.md
+// and the cross-references do not break when a file or a section title is renamed.
 package docs
 
 import (
@@ -16,19 +16,19 @@ import (
 	"unicode"
 )
 
-// root es la raíz del repositorio, vista desde docs/.
+// root is the root of the repository, seen from docs/.
 const root = ".."
 
 var (
-	// mdLink es un enlace de Markdown: [texto](destino).
+	// mdLink is a Markdown link: [text](target).
 	mdLink = regexp.MustCompile(`\]\(([^)\s]+)\)`)
-	// docMention es una mención a una guía, como `docs/auth.md` en un comentario.
+	// docMention is a mention of a guide, like `docs/auth.md` in a comment.
 	docMention = regexp.MustCompile(`docs/[\w-]+\.md`)
 	heading    = regexp.MustCompile(`^#{1,6}\s+(.+?)\s*#*$`)
 )
 
 func TestLinks(t *testing.T) {
-	anchors := map[string][]string{} // archivo .md → anclas de sus títulos
+	anchors := map[string][]string{} // .md file → anchors of its headings
 	for _, file := range markdownFiles(t) {
 		for _, line := range outsideCode(read(t, file)) {
 			for _, m := range mdLink.FindAllStringSubmatch(line, -1) {
@@ -42,7 +42,7 @@ func TestLinks(t *testing.T) {
 					resolved = filepath.Join(filepath.Dir(file), path)
 				}
 				if _, err := os.Stat(resolved); err != nil {
-					t.Errorf("%s: el enlace %q apunta a un archivo que no existe", rel(file), target)
+					t.Errorf("%s: the link %q points to a file that does not exist", rel(file), target)
 					continue
 				}
 				if anchor == "" || !strings.HasSuffix(resolved, ".md") {
@@ -52,7 +52,7 @@ func TestLinks(t *testing.T) {
 					anchors[resolved] = headingAnchors(read(t, resolved))
 				}
 				if !slices.Contains(anchors[resolved], anchor) {
-					t.Errorf("%s: el enlace %q apunta a una sección que no existe en %s", rel(file), target, rel(resolved))
+					t.Errorf("%s: the link %q points to a section that does not exist in %s", rel(file), target, rel(resolved))
 				}
 			}
 		}
@@ -72,7 +72,7 @@ func TestDocMentions(t *testing.T) {
 		}
 		for _, m := range docMention.FindAllString(read(t, path), -1) {
 			if _, err := os.Stat(filepath.Join(root, m)); err != nil {
-				t.Errorf("%s menciona %s, que no existe", rel(path), m)
+				t.Errorf("%s mentions %s, which does not exist", rel(path), m)
 			}
 		}
 		return nil
@@ -82,7 +82,7 @@ func TestDocMentions(t *testing.T) {
 	}
 }
 
-// markdownFiles son los documentos que se revisan: los de la raíz y los de docs/.
+// markdownFiles are the documents that are checked: the ones at the root and in docs/.
 func markdownFiles(t *testing.T) []string {
 	t.Helper()
 	var files []string
@@ -96,7 +96,7 @@ func markdownFiles(t *testing.T) []string {
 	return files
 }
 
-// headingAnchors devuelve las anclas de los títulos, como las arma GitHub.
+// headingAnchors returns the anchors of the headings, as GitHub builds them.
 func headingAnchors(text string) []string {
 	var anchors []string
 	seen := map[string]int{}
@@ -107,7 +107,7 @@ func headingAnchors(text string) []string {
 		}
 		a := anchor(m[1])
 		if n := seen[a]; n > 0 {
-			anchors = append(anchors, a+"-"+strconv.Itoa(n)) // los títulos repetidos llevan -1, -2…
+			anchors = append(anchors, a+"-"+strconv.Itoa(n)) // repeated headings get -1, -2…
 		} else {
 			anchors = append(anchors, a)
 		}
@@ -116,8 +116,8 @@ func headingAnchors(text string) []string {
 	return anchors
 }
 
-// anchor convierte un título en su ancla, como GitHub: minúsculas, sin signos de puntuación
-// (salvo - y _) y con guiones en lugar de espacios. Conserva las tildes y la ñ.
+// anchor turns a heading into its anchor, as GitHub does: lowercase, without punctuation
+// (except - and _) and with hyphens instead of spaces. It keeps accents and ñ.
 func anchor(title string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(title) {
@@ -131,7 +131,7 @@ func anchor(title string) string {
 	return b.String()
 }
 
-// outsideCode devuelve las líneas que no están dentro de un bloque de código (```).
+// outsideCode returns the lines that are not inside a code block (```).
 func outsideCode(text string) []string {
 	var lines []string
 	inCode := false

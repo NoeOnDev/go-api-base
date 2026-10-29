@@ -39,7 +39,7 @@ func TestEnableTwoFactor(t *testing.T) {
 	// Setup devuelve el secreto y la URL del QR, con el nombre de la app y el email.
 	setup := testutil.Decode[setupResponse](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
 	u, err := url.Parse(setup.OTPAuthURL)
-	if err != nil || u.Scheme != "otpauth" || u.Query().Get("secret") != setup.Secret || u.Query().Get("issuer") != "App de Prueba" ||
+	if err != nil || u.Scheme != "otpauth" || u.Query().Get("secret") != setup.Secret || u.Query().Get("issuer") != "Test App" ||
 		!strings.Contains(u.Path, "alice@example.com") {
 		t.Fatalf("otpauth_url inesperada: %s", setup.OTPAuthURL)
 	}

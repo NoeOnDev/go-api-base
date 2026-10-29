@@ -1,4 +1,4 @@
-// Package server arma el servidor HTTP: rutas, middlewares y timeouts.
+// Package server builds the HTTP server: routes, middlewares and timeouts.
 package server
 
 import (
@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// New crea un http.Server con timeouts. Sin ellos, un cliente lento o malicioso
-// puede mantener conexiones abiertas indefinidamente y agotar los recursos del servidor.
+// New creates an http.Server with timeouts. Without them, a slow or malicious client can keep
+// connections open forever and use up the server's resources.
 func New(addr string, handler http.Handler, logger *slog.Logger) *http.Server {
 	return &http.Server{
 		Addr:              addr,

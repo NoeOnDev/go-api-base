@@ -13,9 +13,9 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/server"
 )
 
-// NewServer levanta la API en un servidor HTTP real, con los mismos timeouts que en producción.
-// Hace falta para probar los streams SSE (GET /events): httptest.ResponseRecorder no permite
-// leer la respuesta mientras se escribe. Acepta las mismas opciones que NewAPI.
+// NewServer runs the API on a real HTTP server, with the same timeouts as in production.
+// It is needed to test the SSE streams (GET /events): httptest.ResponseRecorder does not let you
+// read the response while it is written. It takes the same options as NewAPI.
 func NewServer(t *testing.T, pool *pgxpool.Pool, opts ...Option) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewUnstartedServer(NewAPI(pool, opts...))
@@ -25,9 +25,9 @@ func NewServer(t *testing.T, pool *pgxpool.Pool, opts ...Option) *httptest.Serve
 	return srv
 }
 
-// OpenEvents abre GET /events con la sesión del usuario y devuelve un lector de sus eventos.
-// topics es la lista para ?topics= (vacía para escuchar solo el canal del usuario). El primer
-// evento ("ready") ya se leyó.
+// OpenEvents opens GET /events with the user's session and returns a reader of its events.
+// topics is the list for ?topics= (empty to listen only to the user's channel). The first event
+// ("ready") has already been read.
 func OpenEvents(t *testing.T, srv *httptest.Server, cookie *http.Cookie, topics string) *ssetest.Reader {
 	t.Helper()
 	url := srv.URL + "/events"
@@ -47,7 +47,7 @@ func OpenEvents(t *testing.T, srv *httptest.Server, cookie *http.Cookie, topics 
 
 	r := ssetest.NewReader(resp.Body)
 	if ev := r.Next(t, 2*time.Second); ev.Type != "ready" {
-		t.Fatalf("se esperaba el evento ready: %+v", ev)
+		t.Fatalf("want the ready event: %+v", ev)
 	}
 	return r
 }

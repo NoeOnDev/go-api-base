@@ -1,5 +1,5 @@
-// Package httpx reúne las utilidades HTTP comunes a toda la API: lectura y escritura de JSON,
-// el formato único de errores y los middlewares.
+// Package httpx has the HTTP utilities shared by the whole API: reading and writing JSON, the
+// single error format and the middlewares.
 package httpx
 
 import (
@@ -10,26 +10,26 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
-// Error es un error de la API con su código HTTP. Se responde siempre como
+// Error is an API error with its HTTP status. It is always answered as
 //
 //	{"error": {"code": "...", "message": "...", "fields": {...}}}
 //
-// para que el frontend maneje todos los errores de la misma forma. Code identifica el error y es
-// también la clave de su mensaje en los catálogos de internal/i18n ("errors.<code>"): el mensaje
-// se traduce al escribir la respuesta, en el idioma de la petición. Ver docs/i18n.md.
+// so the frontend handles every error the same way. Code identifies the error and is also the
+// key of its message in the internal/i18n catalogs ("errors.<code>"): the message is translated
+// when the response is written, in the language of the request. See docs/i18n.md.
 type Error struct {
 	Status int
 	Code   string
-	// Args completan el mensaje: pares clave, valor, como en slog ("field", "title").
+	// Args fill in the message: key/value pairs, as in slog ("field", "title").
 	Args []any
-	// Fields asocia cada campo con su mensaje (en los errores de validación).
+	// Fields maps each field to its message (in validation errors).
 	Fields Fields
 
-	// Err es la causa interna. Se registra en el log, pero nunca se envía al cliente.
+	// Err is the internal cause. It is logged, but never sent to the client.
 	Err error
 }
 
-// Fields son los mensajes por campo de un error de validación.
+// Fields are the per-field messages of a validation error.
 type Fields map[string]i18n.Message
 
 func (e *Error) Error() string {
@@ -41,10 +41,10 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
-// Message es el mensaje del error en el idioma de t.
+// Message is the error message in the language of t.
 func (e *Error) Message(t i18n.Translator) string { return t.T("errors."+e.Code, e.Args...) }
 
-// FieldMessages son los mensajes por campo en el idioma de t.
+// FieldMessages are the per-field messages in the language of t.
 func (e *Error) FieldMessages(t i18n.Translator) map[string]string {
 	if len(e.Fields) == 0 {
 		return nil
@@ -56,30 +56,30 @@ func (e *Error) FieldMessages(t i18n.Translator) map[string]string {
 	return fields
 }
 
-// BadRequest indica que la petición está mal formada (por ejemplo, JSON inválido).
-// args completan el mensaje (ver Error.Args).
+// BadRequest means the request is malformed (for example, invalid JSON).
+// args fill in the message (see Error.Args).
 func BadRequest(code string, args ...any) *Error {
 	return &Error{Status: http.StatusBadRequest, Code: code, Args: args}
 }
 
-// NotFound indica que el recurso pedido no existe, por ejemplo NotFound("note_not_found").
+// NotFound means the requested resource does not exist, for example NotFound("note_not_found").
 func NotFound(code string) *Error {
 	return &Error{Status: http.StatusNotFound, Code: code}
 }
 
-// Unauthorized indica que la petición necesita una sesión válida (o que las credenciales no lo son).
+// Unauthorized means the request needs a valid session (or that the credentials are not valid).
 func Unauthorized(code string) *Error {
 	return &Error{Status: http.StatusUnauthorized, Code: code}
 }
 
-// Forbidden indica que hay sesión, pero el usuario no tiene permiso para esta acción.
+// Forbidden means there is a session, but the user is not allowed to do this.
 func Forbidden(code string) *Error {
 	return &Error{Status: http.StatusForbidden, Code: code}
 }
 
-// Conflict indica que la operación choca con el estado actual, por ejemplo Conflict("email_taken",
-// "email"). field es opcional: si se indica, el mensaje también va en fields para que el frontend
-// lo muestre en el campo.
+// Conflict means the operation clashes with the current state, for example
+// Conflict("email_taken", "email"). field is optional: when given, the message also goes in
+// fields so the frontend shows it next to the field.
 func Conflict(code, field string) *Error {
 	e := &Error{Status: http.StatusConflict, Code: code}
 	if field != "" {
@@ -88,32 +88,32 @@ func Conflict(code, field string) *Error {
 	return e
 }
 
-// TooManyRequests indica que el cliente superó el límite de peticiones.
+// TooManyRequests means the client exceeded the rate limit.
 func TooManyRequests() *Error {
 	return &Error{Status: http.StatusTooManyRequests, Code: "too_many_requests"}
 }
 
-// Validation indica que los datos son correctos como JSON pero no cumplen las reglas.
-// fields asocia cada campo con su mensaje, por ejemplo {"title": i18n.M("validation.required")}.
+// Validation means the data is valid JSON but breaks the rules.
+// fields maps each field to its message, for example {"title": i18n.M("validation.required")}.
 func Validation(fields Fields) *Error {
 	return &Error{Status: http.StatusUnprocessableEntity, Code: "validation_failed", Fields: fields}
 }
 
-// Internal envuelve un error inesperado. El cliente solo ve un mensaje genérico.
+// Internal wraps an unexpected error. The client only sees a generic message.
 func Internal(err error) *Error {
 	return &Error{Status: http.StatusInternalServerError, Code: "internal_error", Err: err}
 }
 
-// errorBody es un error como lo recibe el cliente.
+// errorBody is an error as the client receives it.
 type errorBody struct {
 	Code    string            `json:"code"`
 	Message string            `json:"message"`
 	Fields  map[string]string `json:"fields,omitempty"`
 }
 
-// WriteError responde con el formato de error de la API, con los mensajes en el idioma de la
-// petición. Cualquier error que no sea *Error se trata como interno. Los errores 5xx se
-// registran con la causa real.
+// WriteError answers with the API error format, with the messages in the language of the
+// request. Any error that is not an *Error is treated as internal. 5xx errors are logged with
+// their real cause.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	var apiErr *Error
 	if !errors.As(err, &apiErr) {
@@ -126,7 +126,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	writeBody(w, r, apiErr)
 }
 
-// writeBody escribe el error, traducido al idioma de la petición, sin registrarlo.
+// writeBody writes the error, translated to the language of the request, without logging it.
 func writeBody(w http.ResponseWriter, r *http.Request, e *Error) {
 	t := i18n.FromContext(r.Context())
 	Write(w, e.Status, map[string]errorBody{"error": {
@@ -136,11 +136,11 @@ func writeBody(w http.ResponseWriter, r *http.Request, e *Error) {
 	}})
 }
 
-// HandlerFunc es un handler que devuelve un error en lugar de escribirlo.
-// Así cada handler termina con un simple "return err" y el formato de error queda centralizado.
+// HandlerFunc is a handler that returns an error instead of writing it.
+// That way every handler ends with a plain "return err" and the error format stays in one place.
 type HandlerFunc func(w http.ResponseWriter, r *http.Request) error
 
-// Handle convierte un HandlerFunc en un http.HandlerFunc que responde los errores con WriteError.
+// Handle turns a HandlerFunc into an http.HandlerFunc that answers errors with WriteError.
 func Handle(fn HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := fn(w, r); err != nil {

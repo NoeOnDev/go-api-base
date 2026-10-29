@@ -9,33 +9,33 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/totp"
 )
 
-// TwoFactor es el 2FA activado de un usuario de prueba.
+// TwoFactor is the enabled two-factor authentication of a test user.
 type TwoFactor struct {
 	Secret        string
 	RecoveryCodes []string
 }
 
-// Code devuelve un código válido de la app de autenticación. Usa el paso siguiente al actual:
-// el actual ya se usó al activar el 2FA, y la API rechaza los códigos reutilizados
-// (el paso siguiente se acepta por la tolerancia de ±1 paso).
+// Code returns a valid authenticator app code. It uses the step after the current one: the
+// current one was already used when enabling two-factor authentication, and the API rejects
+// reused codes (the next step is accepted thanks to the ±1 step tolerance).
 func (tf TwoFactor) Code(t *testing.T) string {
 	t.Helper()
 	return tf.CodeAt(t, time.Now().Add(totp.Period*time.Second))
 }
 
-// CodeAt devuelve el código de la app en un momento dado.
+// CodeAt returns the app code at a given time.
 func (tf TwoFactor) CodeAt(t *testing.T, at time.Time) string {
 	t.Helper()
 	code, err := totp.Code(tf.Secret, at)
 	if err != nil {
-		t.Fatalf("calcular código TOTP: %v", err)
+		t.Fatalf("compute the TOTP code: %v", err)
 	}
 	return code
 }
 
-// EnableTwoFactor activa el 2FA del usuario de la sesión, como lo haría el frontend:
-// pide el secreto (setup) y lo confirma con un código y su contraseña (enable).
-// Para un usuario creado con Login, la contraseña es Password.
+// EnableTwoFactor turns on two-factor authentication for the user of the session, as the
+// frontend would: it asks for the secret (setup) and confirms it with a code and the password
+// (enable). For a user created with Login, the password is Password.
 func EnableTwoFactor(t *testing.T, api http.Handler, cookie *http.Cookie, password string) TwoFactor {
 	t.Helper()
 

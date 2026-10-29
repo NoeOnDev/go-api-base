@@ -9,17 +9,16 @@ import (
 	"strings"
 )
 
-// TrustedProxies son las direcciones de los proxies (Caddy, Nginx) de los que se acepta
-// X-Forwarded-For. Vacía, no se acepta de nadie y la IP del cliente es la de la conexión.
+// TrustedProxies are the addresses of the proxies (Caddy, Nginx) whose X-Forwarded-For is
+// accepted. When empty, it is accepted from nobody and the client IP is the connection's.
 type TrustedProxies []netip.Prefix
 
-// DefaultTrustedProxies son localhost y las redes privadas: donde está el proxy si corre en el
-// mismo servidor o en una red de Docker. Es lo que se usa con TRUST_PROXY=true y sin
+// DefaultTrustedProxies are localhost and the private networks: where the proxy is when it runs
+// on the same server or in a Docker network. They are used with TRUST_PROXY=true and without
 // TRUSTED_PROXIES.
 //
-// Ojo con las redes privadas compartidas: algunos proveedores tienen redes privadas comunes a
-// todos los clientes de un centro de datos. Ahí conviene indicar la IP exacta del proxy con
-// TRUSTED_PROXIES.
+// Beware of shared private networks: some providers have private networks common to every
+// customer of a data center. There, set the exact IP of the proxy with TRUSTED_PROXIES.
 var DefaultTrustedProxies = TrustedProxies{
 	netip.MustParsePrefix("127.0.0.0/8"),
 	netip.MustParsePrefix("::1/128"),
@@ -29,8 +28,8 @@ var DefaultTrustedProxies = TrustedProxies{
 	netip.MustParsePrefix("fc00::/7"),
 }
 
-// ParseTrustedProxies lee una lista de IPs o rangos CIDR separados por comas, por ejemplo
-// "127.0.0.1, 10.0.0.0/24". Una IP sola es un rango de una dirección.
+// ParseTrustedProxies reads a comma-separated list of IPs or CIDR ranges, for example
+// "127.0.0.1, 10.0.0.0/24". A single IP is a one-address range.
 func ParseTrustedProxies(list string) (TrustedProxies, error) {
 	var proxies TrustedProxies
 	for item := range strings.SplitSeq(list, ",") {
@@ -44,7 +43,7 @@ func ParseTrustedProxies(list string) (TrustedProxies, error) {
 		}
 		addr, err := netip.ParseAddr(item)
 		if err != nil {
-			return nil, fmt.Errorf("%q no es una IP ni un rango CIDR", item)
+			return nil, fmt.Errorf("%q is not an IP or a CIDR range", item)
 		}
 		addr = addr.Unmap()
 		proxies = append(proxies, netip.PrefixFrom(addr, addr.BitLen()))
@@ -52,7 +51,7 @@ func ParseTrustedProxies(list string) (TrustedProxies, error) {
 	return proxies, nil
 }
 
-// Contains indica si la dirección es de uno de los proxies.
+// Contains reports whether the address belongs to one of the proxies.
 func (p TrustedProxies) Contains(addr netip.Addr) bool {
 	addr = addr.Unmap()
 	for _, prefix := range p {
@@ -63,12 +62,12 @@ func (p TrustedProxies) Contains(addr netip.Addr) bool {
 	return false
 }
 
-// ClientIP devuelve la IP del cliente.
+// ClientIP returns the client IP.
 //
-// Si la conexión viene de uno de los proxies de confianza, la IP sale de X-Forwarded-For (ver
-// clientFromForwardedFor). Si viene de cualquier otro lado (o la lista está vacía), se usa la
-// dirección de la conexión: así, si el puerto de la API quedara abierto a internet por error,
-// nadie puede inventar su IP para esquivar los límites.
+// If the connection comes from one of the trusted proxies, the IP comes from X-Forwarded-For (see
+// clientFromForwardedFor). From anywhere else (or with an empty list), the connection address is
+// used: that way, if the API port were open to the internet by mistake, nobody could make up their
+// IP to get around the limits.
 func ClientIP(r *http.Request, proxies TrustedProxies) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -83,14 +82,14 @@ func ClientIP(r *http.Request, proxies TrustedProxies) string {
 	return host
 }
 
-// clientFromForwardedFor busca al cliente en X-Forwarded-For, aunque lleguen varios encabezados.
-// Cada proxy agrega al final la IP que se le conectó, así que se recorre de derecha a izquierda
-// salteando los proxies de confianza: la primera IP que no es de un proxy es la del cliente.
-// Con dos proxies (por ejemplo, Cloudflare delante de Caddy) el último valor es el de Cloudflare,
-// no el del cliente. Lo que queda a la izquierda lo puede inventar el cliente, así que no se usa.
+// clientFromForwardedFor finds the client in X-Forwarded-For, even across several headers.
+// Each proxy appends the IP that connected to it, so the list is walked from right to left
+// skipping the trusted proxies: the first IP that is not a proxy is the client's. With two
+// proxies (for example, Cloudflare in front of Caddy) the last value is Cloudflare's, not the
+// client's. Whatever is to the left can be made up by the client, so it is not used.
 //
-// Un valor que no es una IP corta la búsqueda. Si todas las IPs son de proxies de confianza (un
-// cliente de la red privada), se usa la más a la izquierda que se pudo leer.
+// A value that is not an IP stops the search. If every IP belongs to a trusted proxy (a client
+// on the private network), the leftmost one that could be read is used.
 func clientFromForwardedFor(values []string, proxies TrustedProxies) (string, bool) {
 	var ips []string
 	for _, v := range values {

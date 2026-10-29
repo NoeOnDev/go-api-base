@@ -26,7 +26,7 @@ type SMTPSender struct {
 	From     *mail.Address
 }
 
-// NewSMTPSender valida el remitente (por ejemplo "Mi App <no-reply@myapp.com>") y crea el sender.
+// NewSMTPSender valida el remitente (por ejemplo "My App <no-reply@myapp.com>") y crea el sender.
 func NewSMTPSender(host string, port int, username, password, from string) (*SMTPSender, error) {
 	addr, err := mail.ParseAddress(from)
 	if err != nil {

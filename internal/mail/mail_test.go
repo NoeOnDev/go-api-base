@@ -36,7 +36,7 @@ func TestMessageValidate(t *testing.T) {
 }
 
 func TestBuild(t *testing.T) {
-	from := &netmail.Address{Name: "Mi App", Address: "no-reply@myapp.com"}
+	from := &netmail.Address{Name: "My App", Address: "no-reply@myapp.com"}
 	body := "Hola Alice,\n\nTu código es: ñandú 123.\nUna línea muy larga " + strings.Repeat("x", 120)
 
 	raw, err := build(from, Message{To: "alice@example.com", Subject: "Recuperá tu contraseña", Body: body}, time.Now())

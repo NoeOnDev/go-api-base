@@ -20,10 +20,10 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/server"
 )
 
-// EncryptionKey es la ENCRYPTION_KEY de los tests: 32 bytes fijos, no es un secreto.
+// EncryptionKey is the ENCRYPTION_KEY of the tests: 32 fixed bytes, not a secret.
 var EncryptionKey = bytes.Repeat([]byte{1}, 32)
 
-// APIError es el formato de error de la API, para leerlo en los tests.
+// APIError is the API error format, to read it in the tests.
 type APIError struct {
 	Error struct {
 		Code    string            `json:"code"`
@@ -32,43 +32,43 @@ type APIError struct {
 	} `json:"error"`
 }
 
-// Option ajusta la API de prueba que crea NewAPI.
+// Option adjusts the test API that NewAPI creates.
 type Option func(*server.Deps)
 
-// WithMailer usa el sender indicado para los correos, normalmente un *mail.Recorder
-// para poder leer los correos enviados en el test.
+// WithMailer uses the given sender for the emails, usually a *mail.Recorder to read the emails
+// sent in the test.
 func WithMailer(m mail.Sender) Option {
 	return func(d *server.Deps) { d.Mailer = m }
 }
 
-// WithBroker usa el broker indicado, para publicar eventos desde el test.
+// WithBroker uses the given broker, to publish events from the test.
 func WithBroker(b *realtime.Broker) Option {
 	return func(d *server.Deps) { d.Broker = b }
 }
 
-// WithConfig permite cambiar la configuración, por ejemplo para activar la verificación de email.
+// WithConfig changes the configuration, for example to turn on email verification.
 func WithConfig(change func(*config.Config)) Option {
 	return func(d *server.Deps) { change(&d.Config) }
 }
 
-// NewAPI devuelve la API completa (rutas y middlewares) conectada a la base de pruebas.
-// Por defecto los correos van a un mail.Recorder que se descarta.
+// NewAPI returns the whole API (routes and middlewares) connected to the test database.
+// By default the emails go to a mail.Recorder that is thrown away.
 func NewAPI(pool *pgxpool.Pool, opts ...Option) http.Handler {
 	d := server.Deps{
 		Logger: slog.New(slog.DiscardHandler),
 		DB:     pool,
-		Config: config.Config{FrontendURL: "https://app.test", AppName: "App de Prueba", EncryptionKey: EncryptionKey},
+		Config: config.Config{FrontendURL: "https://app.test", AppName: "Test App", EncryptionKey: EncryptionKey},
 		Mailer: &mail.Recorder{},
 	}
 	for _, opt := range opts {
 		opt(&d)
 	}
-	// El llavero se arma con la configuración final, como en main: los tests de rotación cambian
-	// las claves con WithConfig.
+	// The key ring is built with the final configuration, as in main: the rotation tests change the
+	// keys with WithConfig.
 	if d.Box == nil && len(d.Config.EncryptionKey) > 0 {
 		box, err := secretbox.New(d.Config.EncryptionKey, d.Config.EncryptionPreviousKeys...)
 		if err != nil {
-			panic(fmt.Sprintf("testutil.NewAPI: llavero inválido: %v", err))
+			panic(fmt.Sprintf("testutil.NewAPI: invalid key ring: %v", err))
 		}
 		d.Box = box
 	}
@@ -77,32 +77,32 @@ func NewAPI(pool *pgxpool.Pool, opts ...Option) http.Handler {
 
 var tokenInLink = regexp.MustCompile(`[?&]token=([A-Za-z0-9_-]+)`)
 
-// TokenFromEmail extrae el token del enlace de un correo (por ejemplo, el de recuperar la contraseña).
+// TokenFromEmail extracts the token from the link of an email (for example, the password reset one).
 func TokenFromEmail(t *testing.T, msg mail.Message) string {
 	t.Helper()
 	m := tokenInLink.FindStringSubmatch(msg.Body)
 	if m == nil {
-		t.Fatalf("el correo no tiene un enlace con token:\n%s", msg.Body)
+		t.Fatalf("the email has no link with a token:\n%s", msg.Body)
 	}
 	return m[1]
 }
 
-// Do envía una petición a la API. cookie es la sesión del usuario, o nil para una petición sin sesión.
-// Todas salen de la misma IP (192.0.2.1), así que comparten los límites por IP.
+// Do sends a request to the API. cookie is the user's session, or nil for a request without one.
+// They all come from the same IP (192.0.2.1), so they share the per-IP limits.
 func Do(t *testing.T, api http.Handler, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	return DoFromIP(t, api, "", cookie, method, path, body)
 }
 
-// DoFromIP es como Do, pero la petición sale de la IP indicada. Sirve para simular un
-// atacante que reparte sus intentos entre muchas IPs, o para no chocar con el límite por IP.
+// DoFromIP is like Do, but the request comes from the given IP. It helps to simulate an attacker
+// who spreads their attempts across many IPs, or to avoid hitting the per-IP limit.
 func DoFromIP(t *testing.T, api http.Handler, ip string, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	return request(t, api, ip, "", cookie, method, path, body)
 }
 
-// DoWithLanguage es como Do, pero con el encabezado Accept-Language (por ejemplo "es-MX"), para
-// probar las respuestas en otro idioma (ver docs/i18n.md).
+// DoWithLanguage is like Do, but with the Accept-Language header (for example "es-MX"), to test
+// the responses in another language (see docs/i18n.md).
 func DoWithLanguage(t *testing.T, api http.Handler, lang string, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	return request(t, api, "", lang, cookie, method, path, body)
@@ -126,15 +126,15 @@ func request(t *testing.T, api http.Handler, ip, lang string, cookie *http.Cooki
 	return w
 }
 
-// Decode comprueba el status de la respuesta y decodifica su cuerpo JSON en T.
+// Decode checks the status of the response and decodes its JSON body into T.
 func Decode[T any](t *testing.T, w *httptest.ResponseRecorder, wantStatus int) T {
 	t.Helper()
 	if w.Code != wantStatus {
-		t.Fatalf("status = %d, se esperaba %d; cuerpo: %s", w.Code, wantStatus, w.Body)
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, wantStatus, w.Body)
 	}
 	var v T
 	if err := json.NewDecoder(w.Body).Decode(&v); err != nil {
-		t.Fatalf("respuesta no es JSON válido: %v", err)
+		t.Fatalf("the response is not valid JSON: %v", err)
 	}
 	return v
 }

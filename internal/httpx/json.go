@@ -9,12 +9,12 @@ import (
 	"strings"
 )
 
-// MaxBodyBytes es el tamaño máximo aceptado para el cuerpo de una petición (1 MB).
+// MaxBodyBytes is the largest accepted request body (1 MB).
 const MaxBodyBytes = 1 << 20
 
-// Decode lee el cuerpo JSON de la petición en dst. Rechaza cuerpos demasiado grandes,
-// campos desconocidos y más de un valor JSON, y traduce los errores a mensajes claros
-// para el cliente (siempre como *Error).
+// Decode reads the JSON body of the request into dst. It rejects bodies that are too large,
+// unknown fields and more than one JSON value, and turns the errors into clear messages for the
+// client (always as an *Error).
 func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, MaxBodyBytes)
 
@@ -25,9 +25,9 @@ func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
 		return decodeError(err)
 	}
 
-	// Un segundo Decode debe llegar al final: el cuerpo tiene que contener un solo valor JSON.
+	// A second Decode must reach the end: the body must hold a single JSON value.
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return BadRequest("el cuerpo debe contener un solo objeto JSON")
+		return BadRequest("multiple_json_values")
 	}
 
 	return nil
@@ -51,7 +51,7 @@ func decodeError(err error) error {
 		}
 		return BadRequest("wrong_body_type")
 	case strings.HasPrefix(err.Error(), "json: unknown field "):
-		// encoding/json no exporta un tipo para este error, así que se reconoce por su mensaje.
+		// encoding/json exports no type for this error, so it is recognized by its message.
 		field := strings.TrimPrefix(err.Error(), "json: unknown field ")
 		return BadRequest("unknown_field", "field", field)
 	case errors.As(err, &maxBytesErr):
@@ -61,24 +61,24 @@ func decodeError(err error) error {
 	}
 }
 
-// Write responde con status y v codificado como JSON. Si v es nil, solo envía el status
-// (útil para 204 No Content).
+// Write answers with status and v encoded as JSON. If v is nil, it only sends the status
+// (useful for 204 No Content).
 func Write(w http.ResponseWriter, status int, v any) {
 	if v == nil {
 		w.WriteHeader(status)
 		return
 	}
 
-	// Se codifica antes de enviar nada. Las respuestas son structs propios, así que si no se
-	// pueden codificar es un error de programación: el panic llega a Recover, que lo registra
-	// con el request_id y responde un 500 correcto (todavía no se envió el status).
+	// It is encoded before sending anything. Responses are our own structs, so failing to encode
+	// one is a programming error: the panic reaches Recover, which logs it with the request_id and
+	// answers a proper 500 (the status has not been sent yet).
 	body, err := json.Marshal(v)
 	if err != nil {
-		panic(fmt.Errorf("httpx.Write: codificar la respuesta: %w", err))
+		panic(fmt.Errorf("httpx.Write: encode the response: %w", err))
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	// Un error al escribir casi siempre es un cliente que cerró la conexión: no hay nada que hacer.
+	// A write error is almost always a client that closed the connection: there is nothing to do.
 	_, _ = w.Write(append(body, '\n'))
 }

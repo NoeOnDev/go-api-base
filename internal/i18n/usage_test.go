@@ -14,8 +14,9 @@ import (
 // table of docs/i18n.md, which is what frontend developers read.
 
 var (
-	// httpx.Conflict("email_taken", …), NotFound("note_not_found") inside httpx…
-	errorHelper = regexp.MustCompile(`\b(?:httpx\.)?(?:BadRequest|NotFound|Unauthorized|Forbidden|Conflict)\("([a-z_]+)"`)
+	// httpx.Conflict("email_taken", …), NotFound("note_not_found") inside httpx… Any text is
+	// captured, so a message written where the code goes fails the test instead of being missed.
+	errorHelper = regexp.MustCompile(`\b(?:httpx\.)?(?:BadRequest|NotFound|Unauthorized|Forbidden|Conflict)\("([^"]+)"`)
 	// &httpx.Error{…, Code: "too_many_emails"}
 	errorLiteral = regexp.MustCompile(`\bCode:\s*"([a-z_]+)"`)
 	// i18n.M("validation.required"), t.T("messages.verification_sent"), t.Plural("duration.hours", …)

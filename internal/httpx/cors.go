@@ -5,11 +5,11 @@ import (
 	"slices"
 )
 
-// CORS permite que un frontend en otro dominio (por ejemplo https://app.cliente.com)
-// llame a la API con cookies. Solo responde a los orígenes de la lista; con la lista vacía
-// no hace nada, que es lo correcto cuando el frontend y la API comparten dominio.
+// CORS lets a frontend on another domain (for example https://app.client.com) call the API
+// with cookies. It only answers the origins of the list; with an empty list it does nothing,
+// which is right when the frontend and the API share a domain.
 //
-// Desde el frontend hay que usar fetch(url, { credentials: "include" }) para que viaje la cookie.
+// The frontend must use fetch(url, { credentials: "include" }) for the cookie to be sent.
 func CORS(allowedOrigins []string) Middleware {
 	return func(next http.Handler) http.Handler {
 		if len(allowedOrigins) == 0 {
@@ -17,7 +17,7 @@ func CORS(allowedOrigins []string) Middleware {
 		}
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// La respuesta depende del Origin: los caches no deben reutilizarla para otro origen.
+			// The response depends on Origin: caches must not reuse it for another origin.
 			w.Header().Add("Vary", "Origin")
 
 			origin := r.Header.Get("Origin")
@@ -31,7 +31,7 @@ func CORS(allowedOrigins []string) Middleware {
 			h.Set("Access-Control-Allow-Credentials", "true")
 			h.Set("Access-Control-Expose-Headers", "Location, Retry-After, X-Request-ID")
 
-			// Preflight: el navegador pregunta antes de un POST/PUT/DELETE con JSON.
+			// Preflight: the browser asks first before a POST/PUT/DELETE with JSON.
 			if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
 				h.Add("Vary", "Access-Control-Request-Method")
 				h.Add("Vary", "Access-Control-Request-Headers")

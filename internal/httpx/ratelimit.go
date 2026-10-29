@@ -11,16 +11,16 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// RateLimiter limita las peticiones por IP (o por bloque /64 en IPv6) con el algoritmo
-// token bucket: cada IP tiene "burst" intentos disponibles, que se recargan de a uno cada "every".
+// RateLimiter limits requests per IP (or per /64 block in IPv6) with the token bucket
+// algorithm: each IP has "burst" attempts available, refilled one at a time every "every".
 //
-// Guarda el estado en memoria: con varias instancias de la API, cada una cuenta por separado. Por
-// eso se usa para los límites por IP, que son una primera barrera gruesa y barata. Los que frenan
-// la fuerza bruta contra una cuenta están en PostgreSQL (internal/ratelimit) y valen para todas.
+// It keeps its state in memory: with several API instances, each one counts on its own. That is
+// why it is used for the per-IP limits, a first coarse and cheap barrier. The limits that stop
+// brute force against an account are in PostgreSQL (internal/ratelimit) and hold for every instance.
 type RateLimiter struct {
 	every time.Duration
 	burst int
-	ttl   time.Duration // cuánto se recuerda una clave inactiva
+	ttl   time.Duration // how long an idle key is remembered
 
 	mu          sync.Mutex
 	visitors    map[string]*visitor
@@ -32,15 +32,15 @@ type visitor struct {
 	lastSeen time.Time
 }
 
-// visitorTTL es cuánto se recuerda, como mínimo, una clave inactiva antes de olvidarla.
-// Si el limitador tarda más en recargarse (every × burst), se la recuerda hasta entonces:
-// olvidarla antes le devolvería todos los intentos de golpe.
+// visitorTTL is how long, at least, an idle key is remembered before it is forgotten.
+// If the limiter takes longer to refill (every × burst), it is remembered until then:
+// forgetting it earlier would give back all its attempts at once.
 const visitorTTL = 10 * time.Minute
 
-// NewRateLimiter crea un limitador que permite burst peticiones seguidas por clave y recarga
-// una cada every. Por ejemplo, NewRateLimiter(12*time.Second, 5) permite 5 intentos seguidos
-// y luego uno cada 12 segundos (5 por minuto). La clave la elige el middleware: la IP
-// (MiddlewareByIP) u otra, como el usuario (MiddlewareBy).
+// NewRateLimiter creates a limiter that allows burst requests in a row per key and refills one
+// every every. For example, NewRateLimiter(12*time.Second, 5) allows 5 attempts in a row and
+// then one every 12 seconds (5 per minute). The middleware chooses the key: the IP
+// (MiddlewareByIP) or another one, like the user (MiddlewareBy).
 func NewRateLimiter(every time.Duration, burst int) *RateLimiter {
 	return &RateLimiter{
 		every:       every,
@@ -51,15 +51,15 @@ func NewRateLimiter(every time.Duration, burst int) *RateLimiter {
 	}
 }
 
-// Allow indica si la clave puede hacer otra petición ahora. En el middleware la clave es la IP
-// (o su bloque /64 en IPv6); también sirve para otras claves, como un usuario o un destinatario.
+// Allow reports whether the key may make another request now. In the middleware the key is the
+// IP (or its /64 block in IPv6); it also works for other keys, like a user or a recipient.
 func (rl *RateLimiter) Allow(ip string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
 	now := time.Now()
 
-	// Limpieza de claves inactivas, como mucho una vez por minuto, para que el mapa no crezca sin límite.
+	// Clean up idle keys, at most once a minute, so the map does not grow without bound.
 	if now.Sub(rl.lastCleanup) > time.Minute {
 		for k, v := range rl.visitors {
 			if now.Sub(v.lastSeen) > rl.ttl {
@@ -79,23 +79,23 @@ func (rl *RateLimiter) Allow(ip string) bool {
 	return v.limiter.Allow()
 }
 
-// Reset olvida una clave y le devuelve todos sus intentos. Sirve cuando cambia lo que el
-// límite protegía: por ejemplo, después de recuperar la contraseña.
+// Reset forgets a key and gives back all its attempts. It is for when what the limit protected
+// changes: for example, after a password reset.
 func (rl *RateLimiter) Reset(key string) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	delete(rl.visitors, key)
 }
 
-// rateLimitKey agrupa las direcciones IPv6 por su bloque /64. Un proveedor suele asignarle
-// a cada cliente un /64 entero (miles de millones de direcciones), así que contar por dirección
-// exacta permitiría esquivar el límite cambiando de IP. Las IPv4 se cuentan una por una.
+// rateLimitKey groups IPv6 addresses by their /64 block. A provider usually gives each customer
+// a whole /64 (billions of addresses), so counting by exact address would allow getting around
+// the limit by changing IPs. IPv4 addresses are counted one by one.
 func rateLimitKey(ip string) string {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return ip
 	}
-	addr = addr.Unmap() // una IPv4 escrita como IPv6 (::ffff:1.2.3.4) se trata como IPv4
+	addr = addr.Unmap() // an IPv4 written as IPv6 (::ffff:1.2.3.4) is treated as IPv4
 	if addr.Is4() {
 		return addr.String()
 	}
@@ -106,16 +106,16 @@ func rateLimitKey(ip string) string {
 	return prefix.String()
 }
 
-// MiddlewareByIP limita por IP del cliente (o por bloque /64 en IPv6). proxies son los proxies
-// de los que se acepta X-Forwarded-For (ver ClientIP).
+// MiddlewareByIP limits by client IP (or by /64 block in IPv6). proxies are the proxies whose
+// X-Forwarded-For is accepted (see ClientIP).
 func (rl *RateLimiter) MiddlewareByIP(proxies TrustedProxies) Middleware {
 	return rl.MiddlewareBy(func(r *http.Request) string {
 		return rateLimitKey(ClientIP(r, proxies))
 	})
 }
 
-// MiddlewareBy limita por la clave que devuelve key, por ejemplo el id del usuario. Al superar
-// el límite responde 429 con el encabezado Retry-After.
+// MiddlewareBy limits by the key that key returns, for example the user ID. Past the limit it
+// answers 429 with the Retry-After header.
 func (rl *RateLimiter) MiddlewareBy(key func(*http.Request) string) Middleware {
 	retryAfter := strconv.Itoa(int(math.Ceil(rl.every.Seconds())))
 
@@ -123,7 +123,7 @@ func (rl *RateLimiter) MiddlewareBy(key func(*http.Request) string) Middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			k := key(r)
 			if !rl.Allow(k) {
-				LoggerFrom(r.Context()).Warn("límite de peticiones superado", "key", k, "path", r.URL.Path)
+				LoggerFrom(r.Context()).Warn("rate limit exceeded", "key", k, "path", r.URL.Path)
 				w.Header().Set("Retry-After", retryAfter)
 				WriteError(w, r, TooManyRequests())
 				return

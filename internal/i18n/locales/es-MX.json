@@ -14,6 +14,7 @@
   "errors.invalid_path_id": "El {name} debe ser un número entero positivo.",
   "errors.last_admin": "No puedes borrar la única cuenta de administrador; nombra a otro administrador antes.",
   "errors.malformed_json": "El cuerpo de la petición no es un JSON válido.",
+  "errors.multiple_json_values": "El cuerpo de la petición debe tener un solo valor JSON.",
   "errors.note_not_found": "La nota no existe.",
   "errors.notification_not_found": "La notificación no existe.",
   "errors.payload_too_large": "El cuerpo de la petición no puede superar {limit} bytes.",

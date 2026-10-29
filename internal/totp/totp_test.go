@@ -82,19 +82,19 @@ func TestGenerateSecret(t *testing.T) {
 }
 
 func TestURI(t *testing.T) {
-	uri := URI("Mi App", "alice@example.com", "JBSWY3DPEHPK3PXP")
+	uri := URI("My App", "alice@example.com", "JBSWY3DPEHPK3PXP")
 	u, err := url.Parse(uri)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Scheme != "otpauth" || u.Host != "totp" || !strings.HasPrefix(u.Path, "/Mi App:alice@example.com") {
+	if u.Scheme != "otpauth" || u.Host != "totp" || !strings.HasPrefix(u.Path, "/My App:alice@example.com") {
 		t.Errorf("URI inesperada: %s", uri)
 	}
 	if strings.Contains(uri, "+") {
 		t.Errorf("los espacios deberían ir como %%20: %s", uri)
 	}
 	q := u.Query()
-	if q.Get("secret") != "JBSWY3DPEHPK3PXP" || q.Get("issuer") != "Mi App" || q.Get("digits") != "6" || q.Get("period") != "30" {
+	if q.Get("secret") != "JBSWY3DPEHPK3PXP" || q.Get("issuer") != "My App" || q.Get("digits") != "6" || q.Get("period") != "30" {
 		t.Errorf("parámetros inesperados: %v", q)
 	}
 }

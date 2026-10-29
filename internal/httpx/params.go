@@ -7,37 +7,37 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
-// Valores de paginación por defecto para los listados.
+// Default pagination values for the lists.
 const (
 	DefaultLimit = 20
 	MaxLimit     = 100
-	// MaxOffset es el offset más alto que se acepta. PostgreSQL lee y descarta todas las filas
-	// anteriores al offset, así que uno enorme hace lenta la consulta. Para recorrer más que esto
-	// (una exportación, un scroll infinito largo), conviene paginar por cursor: WHERE id < $último.
+	// MaxOffset is the highest accepted offset. PostgreSQL reads and discards every row before the
+	// offset, so a huge one makes the query slow. To go further than this (an export, a long
+	// infinite scroll), paginate with a cursor: WHERE id < $last.
 	MaxOffset = 10_000
 )
 
-// Page son los parámetros de paginación de un listado (?limit=20&offset=40).
+// Page is the pagination of a list (?limit=20&offset=40).
 type Page struct {
 	Limit  int32
 	Offset int32
 }
 
-// PageMeta acompaña a cada listado para que el frontend pueda armar la paginación.
+// PageMeta comes with every list so the frontend can build the pagination.
 type PageMeta struct {
 	Limit  int32 `json:"limit"`
 	Offset int32 `json:"offset"`
 	Total  int64 `json:"total"`
 }
 
-// List es la respuesta de un listado: {"data": [...], "meta": {...}}.
+// List is the response of a list: {"data": [...], "meta": {...}}.
 type List[T any] struct {
 	Data []T      `json:"data"`
 	Meta PageMeta `json:"meta"`
 }
 
-// ParsePage lee limit y offset de la URL, con valores por defecto.
-// Si son inválidos devuelve un error de validación con el campo correspondiente.
+// ParsePage reads limit and offset from the URL, with default values.
+// If they are invalid, it returns a validation error with the matching field.
 func ParsePage(r *http.Request) (Page, error) {
 	page := Page{Limit: DefaultLimit}
 	fields := Fields{}
@@ -64,7 +64,7 @@ func ParsePage(r *http.Request) (Page, error) {
 	return page, nil
 }
 
-// PathID lee un identificador numérico de la ruta, por ejemplo {id} en "GET /notes/{id}".
+// PathID reads a numeric ID from the path, for example {id} in "GET /notes/{id}".
 func PathID(r *http.Request, name string) (int64, error) {
 	id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
 	if err != nil || id < 1 {

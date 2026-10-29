@@ -15,31 +15,31 @@ func TestClientIP(t *testing.T) {
 		proxies    TrustedProxies
 		want       string
 	}{
-		{"sin proxy", "203.0.113.7:4321", nil, nil, "203.0.113.7"},
-		{"ignora XFF sin TRUST_PROXY", "203.0.113.7:4321", []string{"1.1.1.1"}, nil, "203.0.113.7"},
-		{"usa el último XFF con proxy en localhost", "127.0.0.1:5000", []string{"1.1.1.1, 198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
+		{"no proxy", "203.0.113.7:4321", nil, nil, "203.0.113.7"},
+		{"ignores XFF without TRUST_PROXY", "203.0.113.7:4321", []string{"1.1.1.1"}, nil, "203.0.113.7"},
+		{"uses the last XFF with a proxy on localhost", "127.0.0.1:5000", []string{"1.1.1.1, 198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
 		{"proxy en localhost IPv6", "[::1]:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
-		{"proxy en una red de Docker", "172.18.0.2:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
-		{"proxy en una red privada", "10.0.0.5:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
-		{"varios encabezados: el último es el del proxy", "127.0.0.1:5000", []string{"1.1.1.1", "198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
-		{"proxy sin XFF", "127.0.0.1:5000", nil, DefaultTrustedProxies, "127.0.0.1"},
-		{"XFF que no es una IP", "127.0.0.1:5000", []string{"inventado"}, DefaultTrustedProxies, "127.0.0.1"},
-		// Con TRUST_PROXY y el puerto abierto a internet por error: el XFF inventado no se cree.
-		{"conexión directa desde internet", "203.0.113.7:4321", []string{"1.1.1.1"}, DefaultTrustedProxies, "203.0.113.7"},
+		{"proxy on a Docker network", "172.18.0.2:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
+		{"proxy on a private network", "10.0.0.5:5000", []string{"198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
+		{"several headers: the last one is the proxy's", "127.0.0.1:5000", []string{"1.1.1.1", "198.51.100.4"}, DefaultTrustedProxies, "198.51.100.4"},
+		{"proxy without XFF", "127.0.0.1:5000", nil, DefaultTrustedProxies, "127.0.0.1"},
+		{"XFF that is not an IP", "127.0.0.1:5000", []string{"inventado"}, DefaultTrustedProxies, "127.0.0.1"},
+		// With TRUST_PROXY and the port open to the internet by mistake: a made-up XFF is not believed.
+		{"direct connection from the internet", "203.0.113.7:4321", []string{"1.1.1.1"}, DefaultTrustedProxies, "203.0.113.7"},
 		{"IPv6", "[2001:db8::1]:443", nil, nil, "2001:db8::1"},
-		// Con TRUSTED_PROXIES: solo el proxy indicado, aunque otra dirección sea de una red privada.
+		// With TRUSTED_PROXIES: only the given proxy, even if another address is on a private network.
 		{"proxy indicado", "10.0.0.5:5000", []string{"198.51.100.4"}, mustProxies(t, "10.0.0.5"), "198.51.100.4"},
-		{"otro de la red privada, no indicado", "10.0.0.6:5000", []string{"1.1.1.1"}, mustProxies(t, "10.0.0.5"), "10.0.0.6"},
+		{"another one on the private network, not listed", "10.0.0.6:5000", []string{"1.1.1.1"}, mustProxies(t, "10.0.0.5"), "10.0.0.6"},
 		{"rango indicado", "10.0.0.6:5000", []string{"198.51.100.4"}, mustProxies(t, "10.0.0.0/29"), "198.51.100.4"},
-		// Con dos proxies (Cloudflare delante de Caddy): se recorre XFF de derecha a izquierda
-		// salteando los de confianza.
+		// With two proxies (Cloudflare in front of Caddy): XFF is walked from right to left skipping the
+		// trusted ones.
 		{"Cloudflare y Caddy", "127.0.0.1:5000", []string{"203.0.113.7, 173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
-		{"ignora lo que el cliente inventa a la izquierda", "127.0.0.1:5000", []string{"6.6.6.6, 203.0.113.7, 173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
-		{"la cadena en varios encabezados", "127.0.0.1:5000", []string{"203.0.113.7", "173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
-		{"cliente de la red privada", "127.0.0.1:5000", []string{"192.168.1.5"}, DefaultTrustedProxies, "192.168.1.5"},
-		{"todos de confianza: el más a la izquierda", "127.0.0.1:5000", []string{"192.168.1.5, 10.0.0.9"}, DefaultTrustedProxies, "192.168.1.5"},
-		{"un valor inválido corta la búsqueda", "127.0.0.1:5000", []string{"inventado, 10.0.0.9"}, DefaultTrustedProxies, "10.0.0.9"},
-		{"basura a la izquierda de un cliente válido", "127.0.0.1:5000", []string{"inventado, 203.0.113.7"}, DefaultTrustedProxies, "203.0.113.7"},
+		{"ignores what the client makes up on the left", "127.0.0.1:5000", []string{"6.6.6.6, 203.0.113.7, 173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
+		{"the chain across several headers", "127.0.0.1:5000", []string{"203.0.113.7", "173.245.48.1"}, mustProxies(t, "127.0.0.1, 173.245.48.0/20"), "203.0.113.7"},
+		{"client on the private network", "127.0.0.1:5000", []string{"192.168.1.5"}, DefaultTrustedProxies, "192.168.1.5"},
+		{"all trusted: the leftmost one", "127.0.0.1:5000", []string{"192.168.1.5, 10.0.0.9"}, DefaultTrustedProxies, "192.168.1.5"},
+		{"an invalid value stops the search", "127.0.0.1:5000", []string{"inventado, 10.0.0.9"}, DefaultTrustedProxies, "10.0.0.9"},
+		{"garbage to the left of a valid client", "127.0.0.1:5000", []string{"inventado, 203.0.113.7"}, DefaultTrustedProxies, "203.0.113.7"},
 	}
 
 	for _, tt := range tests {
@@ -50,7 +50,7 @@ func TestClientIP(t *testing.T) {
 				r.Header.Add("X-Forwarded-For", v)
 			}
 			if got := ClientIP(r, tt.proxies); got != tt.want {
-				t.Errorf("ClientIP = %q, se esperaba %q", got, tt.want)
+				t.Errorf("ClientIP = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -71,7 +71,7 @@ func TestParseTrustedProxies(t *testing.T) {
 		t.Errorf("ParseTrustedProxies = %v, %v", p, err)
 	}
 	if _, err := ParseTrustedProxies("127.0.0.1, caddy"); err == nil {
-		t.Error("una dirección inválida debería ser un error")
+		t.Error("an invalid address should be an error")
 	}
 }
 
@@ -91,21 +91,21 @@ func TestRateLimiter(t *testing.T) {
 
 	for i := range 3 {
 		if w := call("203.0.113.1"); w.Code != http.StatusOK {
-			t.Fatalf("intento %d: status = %d", i+1, w.Code)
+			t.Fatalf("attempt %d: status = %d", i+1, w.Code)
 		}
 	}
 
 	w := call("203.0.113.1")
 	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("cuarto intento: status = %d, se esperaba 429", w.Code)
+		t.Fatalf("fourth attempt: status = %d, want 429", w.Code)
 	}
 	if w.Header().Get("Retry-After") != "3600" {
 		t.Errorf("Retry-After = %q", w.Header().Get("Retry-After"))
 	}
 
-	// Otra IP tiene su propio límite.
+	// Another IP has its own limit.
 	if w := call("203.0.113.2"); w.Code != http.StatusOK {
-		t.Errorf("otra IP: status = %d", w.Code)
+		t.Errorf("another IP: status = %d", w.Code)
 	}
 }
 
@@ -132,7 +132,7 @@ func TestCORS(t *testing.T) {
 		}
 	})
 
-	t.Run("petición normal de un origen permitido", func(t *testing.T) {
+	t.Run("regular request from an allowed origin", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, "/notes", nil)
 		r.Header.Set("Origin", "https://app.example.com")
 		w := httptest.NewRecorder()
@@ -145,16 +145,16 @@ func TestCORS(t *testing.T) {
 
 	t.Run("origen no permitido", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, "/notes", nil)
-		r.Header.Set("Origin", "https://otro-sitio.com")
+		r.Header.Set("Origin", "https://other-site.com")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
 
 		if w.Header().Get("Access-Control-Allow-Origin") != "" {
-			t.Errorf("no debería permitir el origen: %v", w.Header())
+			t.Errorf("should not allow the origin: %v", w.Header())
 		}
 	})
 
-	t.Run("sin orígenes configurados no agrega nada", func(t *testing.T) {
+	t.Run("without configured origins it adds nothing", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, "/notes", nil)
 		r.Header.Set("Origin", "https://app.example.com")
 		w := httptest.NewRecorder()
@@ -177,7 +177,7 @@ func TestRateLimitKey(t *testing.T) {
 	}
 	for ip, want := range tests {
 		if got := rateLimitKey(ip); got != want {
-			t.Errorf("rateLimitKey(%q) = %q, se esperaba %q", ip, got, want)
+			t.Errorf("rateLimitKey(%q) = %q, want %q", ip, got, want)
 		}
 	}
 }
@@ -194,40 +194,40 @@ func TestRateLimiterGroupsIPv6Block(t *testing.T) {
 		return w.Code
 	}
 
-	// Tres direcciones distintas del mismo /64 comparten el límite de 2.
+	// Three different addresses of the same /64 share the limit of 2.
 	call("[2001:db8:1:2::1]:1000")
 	call("[2001:db8:1:2::2]:1000")
 	if code := call("[2001:db8:1:2::3]:1000"); code != http.StatusTooManyRequests {
-		t.Errorf("tercera dirección del mismo /64: status = %d, se esperaba 429", code)
+		t.Errorf("third address of the same /64: status = %d, want 429", code)
 	}
-	// Otro /64 tiene su propio límite.
+	// Another /64 has its own limit.
 	if code := call("[2001:db8:1:3::1]:1000"); code != http.StatusOK {
-		t.Errorf("otro /64: status = %d, se esperaba 200", code)
+		t.Errorf("another /64: status = %d, want 200", code)
 	}
 }
 
 func TestRateLimiterRemembersUntilRefilled(t *testing.T) {
-	// 3 intentos que se recargan de a uno cada 20 minutos: tarda 1 hora en llenarse.
+	// 3 attempts refilled one every 20 minutes: it takes 1 hour to fill up.
 	rl := NewRateLimiter(20*time.Minute, 3)
 	for range 3 {
 		rl.Allow("alice")
 	}
 	if rl.Allow("alice") {
-		t.Fatal("el cuarto intento debería rechazarse")
+		t.Fatal("the fourth attempt should be rejected")
 	}
 
-	// Pasaron 15 minutos sin intentos (más que visitorTTL) y toca la limpieza:
-	// la clave no se olvida, porque todavía no se recargó.
+	// 15 minutes went by without attempts (more than visitorTTL) and the cleanup runs: the key is
+	// not forgotten, because it has not refilled yet.
 	rl.mu.Lock()
 	rl.visitors["alice"].lastSeen = time.Now().Add(-15 * time.Minute)
 	rl.lastCleanup = time.Now().Add(-2 * time.Minute)
 	rl.mu.Unlock()
 	if rl.Allow("alice") {
-		t.Error("la clave se olvidó antes de recargarse y recuperó todos sus intentos")
+		t.Error("the key was forgotten before refilling and got all its attempts back")
 	}
 
 	if rl := NewRateLimiter(12*time.Second, 5); rl.ttl != visitorTTL {
-		t.Errorf("con recarga rápida debería usar visitorTTL: %v", rl.ttl)
+		t.Errorf("with a fast refill it should use visitorTTL: %v", rl.ttl)
 	}
 }
 
@@ -235,10 +235,10 @@ func TestRateLimiterReset(t *testing.T) {
 	rl := NewRateLimiter(time.Hour, 1)
 	rl.Allow("alice")
 	if rl.Allow("alice") {
-		t.Fatal("el segundo intento debería rechazarse")
+		t.Fatal("the second attempt should be rejected")
 	}
 	rl.Reset("alice")
 	if !rl.Allow("alice") {
-		t.Error("después de Reset la clave debería tener sus intentos de nuevo")
+		t.Error("after Reset the key should have its attempts again")
 	}
 }

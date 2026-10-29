@@ -14,40 +14,40 @@ import (
 	"github.com/NoeOnDev/go-api-base/migrations"
 )
 
-// Migrate aplica las migraciones pendientes que vienen embebidas en el binario.
-// goose guarda en la tabla goose_db_version qué migraciones ya se aplicaron,
-// así que correrlo en cada arranque es seguro: si no hay pendientes, no hace nada.
+// Migrate applies the pending migrations embedded in the binary.
+// goose records in the goose_db_version table which migrations were applied, so running it on
+// every start is safe: with nothing pending, it does nothing.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error {
-	// goose trabaja con database/sql; esta conexión reutiliza el pool de pgx.
-	// Cerrarla no cierra el pool.
+	// goose works with database/sql; this connection reuses the pgx pool.
+	// Closing it does not close the pool.
 	sqlDB := stdlib.OpenDBFromPool(pool)
 	defer sqlDB.Close()
 
-	// El bloqueo (un advisory lock de PostgreSQL) evita que dos procesos migren al mismo tiempo,
-	// por ejemplo dos instancias arrancando juntas o tests de varios paquetes en paralelo.
+	// The lock (a PostgreSQL advisory lock) keeps two processes from migrating at the same time,
+	// for example two instances starting together or the tests of several packages in parallel.
 	locker, err := lock.NewPostgresSessionLocker()
 	if err != nil {
-		return fmt.Errorf("preparar bloqueo de migraciones: %w", err)
+		return fmt.Errorf("prepare the migration lock: %w", err)
 	}
 
 	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, migrations.FS,
 		goose.WithSessionLocker(locker),
 	)
 	if err != nil {
-		return fmt.Errorf("preparar migraciones: %w", err)
+		return fmt.Errorf("prepare the migrations: %w", err)
 	}
 
 	results, err := provider.Up(ctx)
 	for _, r := range results {
-		logger.Info("migración aplicada", "file", filepath.Base(r.Source.Path), "duration", r.Duration.String())
+		logger.Info("migration applied", "file", filepath.Base(r.Source.Path), "duration", r.Duration.String())
 	}
 	if err != nil {
-		return fmt.Errorf("aplicar migraciones: %w", err)
+		return fmt.Errorf("apply the migrations: %w", err)
 	}
 
 	version, err := provider.GetDBVersion(ctx)
 	if err != nil {
-		return fmt.Errorf("leer versión del esquema: %w", err)
+		return fmt.Errorf("read the schema version: %w", err)
 	}
 	logger.Info("esquema actualizado", "version", version, "applied", len(results))
 	return nil

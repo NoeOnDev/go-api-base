@@ -178,7 +178,7 @@ func NewService(pool *pgxpool.Pool, opts Options) *Service {
 		opts.FrontendURL = "http://localhost:5173"
 	}
 	if opts.Issuer == "" {
-		opts.Issuer = "Mi App"
+		opts.Issuer = "My App"
 	}
 	if opts.I18n == nil {
 		opts.I18n = i18n.Default()

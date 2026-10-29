@@ -14,6 +14,7 @@
   "errors.invalid_path_id": "The {name} must be a positive whole number.",
   "errors.last_admin": "You can't delete the only administrator account; make someone else an administrator first.",
   "errors.malformed_json": "The request body is not valid JSON.",
+  "errors.multiple_json_values": "The request body must contain a single JSON value.",
   "errors.note_not_found": "The note does not exist.",
   "errors.notification_not_found": "The notification does not exist.",
   "errors.payload_too_large": "The request body cannot exceed {limit} bytes.",

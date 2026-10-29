@@ -1,4 +1,4 @@
-// Package db abre la conexión a PostgreSQL y aplica las migraciones.
+// Package db opens the PostgreSQL connection and applies the migrations.
 package db
 
 import (
@@ -10,23 +10,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// defaultMaxConns es el tamaño del pool cuando la URL no lo indica. pgx usa 4 (o uno por núcleo),
-// que en un VPS chico queda corto: River ocupa una conexión fija para escuchar los trabajos nuevos
-// (LISTEN) y comparte el resto con las peticiones y sus workers. Con 10 sigue sobrando lugar en
-// PostgreSQL, que admite 100 por defecto.
+// defaultMaxConns is the pool size when the URL does not set it. pgx uses 4 (or one per core),
+// which falls short on a small VPS: River holds one connection to listen for new jobs (LISTEN)
+// and shares the rest with the requests and its workers. With 10 there is still plenty of room
+// in PostgreSQL, which allows 100 by default.
 const defaultMaxConns = 10
 
-// Open crea un pool de conexiones y comprueba que la base responde.
-// El pool reutiliza conexiones entre peticiones y es seguro para usar desde varias goroutines.
-// Su tamaño se puede ajustar en la URL, por ejemplo: ?pool_max_conns=20 (si no, defaultMaxConns).
+// Open creates a connection pool and checks that the database answers.
+// The pool reuses connections across requests and is safe to use from several goroutines.
+// Its size can be set in the URL, for example: ?pool_max_conns=20 (otherwise defaultMaxConns).
 func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	cfg, err := poolConfig(url)
 	if err != nil {
-		return nil, fmt.Errorf("crear pool: %w", err)
+		return nil, fmt.Errorf("create pool: %w", err)
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("crear pool: %w", err)
+		return nil, fmt.Errorf("create pool: %w", err)
 	}
 
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -34,15 +34,16 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 
 	if err := pool.Ping(pingCtx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("conectar a la base de datos: %w", err)
+		return nil, fmt.Errorf("connect to the database: %w", err)
 	}
 
 	return pool, nil
 }
 
-// poolConfig lee la URL y, si no indica pool_max_conns, usa al menos defaultMaxConns.
-// Se busca el parámetro en el texto porque pgx no informa si vino en la URL: así funciona
-// tanto con una URL (postgres://…?pool_max_conns=20) como con "clave=valor".
+// poolConfig reads the URL and, if it does not set pool_max_conns, uses at least
+// defaultMaxConns. The parameter is looked up in the text because pgx does not say whether it
+// came in the URL: that way it works both with a URL (postgres://…?pool_max_conns=20) and with
+// "key=value".
 func poolConfig(url string) (*pgxpool.Config, error) {
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {

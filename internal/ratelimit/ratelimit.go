@@ -1,10 +1,10 @@
-// Package ratelimit limita los intentos por clave (un email, un usuario) con el estado guardado en
-// PostgreSQL. Así el límite es el mismo en todas las instancias de la API y no se reinicia al
-// desplegar. Es el que frena la fuerza bruta contra una cuenta: auth lo usa en el login, el 2FA,
-// las acciones de la cuenta y los correos.
+// Package ratelimit limits the attempts per key (an email, a user) with the state stored in
+// PostgreSQL. That way the limit is the same on every instance of the API and is not reset on a
+// deploy. It is what stops brute force against an account: auth uses it in the login, the 2FA,
+// the account actions and the emails.
 //
-// Los límites por IP, en cambio, están en memoria (httpx.RateLimiter): son una primera barrera
-// barata, que no le suma una escritura a la base por cada petición. Ver docs/decisions.md.
+// The per-IP limits, instead, are in memory (httpx.RateLimiter): they are a cheap first barrier
+// that does not add a database write to each request. See docs/decisions.md.
 package ratelimit
 
 import (
@@ -20,11 +20,13 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
-// Limiter permite burst intentos seguidos por clave, y después recarga uno cada every (como
-// httpx.RateLimiter). Usa el algoritmo GCRA: guarda una sola fecha por clave, y cada intento es
-// una sola sentencia atómica (TakeRateLimit), así que dos instancias no pueden pisarse.
+// Limiter allows burst attempts in a row per key, and then refills one every every (like
+// httpx.RateLimiter). It uses the GCRA algorithm: it stores a single date per key, and each
+// attempt is a single atomic statement (TakeRateLimit), so two instances cannot step on each
+// other.
 //
-// Las claves que ya recargaron todos sus intentos las borra la limpieza de cada hora (internal/jobs).
+// The keys that already refilled all their attempts are deleted by the hourly cleanup
+// (internal/jobs).
 type Limiter struct {
 	q     *store.Queries
 	name  string
@@ -32,42 +34,43 @@ type Limiter struct {
 	burst int
 }
 
-// New crea un limitador. name separa sus claves de las de otros limitadores: el mismo email
-// cuenta por separado en "login" y en otro límite. Por ejemplo, New(q, "login", time.Minute, 10)
-// permite 10 intentos seguidos y luego uno por minuto.
+// New creates a limiter. name keeps its keys apart from those of other limiters: the same email
+// counts separately in "login" and in another limit. For example, New(q, "login", time.Minute, 10)
+// allows 10 attempts in a row and then one per minute.
 func New(q *store.Queries, name string, every time.Duration, burst int) *Limiter {
 	if name == "" || every <= 0 || burst < 1 {
-		panic(fmt.Sprintf("ratelimit: límite inválido %q (every %v, burst %d)", name, every, burst))
+		panic(fmt.Sprintf("ratelimit: invalid limit %q (every %v, burst %d)", name, every, burst))
 	}
 	return &Limiter{q: q, name: name, every: every, burst: burst}
 }
 
-// Allow gasta un intento de la clave e indica si estaba permitido. Si no lo estaba, no gasta nada.
+// Allow spends one attempt of the key and reports whether it was allowed. If it was not, it
+// spends nothing.
 func (l *Limiter) Allow(ctx context.Context, key string) (bool, error) {
 	n, err := l.q.TakeRateLimit(ctx, store.TakeRateLimitParams{Key: l.hash(key), Every: l.every, Burst: int32(l.burst)})
 	if err != nil {
-		return false, fmt.Errorf("límite %s: %w", l.name, err)
+		return false, fmt.Errorf("limit %s: %w", l.name, err)
 	}
 	return n == 1, nil
 }
 
-// Reset le devuelve a la clave todos sus intentos. Sirve cuando cambia lo que el límite
-// protegía: por ejemplo, después de recuperar la contraseña.
+// Reset gives the key back all its attempts. It is useful when what the limit protected changes:
+// for example, after a password reset.
 func (l *Limiter) Reset(ctx context.Context, key string) error {
 	if err := l.q.DeleteRateLimit(ctx, l.hash(key)); err != nil {
-		return fmt.Errorf("reiniciar el límite %s: %w", l.name, err)
+		return fmt.Errorf("reset the limit %s: %w", l.name, err)
 	}
 	return nil
 }
 
-// RetryAfter es el valor del encabezado Retry-After al superar el límite: lo que tarda en
-// recargarse un intento, en segundos.
+// RetryAfter is the value of the Retry-After header when the limit is exceeded: how long it
+// takes to refill one attempt, in seconds.
 func (l *Limiter) RetryAfter() string {
 	return strconv.Itoa(int(math.Ceil(l.every.Seconds())))
 }
 
-// Middleware limita por la clave que devuelve key, por ejemplo el id del usuario. Al superar el
-// límite responde 429 con el encabezado Retry-After.
+// Middleware limits by the key that key returns, for example the user's id. When the limit is
+// exceeded it responds 429 with the Retry-After header.
 func (l *Limiter) Middleware(key func(*http.Request) string) httpx.Middleware {
 	return func(next http.Handler) http.Handler {
 		return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -76,7 +79,7 @@ func (l *Limiter) Middleware(key func(*http.Request) string) httpx.Middleware {
 				return err
 			}
 			if !ok {
-				httpx.LoggerFrom(r.Context()).Warn("límite de intentos superado", "limit", l.name, "path", r.URL.Path)
+				httpx.LoggerFrom(r.Context()).Warn("attempt limit exceeded", "limit", l.name, "path", r.URL.Path)
 				w.Header().Set("Retry-After", l.RetryAfter())
 				return httpx.TooManyRequests()
 			}
@@ -86,7 +89,7 @@ func (l *Limiter) Middleware(key func(*http.Request) string) httpx.Middleware {
 	}
 }
 
-// hash es la clave como se guarda en la base: hasheada, porque puede ser un email.
+// hash is the key as it is stored in the database: hashed, because it can be an email.
 func (l *Limiter) hash(key string) []byte {
 	sum := sha256.Sum256([]byte(l.name + ":" + key))
 	return sum[:]

@@ -16,13 +16,13 @@ import (
 
 var errNotFound = httpx.NotFound("notification_not_found")
 
-// listResponse es el listado paginado, con la cantidad sin leer para el contador del frontend.
+// listResponse is the paginated list, with the unread count for the frontend's counter.
 type listResponse struct {
 	httpx.List[Response]
 	Unread int64 `json:"unread"`
 }
 
-// list responde GET /notifications?unread=true&limit=20&offset=0, de la más nueva a la más vieja.
+// list answers GET /notifications?unread=true&limit=20&offset=0, from the newest to the oldest.
 func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	page, err := httpx.ParsePage(r)
 	if err != nil {
@@ -42,15 +42,15 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 		UserID: user.ID, UnreadOnly: unreadOnly, Limit: page.Limit, Offset: page.Offset,
 	})
 	if err != nil {
-		return fmt.Errorf("listar notificaciones: %w", err)
+		return fmt.Errorf("list notifications: %w", err)
 	}
 	total, err := s.q.CountNotifications(r.Context(), store.CountNotificationsParams{UserID: user.ID, UnreadOnly: unreadOnly})
 	if err != nil {
-		return fmt.Errorf("contar notificaciones: %w", err)
+		return fmt.Errorf("count notifications: %w", err)
 	}
 	unread, err := s.q.CountUnreadNotifications(r.Context(), user.ID)
 	if err != nil {
-		return fmt.Errorf("contar notificaciones sin leer: %w", err)
+		return fmt.Errorf("count unread notifications: %w", err)
 	}
 
 	t := i18n.FromContext(r.Context())
@@ -65,7 +65,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// markRead responde POST /notifications/{id}/read.
+// markRead answers POST /notifications/{id}/read.
 func (s *Service) markRead(w http.ResponseWriter, r *http.Request) error {
 	id, err := httpx.PathID(r, "id")
 	if err != nil {
@@ -78,7 +78,7 @@ func (s *Service) markRead(w http.ResponseWriter, r *http.Request) error {
 		return errNotFound
 	}
 	if err != nil {
-		return fmt.Errorf("marcar notificación %d: %w", id, err)
+		return fmt.Errorf("mark notification %d: %w", id, err)
 	}
 
 	s.broker.PublishToUser(r.Context(), user.ID, realtime.Event{Type: EventRead, Data: map[string]int64{"id": id}})
@@ -86,11 +86,11 @@ func (s *Service) markRead(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// markAllRead responde POST /notifications/read-all.
+// markAllRead answers POST /notifications/read-all.
 func (s *Service) markAllRead(w http.ResponseWriter, r *http.Request) error {
 	user := auth.MustUser(r.Context())
 	if _, err := s.q.MarkAllNotificationsRead(r.Context(), user.ID); err != nil {
-		return fmt.Errorf("marcar notificaciones: %w", err)
+		return fmt.Errorf("mark notifications: %w", err)
 	}
 
 	s.broker.PublishToUser(r.Context(), user.ID, realtime.Event{Type: EventRead, Data: map[string]bool{"all": true}})

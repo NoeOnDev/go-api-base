@@ -11,21 +11,21 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
-// Deps son las dependencias que necesitan los workers.
+// Deps are the dependencies the workers need.
 type Deps struct {
 	Queries *store.Queries
 	Logger  *slog.Logger
-	// Mailer es el sender real (SMTP o log) con el que el worker envía los correos encolados.
+	// Mailer is the real sender (SMTP or log) the worker sends the queued emails with.
 	Mailer mail.Sender
-	// Box descifra los correos encolados (ver SendEmailArgs).
+	// Box decrypts the queued emails (see SendEmailArgs).
 	Box *secretbox.Box
-	// SessionIdleTimeout: la limpieza borra también las sesiones inactivas desde hace más
-	// que esto. 0, solo las vencidas.
+	// SessionIdleTimeout: the cleanup also deletes the sessions idle for longer than this. 0, only
+	// the expired ones.
 	SessionIdleTimeout time.Duration
 }
 
-// registerWorkers registra todos los workers. Cada trabajo nuevo se agrega acá,
-// como las rutas en server/routes.go.
+// registerWorkers registers every worker. Each new job is added here, like the routes in
+// server/routes.go.
 func registerWorkers(workers *river.Workers, deps Deps) error {
 	if err := river.AddWorkerSafely(workers, &cleanupWorker{q: deps.Queries, logger: deps.Logger, idle: deps.SessionIdleTimeout}); err != nil {
 		return err
@@ -36,8 +36,8 @@ func registerWorkers(workers *river.Workers, deps Deps) error {
 	return nil
 }
 
-// periodicJobs son los trabajos que se encolan solos cada cierto tiempo (el equivalente
-// al scheduler de Laravel). Solo los encola una instancia, la que River elige como líder.
+// periodicJobs are the jobs that queue themselves every so often (the equivalent of Laravel's
+// scheduler). Only one instance queues them, the one River elects as leader.
 func periodicJobs() []*river.PeriodicJob {
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(

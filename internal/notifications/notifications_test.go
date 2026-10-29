@@ -41,7 +41,7 @@ func TestNotificationsOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Cada uno ve solo las suyas, de la más nueva a la más vieja.
+	// Each one sees only their own, from the newest to the oldest.
 	list := testutil.Decode[listResponse](t, testutil.Do(t, api, aliceCookie, http.MethodGet, "/notifications", ""), http.StatusOK)
 	if len(list.Data) != 2 || list.Meta.Total != 2 || list.Unread != 2 || string(list.Data[0].Data) != `{"task_id":2}` {
 		t.Fatalf("listado de Alice: %+v", list)
@@ -51,42 +51,42 @@ func TestNotificationsOwnership(t *testing.T) {
 		t.Fatalf("listado de Bob: %+v", bobList)
 	}
 
-	// La de otro usuario responde 404, como en notes.
+	// Another user's answers 404, as in notes.
 	path := fmt.Sprintf("/notifications/%d/read", bobList.Data[0].ID)
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, aliceCookie, http.MethodPost, path, ""), http.StatusNotFound)
 
-	// Marcar una como leída.
+	// Mark one as read.
 	path = fmt.Sprintf("/notifications/%d/read", list.Data[0].ID)
 	read := testutil.Decode[notifications.Response](t, testutil.Do(t, api, aliceCookie, http.MethodPost, path, ""), http.StatusOK)
 	if read.ReadAt == nil {
-		t.Error("read_at debería tener la fecha")
+		t.Error("read_at should have the date")
 	}
 	unread := testutil.Decode[listResponse](t, testutil.Do(t, api, aliceCookie, http.MethodGet, "/notifications?unread=true", ""), http.StatusOK)
 	if len(unread.Data) != 1 || unread.Unread != 1 {
-		t.Errorf("sin leer: %+v", unread)
+		t.Errorf("unread: %+v", unread)
 	}
 
-	// Marcar todas.
+	// Mark all of them.
 	if w := testutil.Do(t, api, aliceCookie, http.MethodPost, "/notifications/read-all", ""); w.Code != http.StatusNoContent {
 		t.Fatalf("read-all: status = %d", w.Code)
 	}
 	if l := testutil.Decode[listResponse](t, testutil.Do(t, api, aliceCookie, http.MethodGet, "/notifications", ""), http.StatusOK); l.Unread != 0 {
-		t.Errorf("después de read-all quedan %d sin leer", l.Unread)
+		t.Errorf("after read-all %d are still unread", l.Unread)
 	}
-	// Las de Bob no se tocaron.
+	// Bob's were left alone.
 	if l := testutil.Decode[listResponse](t, testutil.Do(t, api, bobCookie, http.MethodGet, "/notifications", ""), http.StatusOK); l.Unread != 1 {
-		t.Errorf("las de Bob no deberían cambiar: %+v", l)
+		t.Errorf("Bob's should not change: %+v", l)
 	}
 
 	// Errores.
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, aliceCookie, http.MethodGet, "/notifications?unread=si", ""), http.StatusUnprocessableEntity)
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodGet, "/notifications", ""), http.StatusUnauthorized)
 	if w := testutil.Do(t, api, aliceCookie, http.MethodGet, "/notifications", ""); w.Header().Get("Cache-Control") != "no-store" {
-		t.Error("las notificaciones no deberían guardarse en caché")
+		t.Error("notifications should not be cached")
 	}
 }
 
-// do envía una petición al servidor real con la sesión.
+// do sends a request to the real server with the session.
 func do(t *testing.T, srv *httptest.Server, cookie *http.Cookie, method, path, body string) *http.Response {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(t.Context(), method, srv.URL+path, strings.NewReader(body))
@@ -117,16 +117,16 @@ func TestNotificationsArriveLive(t *testing.T) {
 	ev := aliceEvents.Next(t, 2*time.Second)
 	var n notifications.Response
 	if err := json.Unmarshal([]byte(ev.Data), &n); err != nil || ev.Type != notifications.EventNotification || n.Kind != "task.assigned" {
-		t.Fatalf("evento: %+v (%v)", ev, err)
+		t.Fatalf("event: %+v (%v)", ev, err)
 	}
 	bobEvents.Nothing(t, 100*time.Millisecond)
 
-	// Marcarla como leída avisa a las demás pestañas, para actualizar el contador.
+	// Marking it as read tells the other tabs, to update the counter.
 	if resp := do(t, srv, aliceCookie, http.MethodPost, fmt.Sprintf("/notifications/%d/read", n.ID), ""); resp.StatusCode != http.StatusOK {
 		t.Fatalf("read: status = %d", resp.StatusCode)
 	}
 	if ev := aliceEvents.Next(t, 2*time.Second); ev.Type != notifications.EventRead || ev.Data != fmt.Sprintf(`{"id":%d}`, n.ID) {
-		t.Errorf("evento de leída: %+v", ev)
+		t.Errorf("read event: %+v", ev)
 	}
 }
 
@@ -136,14 +136,14 @@ func TestSecurityChangesNotify(t *testing.T) {
 	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	events := testutil.OpenEvents(t, srv, cookie, "")
 
-	// Cambiar la contraseña desde el perfil avisa en vivo y queda guardado.
+	// Changing the password from the profile notifies live and is stored.
 	body := `{"current_password":"test-password","password":"a-new-password"}`
 	if resp := do(t, srv, cookie, http.MethodPut, "/auth/password", body); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("cambio de contraseña: status = %d", resp.StatusCode)
+		t.Fatalf("password change: status = %d", resp.StatusCode)
 	}
 	ev := events.Next(t, 2*time.Second)
 	if ev.Type != notifications.EventNotification || !strings.Contains(ev.Data, auth.NotifyPasswordChanged) || !strings.Contains(ev.Data, "password was changed") {
-		t.Errorf("evento: %+v", ev)
+		t.Errorf("event: %+v", ev)
 	}
 
 	resp := do(t, srv, cookie, http.MethodGet, "/notifications", "")
@@ -151,7 +151,7 @@ func TestSecurityChangesNotify(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
 		t.Fatal(err)
 	}
-	// El texto se arma al leer (no se guarda): en data no queda ningún mensaje.
+	// The text is built on read (it is not stored): no message is left in data.
 	if len(list.Data) != 1 || list.Data[0].Kind != auth.NotifyPasswordChanged ||
 		!strings.Contains(list.Data[0].Message, "password was changed") || string(list.Data[0].Data) != "{}" {
 		t.Errorf("notificaciones guardadas: %+v", list)

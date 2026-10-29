@@ -1,4 +1,4 @@
-// Package ssetest lee streams SSE en los tests, como lo haría EventSource en el navegador.
+// Package ssetest reads SSE streams in the tests, as EventSource would in the browser.
 package ssetest
 
 import (
@@ -9,18 +9,18 @@ import (
 	"time"
 )
 
-// Event es un evento leído del stream. Comment tiene el texto de un comentario (": ping").
+// Event is an event read from the stream. Comment has the text of a comment (": ping").
 type Event struct {
 	ID, Type, Data, Comment string
 }
 
-// Reader lee eventos de un stream SSE en otra goroutine.
+// Reader reads events from an SSE stream in another goroutine.
 type Reader struct {
 	events chan Event
 	done   chan struct{}
 }
 
-// NewReader empieza a leer el cuerpo de una respuesta SSE.
+// NewReader starts reading the body of an SSE response.
 func NewReader(body io.Reader) *Reader {
 	r := &Reader{events: make(chan Event, 64), done: make(chan struct{})}
 	go func() {
@@ -51,8 +51,8 @@ func NewReader(body io.Reader) *Reader {
 	return r
 }
 
-// Next devuelve el próximo evento, o falla el test si no llega antes del timeout.
-// Saltea los comentarios salvo que se pida con NextComment.
+// Next returns the next event, or fails the test if it does not arrive before the timeout.
+// It skips comments unless asked for with NextComment.
 func (r *Reader) Next(t *testing.T, timeout time.Duration) Event {
 	t.Helper()
 	deadline := time.After(timeout)
@@ -64,14 +64,14 @@ func (r *Reader) Next(t *testing.T, timeout time.Duration) Event {
 			}
 			return ev
 		case <-r.done:
-			t.Fatal("el stream se cerró antes de recibir el evento")
+			t.Fatal("the stream closed before the event arrived")
 		case <-deadline:
-			t.Fatal("no llegó ningún evento a tiempo")
+			t.Fatal("no event arrived in time")
 		}
 	}
 }
 
-// NextComment devuelve el próximo comentario (por ejemplo, el latido).
+// NextComment returns the next comment (for example, the heartbeat).
 func (r *Reader) NextComment(t *testing.T, timeout time.Duration) string {
 	t.Helper()
 	deadline := time.After(timeout)
@@ -82,14 +82,14 @@ func (r *Reader) NextComment(t *testing.T, timeout time.Duration) string {
 				return ev.Comment
 			}
 		case <-r.done:
-			t.Fatal("el stream se cerró antes de recibir el comentario")
+			t.Fatal("the stream closed before the comment arrived")
 		case <-deadline:
-			t.Fatal("no llegó ningún comentario a tiempo")
+			t.Fatal("no comment arrived in time")
 		}
 	}
 }
 
-// Nothing comprueba que no llegue ningún evento durante el tiempo indicado.
+// Nothing checks that no event arrives during the given time.
 func (r *Reader) Nothing(t *testing.T, wait time.Duration) {
 	t.Helper()
 	deadline := time.After(wait)
@@ -97,7 +97,7 @@ func (r *Reader) Nothing(t *testing.T, wait time.Duration) {
 		select {
 		case ev := <-r.events:
 			if ev.Comment == "" {
-				t.Fatalf("llegó un evento que no correspondía: %+v", ev)
+				t.Fatalf("an unexpected event arrived: %+v", ev)
 			}
 		case <-deadline:
 			return
@@ -105,7 +105,7 @@ func (r *Reader) Nothing(t *testing.T, wait time.Duration) {
 	}
 }
 
-// Closed indica si el stream terminó antes del timeout.
+// Closed reports whether the stream ended before the timeout.
 func (r *Reader) Closed(timeout time.Duration) bool {
 	select {
 	case <-r.done:

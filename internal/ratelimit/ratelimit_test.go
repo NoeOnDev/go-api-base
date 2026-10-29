@@ -25,7 +25,7 @@ func TestLimiter(t *testing.T) {
 		}
 		return ok
 	}
-	// elapse simula que pasó ese tiempo: corre hacia atrás el momento en que se recargan los intentos.
+	// elapse simulates that that much time passed: it moves back the moment the attempts refill.
 	elapse := func(d time.Duration) {
 		t.Helper()
 		if _, err := pool.Exec(t.Context(), "UPDATE rate_limits SET tat = tat - $1::interval", d); err != nil {
@@ -35,42 +35,42 @@ func TestLimiter(t *testing.T) {
 
 	for i := range 3 {
 		if !allow("alice@example.com") {
-			t.Fatalf("intento %d rechazado: se permiten 3 seguidos", i+1)
+			t.Fatalf("attempt %d rejected: 3 in a row are allowed", i+1)
 		}
 	}
 	if allow("alice@example.com") {
-		t.Error("el cuarto intento seguido debería rechazarse")
+		t.Error("the fourth attempt in a row should be rejected")
 	}
 	if !allow("bob@example.com") {
-		t.Error("otra clave tiene sus propios intentos")
+		t.Error("another key has its own attempts")
 	}
 
-	// Un intento rechazado no gasta nada: pasado every se recarga uno, y uno solo.
+	// A rejected attempt spends nothing: after every, one attempt refills, and only one.
 	elapse(time.Hour)
 	if !allow("alice@example.com") {
-		t.Error("pasado every debería recargarse un intento")
+		t.Error("after every, one attempt should refill")
 	}
 	if allow("alice@example.com") {
-		t.Error("se recarga de a un intento")
+		t.Error("it refills one attempt at a time")
 	}
 
-	// Otro limitador con la misma clave cuenta por separado.
+	// Another limiter with the same key counts separately.
 	other := ratelimit.New(store.New(pool), "email", time.Hour, 1)
 	if ok, err := other.Allow(t.Context(), "alice@example.com"); err != nil || !ok {
-		t.Errorf("otro limitador: %v, %v", ok, err)
+		t.Errorf("another limiter: %v, %v", ok, err)
 	}
 
-	// Reset le devuelve todos los intentos.
+	// Reset gives back all the attempts.
 	if err := l.Reset(t.Context(), "alice@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 3 {
 		if !allow("alice@example.com") {
-			t.Fatalf("después de Reset, intento %d rechazado", i+1)
+			t.Fatalf("after Reset, attempt %d rejected", i+1)
 		}
 	}
 
-	// En la base, las claves van hasheadas: no queda ningún email.
+	// In the database, the keys are hashed: no email is left.
 	rows, err := pool.Query(t.Context(), "SELECT key FROM rate_limits")
 	if err != nil {
 		t.Fatal(err)
@@ -82,12 +82,12 @@ func TestLimiter(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(key) != 32 || bytes.Contains(key, []byte("@example.com")) {
-			t.Errorf("clave guardada sin hashear: %q", key)
+			t.Errorf("key stored without hashing: %q", key)
 		}
 	}
 }
 
-// Varias instancias gastan intentos de la misma clave a la vez: se permiten exactamente burst.
+// Several instances spend attempts of the same key at once: exactly burst are allowed.
 func TestLimiterConcurrent(t *testing.T) {
 	pool := testutil.NewDB(t)
 	l := ratelimit.New(store.New(pool), "login", time.Hour, 5)
@@ -107,7 +107,7 @@ func TestLimiterConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 	if n := allowed.Load(); n != 5 {
-		t.Errorf("se permitieron %d intentos simultáneos, se esperaban 5", n)
+		t.Errorf("%d simultaneous attempts were allowed, want 5", n)
 	}
 }
 
@@ -125,13 +125,13 @@ func TestLimiterMiddleware(t *testing.T) {
 		return w
 	}
 	if w := do("1"); w.Code != http.StatusNoContent {
-		t.Fatalf("primer intento: status = %d", w.Code)
+		t.Fatalf("first attempt: status = %d", w.Code)
 	}
 	w := do("1")
 	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") != "12" {
-		t.Errorf("segundo intento: status = %d, Retry-After = %q", w.Code, w.Header().Get("Retry-After"))
+		t.Errorf("second attempt: status = %d, Retry-After = %q", w.Code, w.Header().Get("Retry-After"))
 	}
 	if w := do("2"); w.Code != http.StatusNoContent {
-		t.Errorf("otro usuario: status = %d", w.Code)
+		t.Errorf("another user: status = %d", w.Code)
 	}
 }

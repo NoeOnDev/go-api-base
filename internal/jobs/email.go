@@ -14,33 +14,33 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 )
 
-// SendEmailArgs es el trabajo de enviar un correo. El mensaje entero (destinatario, asunto
-// y cuerpo) va cifrado: los correos de recuperación llevan un enlace con token, y sin cifrar,
-// quien lea la tabla river_job podría usar un enlace vigente.
+// SendEmailArgs is the job of sending an email. The whole message (recipient, subject and body)
+// is encrypted: reset emails carry a link with a token, and unencrypted, whoever reads the
+// river_job table could use a valid link.
 type SendEmailArgs struct {
-	Message string `json:"message"` // mail.Message en JSON, cifrado con secretbox
+	Message string `json:"message"` // mail.Message in JSON, encrypted with secretbox
 }
 
 func (SendEmailArgs) Kind() string { return "send_email" }
 
-// InsertOpts manda el correo a su cola, con hasta 5 intentos. Entre intento e intento River
-// espera cada vez más (segundos, luego minutos), así una caída corta del SMTP no pierde correos.
+// InsertOpts sends the email to its queue, with up to 5 attempts. Between attempts River waits
+// longer each time (seconds, then minutes), so a short SMTP outage does not lose emails.
 func (SendEmailArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{Queue: QueueEmail, MaxAttempts: 5}
 }
 
-// emailAAD ata el mensaje cifrado a su uso: no se puede descifrar como otro tipo de dato.
+// emailAAD binds the encrypted message to its use: it cannot be decrypted as another kind of data.
 var emailAAD = []byte("jobs.send_email")
 
-// MailSender es el mail.Sender de producción: en lugar de enviar, encola el correo. Así la
-// respuesta HTTP no espera al servidor de correo, y si este falla o la API se reinicia,
-// el correo no se pierde.
+// MailSender is the production mail.Sender: instead of sending, it queues the email. That way
+// the HTTP response does not wait for the mail server, and if it fails or the API restarts, the
+// email is not lost.
 type MailSender struct {
 	client *Client
 	box    *secretbox.Box
 }
 
-// NewMailSender crea el sender que encola en client, cifrando con box.
+// NewMailSender creates the sender that queues in client, encrypting with box.
 func NewMailSender(client *Client, box *secretbox.Box) *MailSender {
 	return &MailSender{client: client, box: box}
 }
@@ -51,19 +51,19 @@ func (s *MailSender) Send(ctx context.Context, msg mail.Message) error {
 	}
 	plain, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("codificar correo: %w", err)
+		return fmt.Errorf("encode the email: %w", err)
 	}
 	encrypted, err := s.box.Encrypt(plain, emailAAD)
 	if err != nil {
-		return fmt.Errorf("cifrar correo: %w", err)
+		return fmt.Errorf("encrypt the email: %w", err)
 	}
 	if _, err := s.client.Insert(ctx, SendEmailArgs{Message: encrypted}, nil); err != nil {
-		return fmt.Errorf("encolar correo: %w", err)
+		return fmt.Errorf("queue the email: %w", err)
 	}
 	return nil
 }
 
-// sendEmailWorker envía los correos encolados con el sender real (SMTP o log).
+// sendEmailWorker sends the queued emails with the real sender (SMTP or log).
 type sendEmailWorker struct {
 	river.WorkerDefaults[SendEmailArgs]
 	sender mail.Sender
@@ -73,25 +73,24 @@ type sendEmailWorker struct {
 func (w *sendEmailWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs]) error {
 	plain, err := w.box.Decrypt(job.Args.Message, emailAAD)
 	if err != nil {
-		// Reintentar no sirve: falta la clave o el dato está dañado.
-		return river.JobCancel(fmt.Errorf("descifrar correo: %w", err))
+		// Retrying is useless: the key is missing or the data is damaged.
+		return river.JobCancel(fmt.Errorf("decrypt the email: %w", err))
 	}
 	var msg mail.Message
 	if err := json.Unmarshal(plain, &msg); err != nil {
-		return river.JobCancel(fmt.Errorf("decodificar correo: %w", err))
+		return river.JobCancel(fmt.Errorf("decode the email: %w", err))
 	}
 	return w.sender.Send(ctx, msg)
 }
 
-// QueuedEmailKeys cuenta los correos que todavía no salieron (esperando, programados,
-// reintentándose o enviándose), por el identificador de la clave con la que se cifraron. Lo usa
-// rotate-keys: un correo cifrado con una clave anterior se cancela si la clave se quita antes de
-// que salga.
+// QueuedEmailKeys counts the emails not sent yet (waiting, scheduled, retrying or being sent),
+// by the ID of the key they were encrypted with. rotate-keys uses it: an email encrypted with a
+// previous key is cancelled if the key is removed before it goes out.
 func QueuedEmailKeys(ctx context.Context, pool *pgxpool.Pool) (map[string]int64, error) {
-	// Sin colas ni workers, el cliente solo consulta y encola: no ejecuta nada.
+	// Without queues or workers, the client only reads and queues: it runs nothing.
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{})
 	if err != nil {
-		return nil, fmt.Errorf("crear cliente de River: %w", err)
+		return nil, fmt.Errorf("create the River client: %w", err)
 	}
 
 	const pageSize = 1000
@@ -105,12 +104,12 @@ func QueuedEmailKeys(ctx context.Context, pool *pgxpool.Pool) (map[string]int64,
 	for {
 		res, err := client.JobList(ctx, params)
 		if err != nil {
-			return nil, fmt.Errorf("listar correos de la cola: %w", err)
+			return nil, fmt.Errorf("list the queued emails: %w", err)
 		}
 		for _, job := range res.Jobs {
 			var args SendEmailArgs
 			if err := json.Unmarshal(job.EncodedArgs, &args); err != nil {
-				return nil, fmt.Errorf("leer el correo %d de la cola: %w", job.ID, err)
+				return nil, fmt.Errorf("read queued email %d: %w", job.ID, err)
 			}
 			counts[secretbox.KeyIDOf(args.Message)]++
 		}

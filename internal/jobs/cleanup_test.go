@@ -16,8 +16,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-// runCleanup corre una vez el trabajo de limpieza. idle es el vencimiento por inactividad de las
-// sesiones (0: desactivado).
+// runCleanup runs the cleanup job once. idle is the idle expiry of the sessions (0: off).
 func runCleanup(t *testing.T, pool *pgxpool.Pool, idle time.Duration) {
 	t.Helper()
 	worker := rivertest.NewWorker(t, riverpgxv5.New(pool), &river.Config{},
@@ -32,7 +31,7 @@ func runCleanup(t *testing.T, pool *pgxpool.Pool, idle time.Duration) {
 	}
 }
 
-// count cuenta las filas de la tabla.
+// count counts the rows of the table.
 func count(t *testing.T, pool *pgxpool.Pool, table string) int {
 	t.Helper()
 	var n int
@@ -45,23 +44,23 @@ func count(t *testing.T, pool *pgxpool.Pool, table string) int {
 func TestCleanupDeletesOnlyExpired(t *testing.T) {
 	pool := testutil.NewDB(t)
 	q := store.New(pool)
-	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser) // una sesión vigente
+	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser) // a valid session
 
-	// Una sesión y un token vencidos, y un token vigente.
+	// An expired session and token, and a valid token.
 	past, future := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
-	if err := q.CreateSession(t.Context(), store.CreateSessionParams{TokenHash: []byte("sesión vencida"), UserID: u.ID, ExpiresAt: past}); err != nil {
+	if err := q.CreateSession(t.Context(), store.CreateSessionParams{TokenHash: []byte("expired session"), UserID: u.ID, ExpiresAt: past}); err != nil {
 		t.Fatal(err)
 	}
 	for _, tk := range []struct {
 		hash    string
 		expires time.Time
-	}{{"token vencido", past}, {"token vigente", future}} {
+	}{{"expired token", past}, {"valid token", future}} {
 		if err := q.CreateUserToken(t.Context(), store.CreateUserTokenParams{TokenHash: []byte(tk.hash), UserID: u.ID, Purpose: "password_reset", ExpiresAt: tk.expires}); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// Límites de intentos: uno ya recargado (se borra) y otro que todavía no.
+	// Rate limits: one already refilled (deleted) and another that is not yet.
 	if _, err := pool.Exec(t.Context(), `INSERT INTO rate_limits (key, tat)
 		VALUES ('recargado', now() - interval '1 minute'), ('en uso', now() + interval '1 minute')`); err != nil {
 		t.Fatal(err)
@@ -70,13 +69,13 @@ func TestCleanupDeletesOnlyExpired(t *testing.T) {
 	runCleanup(t, pool, 0)
 
 	if n := count(t, pool, "sessions"); n != 1 {
-		t.Errorf("quedaron %d sesiones, se esperaba solo la vigente", n)
+		t.Errorf("%d sessions left, want only the valid one", n)
 	}
 	if n := count(t, pool, "user_tokens"); n != 1 {
-		t.Errorf("quedaron %d tokens, se esperaba solo el vigente", n)
+		t.Errorf("%d tokens left, want only the valid one", n)
 	}
 	if n := count(t, pool, "rate_limits"); n != 1 {
-		t.Errorf("quedaron %d límites, se esperaba solo el que no se recargó", n)
+		t.Errorf("%d rate limits left, want only the one that did not refill", n)
 	}
 }
 
@@ -84,7 +83,7 @@ func TestCleanupDeletesOldNotifications(t *testing.T) {
 	pool := testutil.NewDB(t)
 	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
-	// Leída hace 100 días (se borra), leída hace 10 días y sin leer de hace un año.
+	// Read 100 days ago (deleted), read 10 days ago and unread from a year ago.
 	for _, n := range []struct {
 		readAt  string
 		created string
@@ -98,14 +97,14 @@ func TestCleanupDeletesOldNotifications(t *testing.T) {
 	runCleanup(t, pool, 0)
 
 	if n := count(t, pool, "notifications"); n != 2 {
-		t.Errorf("quedaron %d notificaciones, se esperaban la leída reciente y la no leída", n)
+		t.Errorf("%d notifications left, want the recently read one and the unread one", n)
 	}
 }
 
 func TestCleanupDeletesOldRealtimeMessages(t *testing.T) {
 	pool := testutil.NewDB(t)
 
-	// Mensajes grandes del tiempo real: uno de hace una hora (se borra) y otro recién guardado.
+	// Large real-time messages: one from an hour ago (deleted) and another just stored.
 	if _, err := pool.Exec(t.Context(), `INSERT INTO realtime_messages (payload, created_at)
 		VALUES ('{}', now() - interval '1 hour'), ('{}', now())`); err != nil {
 		t.Fatal(err)
@@ -114,25 +113,25 @@ func TestCleanupDeletesOldRealtimeMessages(t *testing.T) {
 	runCleanup(t, pool, 0)
 
 	if n := count(t, pool, "realtime_messages"); n != 1 {
-		t.Errorf("quedaron %d mensajes del tiempo real, se esperaba solo el reciente", n)
+		t.Errorf("%d real-time messages left, want only the recent one", n)
 	}
 }
 
 func TestCleanupDeletesIdleSessions(t *testing.T) {
 	pool := testutil.NewDB(t)
-	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser) // activa ahora
+	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser) // active now
 	if _, err := pool.Exec(t.Context(), `INSERT INTO sessions (token_hash, user_id, expires_at, last_seen_at)
-		VALUES ('quieta', $1, now() + interval '1 day', now() - interval '2 hours')`, u.ID); err != nil {
+		VALUES ('idle', $1, now() + interval '1 day', now() - interval '2 hours')`, u.ID); err != nil {
 		t.Fatal(err)
 	}
 
 	for _, tt := range []struct {
 		idle time.Duration
 		want int
-	}{{0, 2}, {time.Hour, 1}} { // sin vencimiento no borra la quieta; con 1 hora, sí
+	}{{0, 2}, {time.Hour, 1}} { // without an expiry it does not delete the idle one; with 1 hour, it does
 		runCleanup(t, pool, tt.idle)
 		if n := count(t, pool, "sessions"); n != tt.want {
-			t.Errorf("idle %v: quedaron %d sesiones, se esperaban %d", tt.idle, n, tt.want)
+			t.Errorf("idle %v: %d sessions left, want %d", tt.idle, n, tt.want)
 		}
 	}
 }
@@ -144,7 +143,7 @@ func TestNewRegistersWorkersAndPeriodicJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// La limpieza se puede encolar, y por ser única por hora, la segunda no se duplica.
+	// The cleanup can be queued, and since it is unique per hour, the second one is not duplicated.
 	first, err := client.Insert(t.Context(), CleanupArgs{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -154,12 +153,12 @@ func TestNewRegistersWorkersAndPeriodicJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !second.UniqueSkippedAsDuplicate || second.Job.ID != first.Job.ID {
-		t.Errorf("la segunda limpieza de la hora debería saltearse: %+v", second)
+		t.Errorf("the second cleanup of the hour should be skipped: %+v", second)
 	}
 }
 
-// El apagado detiene River al mismo tiempo que el servidor HTTP (ver cmd/api/main.go): una
-// petición que todavía está terminando tiene que poder encolar, y el trabajo queda para después.
+// The shutdown stops River at the same time as the HTTP server (see cmd/api/main.go): a request
+// that is still finishing must be able to queue, and the job stays for later.
 func TestInsertAfterStop(t *testing.T) {
 	pool := testutil.NewDB(t)
 	client, err := New(pool, slog.New(slog.DiscardHandler), Config{MaxWorkers: 1}, Deps{Queries: store.New(pool), Logger: slog.New(slog.DiscardHandler)})
@@ -175,10 +174,10 @@ func TestInsertAfterStop(t *testing.T) {
 
 	res, err := client.Insert(t.Context(), CleanupArgs{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{}})
 	if err != nil {
-		t.Fatalf("encolar después de Stop: %v", err)
+		t.Fatalf("queue after Stop: %v", err)
 	}
 	var state string
 	if err := pool.QueryRow(t.Context(), "SELECT state FROM river_job WHERE id = $1", res.Job.ID).Scan(&state); err != nil || state != "available" {
-		t.Errorf("el trabajo debería quedar pendiente: %q (%v)", state, err)
+		t.Errorf("the job should stay pending: %q (%v)", state, err)
 	}
 }

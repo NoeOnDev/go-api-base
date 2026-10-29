@@ -12,45 +12,47 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
 
-// heartbeatInterval es cada cuánto se envía un latido y se revisa que la sesión siga vigente.
-// Los proxies suelen cortar una conexión sin tráfico al minuto (Nginx, por defecto); 25 segundos
-// queda bien por debajo.
+// heartbeatInterval is how often a heartbeat is sent and the session is checked.
+// Proxies usually cut a connection without traffic after a minute (Nginx, by default); 25
+// seconds is well below that.
 var heartbeatInterval = 25 * time.Second
 
-// maxStreamLifetime es cuánto dura, en promedio, un stream. Al cortarse, el navegador se reconecta
-// solo, y en la reconexión se vuelven a revisar la sesión y los permisos de cada tema: así, a
-// quien le quitaron el acceso a un tema deja de escucharlo aunque nadie lo desconecte.
+// maxStreamLifetime is how long a stream lasts, on average. When it ends, the browser
+// reconnects on its own, and on reconnecting the session and the permissions of each topic are
+// checked again: that way, someone who lost access to a topic stops listening to it even if
+// nobody disconnects them.
 var maxStreamLifetime = 15 * time.Minute
 
-// streamLifetime devuelve la vida de un stream: maxStreamLifetime ± 2/15 al azar (entre 13 y 17
-// minutos). Después de un reinicio todas las pestañas se conectan juntas; con la variación, sus
-// renovaciones se reparten en lugar de llegar todas a la vez a pedir su estado.
+// streamLifetime returns the life of a stream: maxStreamLifetime ± 2/15 at random (between 13
+// and 17 minutes). After a restart every tab connects at once; with the variation, their
+// renewals spread out instead of all arriving together to ask for their state.
 func streamLifetime() time.Duration {
 	spread := maxStreamLifetime * 2 / 15
 	return maxStreamLifetime - spread + rand.N(2*spread+1)
 }
 
-// Sessions es lo que el stream necesita de auth (lo implementa auth.Service): saber con qué
-// sesión se abrió, y revisar con cada latido que siga vigente (no se cerró ni venció).
+// Sessions is what the stream needs from auth (auth.Service implements it): to know which
+// session it was opened with, and to check on every heartbeat that it is still valid (not
+// closed or expired).
 type Sessions interface {
 	SessionKey(r *http.Request) string
 	CheckSession(r *http.Request) error
 }
 
-// maxTopics es cuántos temas puede escuchar una conexión.
+// maxTopics is how many topics a connection can listen to.
 const maxTopics = 20
 
-// Handler responde GET /events: abre un stream SSE con los eventos del usuario y de los temas
-// de ?topics=project:42,board:7 que tenga permiso para escuchar. Va detrás de RequireUser.
+// Handler answers GET /events: it opens an SSE stream with the events of the user and of the
+// topics in ?topics=project:42,board:7 they are allowed to listen to. It goes behind RequireUser.
 //
-// El primer evento es "ready": {"topics": [los que escucha], "rejected": [los que no tiene
-// permiso de escuchar]}. Un tema rechazado no corta la conexión: el usuario sigue recibiendo su
-// canal, y el frontend sabe qué tema perdió (por ejemplo, porque lo sacaron de un proyecto).
-// Al reconectarse, el frontend tiene que volver a pedir el estado por REST: los eventos de
-// mientras no se reenvían.
+// The first event is "ready": {"topics": [the ones it listens to], "rejected": [the ones it is
+// not allowed to]}. A rejected topic does not cut the connection: the user still gets their
+// channel, and the frontend knows which topic it lost (for example, because the user was taken
+// out of a project). On reconnecting, the frontend has to ask for the state again through REST:
+// the events sent in between are not resent.
 //
-// El stream se corta cuando se cierra su sesión: en el acto si auth avisa (SessionEnded,
-// UserSessionsEnded), y si no, en el próximo latido. Y dura como mucho maxStreamLifetime.
+// The stream is cut when its session is closed: right away if auth says so (SessionEnded,
+// UserSessionsEnded), and otherwise on the next heartbeat. And it lasts at most maxStreamLifetime.
 func (b *Broker) Handler(sessions Sessions) http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		user := auth.MustUser(r.Context())
@@ -81,7 +83,7 @@ func (b *Broker) Handler(sessions Sessions) http.Handler {
 			return err
 		}
 		if err := stream.Send(Event{Type: "ready", Data: readyData{Topics: allowed, Rejected: rejected}}); err != nil {
-			return nil // el cliente ya se fue
+			return nil // the client is already gone
 		}
 
 		heartbeat := time.NewTicker(heartbeatInterval)
@@ -91,18 +93,18 @@ func (b *Broker) Handler(sessions Sessions) http.Handler {
 		for {
 			select {
 			case <-r.Context().Done():
-				return nil // el cliente cerró la conexión
+				return nil // the client closed the connection
 			case <-sub.closed:
-				return nil // sesión cerrada, cliente lento o la API se apaga
+				return nil // session closed, slow client or the API is shutting down
 			case <-lifetime.C:
-				return nil // el navegador se reconecta, y ahí se revisa todo de nuevo
+				return nil // the browser reconnects, and everything is checked again then
 			case ev := <-sub.events:
 				if err := stream.Send(ev); err != nil {
 					return nil
 				}
 			case <-heartbeat.C:
-				// Una sesión cerrada o vencida corta el stream. Al reconectarse recibe 401, y el
-				// EventSource del navegador deja de intentar (el frontend lo ve en onerror).
+				// A closed or expired session cuts the stream. On reconnecting it gets 401, and the browser's
+				// EventSource stops trying (the frontend sees it in onerror).
 				if err := sessions.CheckSession(r); err != nil {
 					return nil
 				}
@@ -114,13 +116,13 @@ func (b *Broker) Handler(sessions Sessions) http.Handler {
 	})
 }
 
-// readyData es el contenido del evento ready.
+// readyData is the content of the ready event.
 type readyData struct {
 	Topics   []string `json:"topics"`
 	Rejected []string `json:"rejected"`
 }
 
-// parseTopics lee la lista de temas, sin repetidos.
+// parseTopics reads the list of topics, without repeats.
 func parseTopics(raw string) ([]string, error) {
 	var topics []string
 	for t := range strings.SplitSeq(raw, ",") {

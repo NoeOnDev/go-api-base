@@ -143,7 +143,7 @@ func checkTestDatabase(testURL, appURL string) error {
 	}
 
 	if !strings.HasSuffix(testCfg.Database, "_test") {
-		return fmt.Errorf("TEST_DATABASE_URL points to the database %q: for safety, the test database must end in \"_test\""+
+		return fmt.Errorf("TEST_DATABASE_URL points to the database %q: for safety, the test database must end in \"_test\" "+
 			"(the tests empty all its tables)", testCfg.Database)
 	}
 

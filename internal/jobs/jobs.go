@@ -1,9 +1,8 @@
-// Package jobs ejecuta trabajos en segundo plano con River, una cola guardada en PostgreSQL
-// (ver docs/jobs.md).
+// Package jobs runs background jobs with River, a queue stored in PostgreSQL (see docs/jobs.md).
 //
-// Los trabajos sobreviven a un reinicio, se reintentan si fallan y se pueden programar o repetir
-// cada cierto tiempo. Los workers corren dentro del mismo proceso que la API: sigue siendo un
-// solo binario que desplegar.
+// The jobs survive a restart, are retried if they fail and can be scheduled or repeated every
+// so often. The workers run inside the same process as the API: it is still a single binary to
+// deploy.
 package jobs
 
 import (
@@ -16,32 +15,32 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 )
 
-// Client es el cliente de River: encola trabajos (Insert, InsertTx) y los ejecuta.
+// Client is the River client: it queues jobs (Insert, InsertTx) and runs them.
 type Client = river.Client[pgx.Tx]
 
-// Colas. Cada una tiene su propio límite de workers: un trabajo lento en una cola
-// no frena a las demás.
+// Queues. Each one has its own worker limit: a slow job in one queue does not hold back the
+// others.
 const (
-	// QueueEmail tiene pocos workers porque cada uno abre una conexión SMTP, y los
-	// proveedores rechazan muchas conexiones simultáneas.
+	// QueueEmail has few workers because each one opens an SMTP connection, and providers reject
+	// many simultaneous connections.
 	QueueEmail = "email"
-	// emailWorkers es cuántos correos se envían a la vez.
+	// emailWorkers is how many emails are sent at once.
 	emailWorkers = 4
 )
 
-// Config configura el cliente.
+// Config configures the client.
 type Config struct {
-	// MaxWorkers es cuántos trabajos de la cola default corren a la vez.
+	// MaxWorkers is how many jobs of the default queue run at once.
 	MaxWorkers int
 }
 
-// New crea el cliente con todos los workers registrados (ver workers.go). Usa el mismo
-// pool que la aplicación. Para ejecutar trabajos hay que llamar a Start; sin Start,
-// el cliente igual sirve para encolarlos.
+// New creates the client with every worker registered (see workers.go). It uses the same pool
+// as the application. To run jobs, call Start; without Start, the client still works to queue
+// them.
 func New(pool *pgxpool.Pool, logger *slog.Logger, cfg Config, deps Deps) (*Client, error) {
 	workers := river.NewWorkers()
 	if err := registerWorkers(workers, deps); err != nil {
-		return nil, fmt.Errorf("registrar workers: %w", err)
+		return nil, fmt.Errorf("register workers: %w", err)
 	}
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
@@ -54,7 +53,7 @@ func New(pool *pgxpool.Pool, logger *slog.Logger, cfg Config, deps Deps) (*Clien
 		PeriodicJobs: periodicJobs(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("crear cliente de River: %w", err)
+		return nil, fmt.Errorf("create the River client: %w", err)
 	}
 	return client, nil
 }

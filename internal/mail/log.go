@@ -5,9 +5,9 @@ import (
 	"log/slog"
 )
 
-// LogSender no envía nada: escribe el correo en el log. Es útil en desarrollo cuando no hay
-// servidor de correo; los enlaces (por ejemplo, para recuperar la contraseña) se copian del log.
-// No usarlo en producción: el log quedaría con enlaces válidos.
+// LogSender sends nothing: it writes the email to the log. It is useful in development when
+// there is no mail server; the links (for example, to reset the password) are copied from the log.
+// Do not use it in production: the log would hold valid links.
 type LogSender struct {
 	Logger *slog.Logger
 }
@@ -16,7 +16,7 @@ func (s LogSender) Send(ctx context.Context, msg Message) error {
 	if err := msg.Validate(); err != nil {
 		return err
 	}
-	s.Logger.InfoContext(ctx, "correo (no enviado, MAIL_DRIVER=log)",
+	s.Logger.InfoContext(ctx, "email (not sent, MAIL_DRIVER=log)",
 		"to", msg.To, "subject", msg.Subject, "body", msg.Body)
 	return nil
 }

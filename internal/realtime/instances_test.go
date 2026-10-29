@@ -15,8 +15,8 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-// listening crea el broker de una instancia de la API, conectado con los de las demás (Listen).
-// Deja de escuchar al terminar el test.
+// listening creates the broker of an API instance, connected with those of the others (Listen).
+// It stops listening when the test ends.
 func listening(t *testing.T, pool *pgxpool.Pool) *realtime.Broker {
 	t.Helper()
 	b := realtime.NewBroker()
@@ -26,7 +26,7 @@ func listening(t *testing.T, pool *pgxpool.Pool) *realtime.Broker {
 	return b
 }
 
-// Dos instancias de la API sobre la misma base: lo publicado en una llega a las conexiones de las dos.
+// Two API instances on the same database: what is published on one reaches the connections of both.
 func TestEventsReachOtherInstances(t *testing.T) {
 	pool := testutil.NewDB(t)
 	brokerA, brokerB := listening(t, pool), listening(t, pool)
@@ -42,25 +42,25 @@ func TestEventsReachOtherInstances(t *testing.T) {
 	brokerA.PublishToUser(t.Context(), alice.ID, realtime.Event{Type: "notification", Data: map[string]any{"id": 1234567, "message": "hola"}})
 	for name, r := range map[string]*ssetest.Reader{"A": onA, "B": onB} {
 		if ev := r.Next(t, 2*time.Second); ev.Type != "notification" || ev.Data != `{"id":1234567,"message":"hola"}` {
-			t.Errorf("evento en la instancia %s: %+v", name, ev)
+			t.Errorf("event on instance %s: %+v", name, ev)
 		}
 	}
-	// La instancia que lo publicó no lo recibe dos veces (una propia y otra por NOTIFY).
+	// The instance that published it does not get it twice (once its own and once through NOTIFY).
 	onA.Nothing(t, 200*time.Millisecond)
 
-	// Un evento grande no entra en un NOTIFY: viaja guardado en la base, y llega igual.
+	// A large event does not fit in a NOTIFY: it travels stored in the database, and arrives the same.
 	big := strings.Repeat("ñ", 10000)
 	brokerA.PublishToUser(t.Context(), alice.ID, realtime.Event{Type: "note.updated", Data: map[string]string{"body": big}})
 	if ev := onB.Next(t, 2*time.Second); ev.Type != "note.updated" || ev.Data != `{"body":"`+big+`"}` {
-		t.Errorf("evento grande en la otra instancia: %q (%d bytes)", ev.Type, len(ev.Data))
+		t.Errorf("large event on the other instance: %q (%d bytes)", ev.Type, len(ev.Data))
 	}
 	onA.Next(t, 2*time.Second)
 
 	bobOnB.Nothing(t, 100*time.Millisecond)
 }
 
-// Un logout o un cierre de sesiones en una instancia corta en el acto los streams de las otras,
-// sin esperar al latido.
+// A logout or closing sessions on one instance cuts the streams of the others right away,
+// without waiting for the heartbeat.
 func TestSessionsEndInAllInstances(t *testing.T) {
 	pool := testutil.NewDB(t)
 	brokerA, brokerB := listening(t, pool), listening(t, pool)
@@ -71,7 +71,7 @@ func TestSessionsEndInAllInstances(t *testing.T) {
 	onB := testutil.OpenEvents(t, b, cookie, "")
 	brokerA.DisconnectUser(t.Context(), alice.ID)
 	if !onB.Closed(2 * time.Second) {
-		t.Error("DisconnectUser en una instancia debería cortar los streams de la otra")
+		t.Error("DisconnectUser on one instance should cut the streams of the other")
 	}
 
 	onB = testutil.OpenEvents(t, b, cookie, "")
@@ -79,12 +79,13 @@ func TestSessionsEndInAllInstances(t *testing.T) {
 		t.Fatalf("logout: status = %d", w.Code)
 	}
 	if !onB.Closed(2 * time.Second) {
-		t.Error("el logout en una instancia debería cortar el stream de esa sesión en la otra")
+		t.Error("the logout on one instance should cut the stream of that session on the other")
 	}
 }
 
-// Si se corta la conexión de LISTEN, el broker se reconecta y corta los streams abiertos: mientras
-// no escuchaba pudo perderse algún evento, y al reconectarse el navegador pide el estado.
+// If the LISTEN connection drops, the broker reconnects and cuts the open streams: while it was
+// not listening some event could have been lost, and on reconnecting the browser asks for the
+// state.
 func TestListenReconnects(t *testing.T) {
 	pool := testutil.NewDB(t)
 	brokerA, brokerB := listening(t, pool), listening(t, pool)
@@ -92,19 +93,19 @@ func TestListenReconnects(t *testing.T) {
 	alice, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	onB := testutil.OpenEvents(t, b, cookie, "")
 
-	// Se cae la conexión de LISTEN de las dos instancias, como si se reiniciara PostgreSQL.
+	// The LISTEN connection of both instances drops, as if PostgreSQL restarted.
 	if _, err := pool.Exec(t.Context(), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
 		WHERE application_name = 'realtime-listener' AND datname = current_database()`); err != nil {
 		t.Fatal(err)
 	}
 	if !onB.Closed(5 * time.Second) {
-		t.Fatal("al reconectarse, el broker debería cortar los streams abiertos")
+		t.Fatal("on reconnecting, the broker should cut the open streams")
 	}
 
-	// Ya reconectado, los eventos vuelven a llegar.
+	// Once reconnected, the events arrive again.
 	onB = testutil.OpenEvents(t, b, cookie, "")
 	brokerA.PublishToUser(t.Context(), alice.ID, realtime.Event{Type: "notification"})
 	if ev := onB.Next(t, 2*time.Second); ev.Type != "notification" {
-		t.Errorf("después de reconectarse: %+v", ev)
+		t.Errorf("after reconnecting: %+v", ev)
 	}
 }

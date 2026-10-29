@@ -1,15 +1,15 @@
-// Package mail envía correos electrónicos. Define la interfaz Sender y varias implementaciones:
+// Package mail sends emails. It defines the Sender interface and several implementations:
 //
-//   - LogSender escribe el correo en el log (desarrollo, sin servidor de correo).
-//   - SMTPSender lo envía por SMTP, compatible con cualquier proveedor (Resend, Brevo, SES, Mailgun…)
-//     y con Mailpit en desarrollo.
-//   - Recorder guarda los correos en memoria, para los tests.
+//   - LogSender writes the email to the log (development, without a mail server).
+//   - SMTPSender sends it over SMTP, compatible with any provider (Resend, Brevo, SES, Mailgun…)
+//     and with Mailpit in development.
+//   - Recorder keeps the emails in memory, for the tests.
 //
-// En la aplicación, los handlers no envían con estos senders: encolan el correo con
-// jobs.MailSender, para no demorar la respuesta HTTP y reintentarlo si falla, y el worker de la
-// cola lo envía con SMTPSender o LogSender.
+// In the application, the handlers do not send with these senders: they queue the email with
+// jobs.MailSender, so the HTTP response is not delayed and it is retried if it fails, and the
+// queue worker sends it with SMTPSender or LogSender.
 //
-// Solo usa la librería estándar.
+// It uses only the standard library.
 package mail
 
 import (
@@ -26,36 +26,36 @@ import (
 	"time"
 )
 
-// Message es un correo de texto plano.
+// Message is a plain-text email.
 type Message struct {
-	To      string // solo la dirección, por ejemplo "alice@example.com"
+	To      string // only the address, for example "alice@example.com"
 	Subject string
 	Body    string
 }
 
-// Sender envía un correo.
+// Sender sends an email.
 type Sender interface {
 	Send(ctx context.Context, msg Message) error
 }
 
-// Validate comprueba el mensaje antes de enviarlo. Rechaza los saltos de línea en el asunto
-// y el destinatario: con ellos, alguien podría inyectar encabezados (por ejemplo, un Bcc).
+// Validate checks the message before sending it. It rejects line breaks in the subject and the
+// recipient: with them, someone could inject headers (for example, a Bcc).
 func (m Message) Validate() error {
 	if strings.ContainsAny(m.To, "\r\n") || strings.ContainsAny(m.Subject, "\r\n") {
-		return errors.New("mail: el destinatario y el asunto no pueden tener saltos de línea")
+		return errors.New("mail: the recipient and the subject cannot have line breaks")
 	}
 	addr, err := mail.ParseAddress(m.To)
 	if err != nil || addr.Address != m.To {
-		return fmt.Errorf("mail: destinatario inválido %q", m.To)
+		return fmt.Errorf("mail: invalid recipient %q", m.To)
 	}
 	if strings.TrimSpace(m.Subject) == "" {
-		return errors.New("mail: falta el asunto")
+		return errors.New("mail: missing subject")
 	}
 	return nil
 }
 
-// build arma el correo en formato RFC 5322: encabezados con el asunto codificado en UTF-8,
-// cuerpo en quoted-printable y fin de línea CRLF.
+// build assembles the email in RFC 5322 format: headers with the subject encoded in UTF-8,
+// quoted-printable body and CRLF line endings.
 func build(from *mail.Address, msg Message, now time.Time) ([]byte, error) {
 	if err := msg.Validate(); err != nil {
 		return nil, err
@@ -86,7 +86,7 @@ func build(from *mail.Address, msg Message, now time.Time) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// messageID genera un identificador único para el encabezado Message-ID, con el dominio del remitente.
+// messageID generates a unique identifier for the Message-ID header, with the sender's domain.
 func messageID(fromAddress string) string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)

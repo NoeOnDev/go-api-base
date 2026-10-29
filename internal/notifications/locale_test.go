@@ -13,8 +13,8 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-// El texto de una notificación no se guarda: el evento en vivo sale en el idioma del usuario, y
-// la lista, en el de quien la pide.
+// The text of a notification is not stored: the live event goes in the user's language, and the
+// list, in that of whoever asks for it.
 func TestNotificationMessageLanguage(t *testing.T) {
 	pool := testutil.NewDB(t)
 	broker := realtime.NewBroker()
@@ -29,10 +29,10 @@ func TestNotificationMessageLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ev := events.Next(t, 2*time.Second); !strings.Contains(ev.Data, "El email de tu cuenta ahora es new@example.com.") {
-		t.Errorf("el evento debería ir en el idioma de Alice: %s", ev.Data)
+		t.Errorf("the event should go in Alice's language: %s", ev.Data)
 	}
 
-	// Un tipo sin texto en los catálogos (uno propio del proyecto) llega con message vacío.
+	// A kind without text in the catalogs (one of the project's own) arrives with an empty message.
 	if err := svc.Notify(t.Context(), alice.ID, "task.assigned", map[string]int{"task_id": 7}); err != nil {
 		t.Fatal(err)
 	}

@@ -1,20 +1,21 @@
-// Package secretbox cifra datos sensibles antes de guardarlos en la base (por ejemplo, el
-// secreto del 2FA) y calcula HMAC para guardar valores que solo se comparan, como los
-// códigos de recuperación.
+// Package secretbox encrypts sensitive data before storing it in the database (for example, the
+// 2FA secret) and computes HMACs to store values that are only compared, like the recovery
+// codes.
 //
-// Trabaja con un llavero: una clave actual (ENCRYPTION_KEY), con la que se cifra todo lo nuevo,
-// y claves anteriores (ENCRYPTION_PREVIOUS_KEYS), que solo se usan para leer lo que se cifró antes
-// de una rotación. Cada dato cifrado lleva el identificador de su clave ("3f9a01c2:…"), así se sabe
-// con cuál descifrarlo y si hace falta volver a cifrarlo con la actual.
+// It works with a keyring: a current key (ENCRYPTION_KEY), which encrypts everything new, and
+// previous keys (ENCRYPTION_PREVIOUS_KEYS), which are only used to read what was encrypted
+// before a rotation. Each encrypted value carries the identifier of its key ("3f9a01c2:…"), so
+// it is known which one decrypts it and whether it has to be encrypted again with the current
+// one.
 //
-// De cada clave maestra de 32 bytes se derivan con HKDF una clave para cifrar (AES-256-GCM),
-// otra para el HMAC y el identificador. Solo usa la librería estándar.
+// From each 32-byte master key, HKDF derives a key to encrypt (AES-256-GCM), another for the
+// HMAC and the identifier. It uses only the standard library.
 //
-// Encrypt y Decrypt reciben datos asociados (aad): un contexto que no se cifra pero queda atado
-// al dato, por ejemplo "users.totp_secret:42". Descifrar con otro contexto falla, así que un dato
-// copiado a la fila de otro usuario no sirve.
+// Encrypt and Decrypt take associated data (aad): a context that is not encrypted but stays
+// bound to the value, for example "users.totp_secret:42". Decrypting with another context fails,
+// so a value copied to another user's row is useless.
 //
-// Si se pierde una clave, lo cifrado con ella no se puede recuperar. Ver docs/encryption.md.
+// If a key is lost, what was encrypted with it cannot be recovered. See docs/encryption.md.
 package secretbox
 
 import (
@@ -31,51 +32,51 @@ import (
 	"strings"
 )
 
-// KeySize es el tamaño de cada clave maestra en bytes.
+// KeySize is the size of each master key in bytes.
 const KeySize = 32
 
 var (
-	// ErrUnknownKey indica que el dato se cifró con una clave que no está en el llavero
-	// (por ejemplo, se quitó de ENCRYPTION_PREVIOUS_KEYS antes de terminar la rotación).
-	ErrUnknownKey = errors.New("secretbox: el dato se cifró con una clave que no está configurada")
-	// ErrDecrypt indica que el dato está alterado, no corresponde a su clave o se descifró
-	// con otro contexto (aad).
-	ErrDecrypt = errors.New("secretbox: no se pudo descifrar (dato alterado o clave distinta)")
+	// ErrUnknownKey means the value was encrypted with a key that is not in the keyring
+	// (for example, it was removed from ENCRYPTION_PREVIOUS_KEYS before the rotation finished).
+	ErrUnknownKey = errors.New("secretbox: the value was encrypted with a key that is not configured")
+	// ErrDecrypt means the value is tampered with, does not match its key or was decrypted with
+	// another context (aad).
+	ErrDecrypt = errors.New("secretbox: could not decrypt (tampered value or different key)")
 )
 
-// key son las claves derivadas de una clave maestra.
+// key holds the keys derived from a master key.
 type key struct {
 	id     string
 	aead   cipher.AEAD
 	macKey []byte
 }
 
-// Box es el llavero: cifra con la clave actual y descifra con la que corresponda.
+// Box is the keyring: it encrypts with the current key and decrypts with the matching one.
 type Box struct {
 	current *key
-	all     []*key // la actual primero, después las anteriores
+	all     []*key // the current one first, then the previous ones
 	byID    map[string]*key
 }
 
-// ParseKey decodifica una clave en base64 (como la genera `make key`).
+// ParseKey decodes a base64 key (as `make key` generates it).
 func ParseKey(encoded string) ([]byte, error) {
 	k, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
 	if err != nil || len(k) != KeySize {
-		return nil, fmt.Errorf("la clave debe ser de %d bytes en base64 (generala con: make key)", KeySize)
+		return nil, fmt.Errorf("the key must be %d bytes in base64 (generate it with: make key)", KeySize)
 	}
 	return k, nil
 }
 
-// GenerateKey genera una clave maestra nueva, en base64.
+// GenerateKey generates a new master key, in base64.
 func GenerateKey() (string, error) {
 	k := make([]byte, KeySize)
 	if _, err := rand.Read(k); err != nil {
-		return "", fmt.Errorf("secretbox: generar clave: %w", err)
+		return "", fmt.Errorf("secretbox: generate key: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(k), nil
 }
 
-// New crea el llavero con la clave actual y, opcionalmente, las anteriores.
+// New creates the keyring with the current key and, optionally, the previous ones.
 func New(current []byte, previous ...[]byte) (*Box, error) {
 	b := &Box{byID: map[string]*key{}}
 	for i, master := range append([][]byte{current}, previous...) {
@@ -84,7 +85,7 @@ func New(current []byte, previous ...[]byte) (*Box, error) {
 			return nil, err
 		}
 		if _, dup := b.byID[k.id]; dup {
-			return nil, fmt.Errorf("secretbox: la clave %d está repetida (identificador %s)", i, k.id)
+			return nil, fmt.Errorf("secretbox: key %d is repeated (identifier %s)", i, k.id)
 		}
 		b.byID[k.id] = k
 		b.all = append(b.all, k)
@@ -95,7 +96,7 @@ func New(current []byte, previous ...[]byte) (*Box, error) {
 
 func deriveKey(master []byte) (*key, error) {
 	if len(master) != KeySize {
-		return nil, fmt.Errorf("secretbox: cada clave debe tener %d bytes", KeySize)
+		return nil, fmt.Errorf("secretbox: each key must be %d bytes", KeySize)
 	}
 
 	encKey, err := hkdf.Key(sha256.New, master, nil, "secretbox encryption v1", 32)
@@ -123,10 +124,10 @@ func deriveKey(master []byte) (*key, error) {
 	return &key{id: hex.EncodeToString(id), aead: aead, macKey: macKey}, nil
 }
 
-// KeyID es el identificador de la clave actual.
+// KeyID is the identifier of the current key.
 func (b *Box) KeyID() string { return b.current.id }
 
-// KeyIDs son los identificadores de todas las claves: la actual primero.
+// KeyIDs are the identifiers of every key: the current one first.
 func (b *Box) KeyIDs() []string {
 	ids := make([]string, len(b.all))
 	for i, k := range b.all {
@@ -135,22 +136,22 @@ func (b *Box) KeyIDs() []string {
 	return ids
 }
 
-// Encrypt cifra con la clave actual y devuelve "<identificador>:<base64>". aad es el contexto
-// del dato (ver el comentario del paquete); hay que pasar el mismo a Decrypt.
-// Cifrar dos veces lo mismo da resultados distintos (nonce aleatorio).
+// Encrypt encrypts with the current key and returns "<identifier>:<base64>". aad is the context
+// of the value (see the package comment); the same one must be passed to Decrypt.
+// Encrypting the same thing twice gives different results (random nonce).
 func (b *Box) Encrypt(plaintext, aad []byte) (string, error) {
 	k := b.current
 	nonce := make([]byte, k.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
-		return "", fmt.Errorf("secretbox: generar nonce: %w", err)
+		return "", fmt.Errorf("secretbox: generate nonce: %w", err)
 	}
 	sealed := k.aead.Seal(nonce, nonce, plaintext, aad)
 	return k.id + ":" + base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-// Decrypt descifra lo que devolvió Encrypt, con la clave que indica su identificador y el
-// mismo contexto (aad). Devuelve ErrUnknownKey si la clave no está en el llavero, y ErrDecrypt
-// si el dato está alterado o el contexto no coincide.
+// Decrypt decrypts what Encrypt returned, with the key its identifier names and the same
+// context (aad). It returns ErrUnknownKey if the key is not in the keyring, and ErrDecrypt if
+// the value is tampered with or the context does not match.
 func (b *Box) Decrypt(data string, aad []byte) ([]byte, error) {
 	id, encoded, ok := strings.Cut(data, ":")
 	if !ok {
@@ -173,7 +174,7 @@ func (b *Box) Decrypt(data string, aad []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-// KeyIDOf devuelve el identificador de clave de un dato cifrado, o "" si no tiene.
+// KeyIDOf returns the key identifier of an encrypted value, or "" if it has none.
 func KeyIDOf(data string) string {
 	id, _, ok := strings.Cut(data, ":")
 	if !ok {
@@ -182,20 +183,21 @@ func KeyIDOf(data string) string {
 	return id
 }
 
-// NeedsRotation indica si el dato no está cifrado con la clave actual y conviene volver a cifrarlo.
+// NeedsRotation reports whether the value is not encrypted with the current key and should be
+// encrypted again.
 func (b *Box) NeedsRotation(data string) bool {
 	return KeyIDOf(data) != b.current.id
 }
 
-// MAC calcula el HMAC-SHA256 con la clave actual. Sirve para guardar valores que después solo se
-// comparan (como los códigos de recuperación): sin la clave, quien lea la base no puede probar
-// valores por fuerza bruta.
+// MAC computes the HMAC-SHA256 with the current key. It is used to store values that are later
+// only compared (like the recovery codes): without the key, whoever reads the database cannot
+// try values by brute force.
 func (b *Box) MAC(data []byte) []byte {
 	return mac(b.current, data)
 }
 
-// MACs calcula el HMAC con cada clave del llavero (la actual primero). Sirve para verificar
-// un valor guardado antes de una rotación.
+// MACs computes the HMAC with each key of the keyring (the current one first). It is used to
+// verify a value stored before a rotation.
 func (b *Box) MACs(data []byte) [][]byte {
 	out := make([][]byte, len(b.all))
 	for i, k := range b.all {

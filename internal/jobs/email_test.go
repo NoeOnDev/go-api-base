@@ -31,8 +31,8 @@ func testBox(t *testing.T) *secretbox.Box {
 
 var resetEmail = mail.Message{
 	To:      "alice@example.com",
-	Subject: "Recuperá tu contraseña",
-	Body:    "Abrí https://app.test/reset-password?token=token-secreto",
+	Subject: "Reset your password",
+	Body:    "Open https://app.test/reset-password?token=secret-token",
 }
 
 func TestMailSenderEncryptsQueuedEmail(t *testing.T) {
@@ -47,28 +47,28 @@ func TestMailSenderEncryptsQueuedEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Lo que queda en la base no deja ver ni el token ni el destinatario.
+	// What stays in the database reveals neither the token nor the recipient.
 	var raw string
 	if err := pool.QueryRow(t.Context(), "SELECT args::text FROM river_job WHERE kind = 'send_email'").Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(raw, "token-secreto") || strings.Contains(raw, "alice@example.com") {
-		t.Errorf("el correo encolado no está cifrado: %s", raw)
+	if strings.Contains(raw, "secret-token") || strings.Contains(raw, "alice@example.com") {
+		t.Errorf("the queued email is not encrypted: %s", raw)
 	}
 
 	job := rivertest.RequireInserted(t.Context(), t, riverpgxv5.New(pool), &SendEmailArgs{}, &rivertest.RequireInsertedOpts{Queue: QueueEmail, MaxAttempts: 5})
 	if _, err := box.Decrypt(job.Args.Message, emailAAD); err != nil {
-		t.Errorf("el correo encolado no se puede descifrar: %v", err)
+		t.Errorf("the queued email cannot be decrypted: %v", err)
 	}
 
-	// Un mensaje inválido se rechaza al encolar, no en el worker.
+	// An invalid message is rejected when queuing, not in the worker.
 	if err := NewMailSender(client, box).Send(t.Context(), mail.Message{To: "no es un email"}); err == nil {
-		t.Error("se esperaba un error de validación")
+		t.Error("want a validation error")
 	}
 }
 
-// workEmail encola el mensaje cifrado y lo procesa con el worker, como lo haría River.
-// Devuelve el error del worker, si hubo.
+// workEmail queues the encrypted message and processes it with the worker, as River would.
+// It returns the worker's error, if any.
 func workEmail(t *testing.T, sender mail.Sender, message string) (*rivertest.WorkResult, error) {
 	t.Helper()
 	pool := testutil.NewDB(t)
@@ -76,7 +76,7 @@ func workEmail(t *testing.T, sender mail.Sender, message string) (*rivertest.Wor
 	worker := rivertest.NewWorker(t, riverpgxv5.New(pool), &river.Config{}, &sendEmailWorker{sender: sender, box: box})
 
 	if message == "" {
-		plain := `{"To":"alice@example.com","Subject":"Recuperá tu contraseña","Body":"hola"}`
+		plain := `{"To":"alice@example.com","Subject":"Reset your password","Body":"hello"}`
 		enc, err := box.Encrypt([]byte(plain), emailAAD)
 		if err != nil {
 			t.Fatal(err)
@@ -101,45 +101,45 @@ func TestSendEmailWorker(t *testing.T) {
 	if res.Job.State != rivertype.JobStateCompleted {
 		t.Errorf("estado = %s", res.Job.State)
 	}
-	if msg, ok := recorder.Last("alice@example.com"); !ok || msg.Subject != "Recuperá tu contraseña" {
-		t.Errorf("no se envió el correo: %+v", recorder.Messages())
+	if msg, ok := recorder.Last("alice@example.com"); !ok || msg.Subject != "Reset your password" {
+		t.Errorf("the email was not sent: %+v", recorder.Messages())
 	}
 }
 
 type failingSender struct{}
 
 func (failingSender) Send(context.Context, mail.Message) error {
-	return errors.New("servidor SMTP caído")
+	return errors.New("SMTP server down")
 }
 
 func TestSendEmailWorkerRetriesOnFailure(t *testing.T) {
-	// Si el SMTP falla, el trabajo queda para reintentarse más tarde.
+	// If SMTP fails, the job stays to be retried later.
 	res, err := workEmail(t, failingSender{}, "")
 	if err == nil {
-		t.Fatal("se esperaba el error del SMTP")
+		t.Fatal("want the SMTP error")
 	}
-	// Queda retryable, o available si el primer reintento es casi inmediato: en los dos casos,
-	// River lo vuelve a intentar. Lo que no puede pasar es que quede descartado o completo.
+	// It stays retryable, or available if the first retry is almost immediate: in both cases River
+	// tries it again. What must not happen is that it ends up discarded or completed.
 	retried := res.Job.State == rivertype.JobStateRetryable || res.Job.State == rivertype.JobStateAvailable
 	if !retried || len(res.Job.Errors) != 1 || res.Job.Attempt >= res.Job.MaxAttempts {
-		t.Errorf("el correo debería reintentarse: estado %s, intento %d de %d, errores %d",
+		t.Errorf("the email should be retried: state %s, attempt %d of %d, errors %d",
 			res.Job.State, res.Job.Attempt, res.Job.MaxAttempts, len(res.Job.Errors))
 	}
 }
 
 func TestSendEmailWorkerCancelsUndecryptable(t *testing.T) {
-	// Un correo que no se puede descifrar no se reintenta: no serviría de nada.
+	// An email that cannot be decrypted is not retried: it would be useless.
 	res, _ := workEmail(t, &mail.Recorder{}, "00000000:AAAA")
 	if res.Job.State != rivertype.JobStateCancelled {
-		t.Errorf("estado = %s, se esperaba cancelled", res.Job.State)
+		t.Errorf("state = %s, want cancelled", res.Job.State)
 	}
 }
 
-// QueuedEmailKeys cuenta los correos que todavía no salieron, por la clave con la que se cifraron.
+// QueuedEmailKeys counts the emails not sent yet, by the key they were encrypted with.
 func TestQueuedEmailKeys(t *testing.T) {
 	pool := testutil.NewDB(t)
 	boxA := testBox(t)
-	boxB, err := secretbox.New(bytes.Repeat([]byte{2}, 32), testutil.EncryptionKey) // B actual, A anterior
+	boxB, err := secretbox.New(bytes.Repeat([]byte{2}, 32), testutil.EncryptionKey) // B current, A previous
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,13 +148,13 @@ func TestQueuedEmailKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Uno con cada clave. El cliente no arrancó, así que quedan esperando.
+	// One with each key. The client did not start, so they stay waiting.
 	for _, box := range []*secretbox.Box{boxA, boxB} {
 		if err := NewMailSender(client, box).Send(t.Context(), resetEmail); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Uno cancelado ya no está en la cola: no cuenta.
+	// A cancelled one is no longer in the queue: it does not count.
 	enc, err := boxA.Encrypt([]byte(`{"To":"alice@example.com","Subject":"Hola","Body":"hola"}`), emailAAD)
 	if err != nil {
 		t.Fatal(err)
@@ -172,6 +172,6 @@ func TestQueuedEmailKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := map[string]int64{boxA.KeyID(): 1, boxB.KeyID(): 1}; !maps.Equal(got, want) {
-		t.Errorf("QueuedEmailKeys = %v, se esperaba %v", got, want)
+		t.Errorf("QueuedEmailKeys = %v, want %v", got, want)
 	}
 }

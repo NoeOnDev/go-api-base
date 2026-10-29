@@ -11,15 +11,15 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-// El escenario de una sesión robada: el atacante deja un stream abierto, y el dueño recupera
-// su contraseña. El stream del atacante se corta en el acto, antes del aviso de seguridad.
+// The stolen session scenario: the attacker leaves a stream open, and the owner resets their
+// password. The attacker's stream is cut right away, before the security notice.
 func TestStolenSessionStreamIsCutOnPasswordReset(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	srv := testutil.NewServer(t, pool, testutil.WithMailer(mails))
 	_, owner := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
-	// Otra sesión de Alice, iniciada por quien le robó la contraseña.
+	// Another session of Alice's, started by whoever stole her password.
 	resp := do(t, srv, owner, http.MethodPost, "/auth/login", `{"email":"alice@example.com","password":"test-password"}`)
 	var stolen *http.Cookie
 	for _, c := range resp.Cookies() {
@@ -28,11 +28,11 @@ func TestStolenSessionStreamIsCutOnPasswordReset(t *testing.T) {
 		}
 	}
 	if stolen == nil {
-		t.Fatal("no se creó la segunda sesión")
+		t.Fatal("the second session was not created")
 	}
 	attacker := testutil.OpenEvents(t, srv, stolen, "")
 
-	// El dueño recupera la contraseña.
+	// The owner resets the password.
 	do(t, srv, owner, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
 	msg, _ := mails.Last("alice@example.com")
 	reset := fmt.Sprintf(`{"token":%q,"password":"a-new-password"}`, testutil.TokenFromEmail(t, msg))
@@ -40,10 +40,11 @@ func TestStolenSessionStreamIsCutOnPasswordReset(t *testing.T) {
 		t.Fatalf("reset: status = %d", resp.StatusCode)
 	}
 
-	// El atacante no recibe nada (ni el aviso de "se cambió tu contraseña") y su stream se cierra.
+	// The attacker gets nothing (not even the "your password was changed" notice) and their stream
+	// closes.
 	attacker.Nothing(t, 200*time.Millisecond)
 	if !attacker.Closed(time.Second) {
-		t.Fatal("el stream de la sesión robada debería cortarse al recuperar la contraseña")
+		t.Fatal("the stream of the stolen session should be cut by the password reset")
 	}
 }
 
@@ -57,6 +58,6 @@ func TestLogoutCutsItsStream(t *testing.T) {
 		t.Fatalf("logout: status = %d", resp.StatusCode)
 	}
 	if !events.Closed(time.Second) {
-		t.Error("el stream debería cortarse con el logout, sin esperar al próximo latido")
+		t.Error("the stream should be cut by the logout, without waiting for the next heartbeat")
 	}
 }

@@ -11,38 +11,38 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
-// Límites por defecto de conexiones abiertas a GET /events. Cada conexión es una goroutine y
-// un socket abiertos mientras dure, así que sin tope cualquiera podría agotar los recursos.
+// Default limits of open GET /events connections. Each connection is a goroutine and a socket
+// open for as long as it lasts, so without a cap anyone could use up the resources.
 const (
-	defaultMaxPerUser = 10   // pestañas o dispositivos de un mismo usuario
-	defaultMaxTotal   = 1000 // entre todos los usuarios
-	// subscriptionBuffer es cuántos eventos se guardan para una conexión que todavía no los leyó.
-	// Si se llena, el cliente es demasiado lento: se cierra su conexión y el navegador se reconecta.
+	defaultMaxPerUser = 10   // tabs or devices of the same user
+	defaultMaxTotal   = 1000 // across all users
+	// subscriptionBuffer is how many events are kept for a connection that has not read them yet.
+	// If it fills up, the client is too slow: its connection is closed and the browser reconnects.
 	subscriptionBuffer = 64
 )
 
 var (
-	// ErrTooManyConnections indica que se superó el límite de conexiones (del usuario o total).
+	// ErrTooManyConnections means the connection limit (per user or in total) was exceeded.
 	ErrTooManyConnections = errors.New("realtime: demasiadas conexiones abiertas")
-	// ErrClosed indica que el broker se cerró (la API se está apagando).
-	ErrClosed = errors.New("realtime: el servidor se está apagando")
+	// ErrClosed means the broker was closed (the API is shutting down).
+	ErrClosed = errors.New("realtime: the server is shutting down")
 )
 
-// Authorizer decide si un usuario puede escuchar un tema. Recibe el id del tema: para
-// "project:42", el id es "42".
+// Authorizer decides whether a user can listen to a topic. It receives the topic ID: for
+// "project:42", the ID is "42".
 type Authorizer func(ctx context.Context, userID int64, id string) (bool, error)
 
-// Broker reparte eventos entre las conexiones abiertas de GET /events.
+// Broker hands out events among the open GET /events connections.
 //
-// Hay dos tipos de canal:
-//   - El del usuario ("user:<id>"): cada conexión escucha el suyo, sin pedirlo. Para
-//     notificaciones y cambios en los datos propios.
-//   - Los temas ("project:42"): para que varios usuarios vean en vivo lo mismo. Cada tipo de
-//     tema necesita un Authorizer (ver Authorize); un tema sin autorizador se rechaza.
+// There are two kinds of channel:
+//   - The user's ("user:<id>"): each connection listens to its own, without asking. For
+//     notifications and changes to the user's own data.
+//   - Topics ("project:42"): for several users to see the same thing live. Each kind of topic
+//     needs an Authorizer (see Authorize); a topic without an authorizer is rejected.
 //
-// Cada instancia de la API tiene su broker, con sus conexiones. Con Listen, los brokers de todas
-// las instancias se avisan por PostgreSQL: un evento publicado en cualquiera llega a las
-// conexiones de todas (ver instances.go). Sin Listen vive solo en memoria, como en los tests.
+// Each API instance has its broker, with its connections. With Listen, the brokers of every
+// instance notify each other through PostgreSQL: an event published on any of them reaches the
+// connections of all (see instances.go). Without Listen it lives only in memory, as in the tests.
 type Broker struct {
 	mu          sync.Mutex
 	channels    map[string]map[*subscription]struct{}
@@ -53,16 +53,16 @@ type Broker struct {
 
 	maxPerUser, maxTotal int
 
-	// id identifica a esta instancia en los mensajes entre instancias, y q los envía. q es nil
-	// mientras no se llame a Listen.
+	// id identifies this instance in the messages between instances, and q sends them. q is nil
+	// until Listen is called.
 	id string
 	q  *store.Queries
 }
 
-// subscription es una conexión abierta de GET /events.
+// subscription is an open GET /events connection.
 type subscription struct {
 	userID     int64
-	sessionKey string // la sesión con la que se abrió (ver auth.Service.SessionKey)
+	sessionKey string // the session it was opened with (see auth.Service.SessionKey)
 	channels   []string
 	events     chan Event
 	closed     chan struct{}
@@ -71,7 +71,7 @@ type subscription struct {
 
 func (s *subscription) close() { s.once.Do(func() { close(s.closed) }) }
 
-// NewBroker crea un broker con los límites por defecto.
+// NewBroker creates a broker with the default limits.
 func NewBroker() *Broker {
 	return &Broker{
 		channels:    map[string]map[*subscription]struct{}{},
@@ -84,29 +84,30 @@ func NewBroker() *Broker {
 	}
 }
 
-// UserChannel es el canal de un usuario.
+// UserChannel is the channel of a user.
 func UserChannel(userID int64) string { return "user:" + strconv.FormatInt(userID, 10) }
 
-// Authorize registra quién puede escuchar los temas de un tipo, por ejemplo "project".
-// Se llama al registrar las rutas del módulo dueño de ese tipo de dato.
+// Authorize registers who can listen to the topics of a kind, for example "project".
+// It is called when registering the routes of the module that owns that kind of data.
 func (b *Broker) Authorize(kind string, fn Authorizer) {
 	if kind == "user" || kind == "" || strings.Contains(kind, ":") {
-		panic("realtime: tipo de tema inválido: " + kind)
+		panic("realtime: invalid topic kind: " + kind)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.authorizers[kind] = fn
 }
 
-// Publish envía el evento a todas las conexiones que escuchan el canal, en esta instancia y (con
-// Listen) en las demás. No bloquea: si una conexión no lee a tiempo, se cierra. Es "mejor
-// esfuerzo": la fuente de verdad es la base, y el frontend vuelve a pedir el estado al reconectarse.
+// Publish sends the event to every connection listening to the channel, on this instance and
+// (with Listen) on the others. It does not block: if a connection does not read in time, it is
+// closed. It is "best effort": the source of truth is the database, and the frontend asks for
+// the state again when it reconnects.
 func (b *Broker) Publish(ctx context.Context, channel string, ev Event) {
 	b.deliver(channel, ev)
 	b.shareEvent(ctx, channel, ev)
 }
 
-// deliver entrega el evento a las conexiones de esta instancia.
+// deliver hands the event to the connections of this instance.
 func (b *Broker) deliver(channel string, ev Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -119,13 +120,13 @@ func (b *Broker) deliver(channel string, ev Event) {
 	}
 }
 
-// PublishToUser envía el evento a todas las conexiones del usuario.
+// PublishToUser sends the event to every connection of the user.
 func (b *Broker) PublishToUser(ctx context.Context, userID int64, ev Event) {
 	b.Publish(ctx, UserChannel(userID), ev)
 }
 
-// SessionEnded corta los streams abiertos con esa sesión, en todas las instancias. Auth lo llama
-// en el logout (el broker implementa auth.SessionWatcher).
+// SessionEnded cuts the streams opened with that session, on every instance. Auth calls it on
+// logout (the broker implements auth.SessionWatcher).
 func (b *Broker) SessionEnded(ctx context.Context, sessionKey string) {
 	b.endSession(sessionKey)
 	b.share(ctx, message{Kind: kindSessionEnded, SessionKey: sessionKey})
@@ -143,10 +144,11 @@ func (b *Broker) endSession(sessionKey string) {
 	}
 }
 
-// UserSessionsEnded corta los streams del usuario abiertos con otras sesiones que no sean
-// keepSessionKey (vacío: todas), en todas las instancias. Auth lo llama cuando cierra sesiones del
-// usuario: al cambiar o recuperar la contraseña y al activar o desactivar el 2FA. Así, quien tenía
-// una sesión robada deja de recibir eventos en el acto, antes del aviso de "se cambió tu contraseña".
+// UserSessionsEnded cuts the user's streams opened with sessions other than keepSessionKey
+// (empty: all of them), on every instance. Auth calls it when it closes the user's sessions: on
+// a password change or reset and when two-factor authentication is turned on or off. That way,
+// whoever had a stolen session stops getting events right away, before the "your password was
+// changed" notice.
 func (b *Broker) UserSessionsEnded(ctx context.Context, userID int64, keepSessionKey string) {
 	b.endUserSessions(userID, keepSessionKey)
 	b.share(ctx, message{Kind: kindUserSessionsEnded, UserID: userID, SessionKey: keepSessionKey})
@@ -162,19 +164,19 @@ func (b *Broker) endUserSessions(userID int64, keepSessionKey string) {
 	}
 }
 
-// DisconnectUser corta todos los streams del usuario, en todas las instancias. Sirve para quitarle
-// el acceso a un tema al instante (por ejemplo, al sacarlo de un proyecto): el navegador se
-// reconecta solo, y en la reconexión se vuelven a revisar sus permisos.
+// DisconnectUser cuts every stream of the user, on every instance. It removes access to a topic
+// right away (for example, when the user is taken out of a project): the browser reconnects on
+// its own, and on reconnecting their permissions are checked again.
 func (b *Broker) DisconnectUser(ctx context.Context, userID int64) {
 	b.UserSessionsEnded(ctx, userID, "")
 }
 
-// Done se cierra cuando el broker se cierra (al apagar la API). Un stream largo que no use el
-// broker, como la respuesta de un agente de IA, puede escucharlo para terminar a tiempo.
+// Done is closed when the broker closes (when the API shuts down). A long stream that does not
+// use the broker, like the response of an AI agent, can listen to it to end in time.
 func (b *Broker) Done() <-chan struct{} { return b.done }
 
-// Close cierra todas las conexiones. Se llama al apagar la API: sin esto, el servidor esperaría
-// hasta el timeout, porque un stream SSE nunca termina solo.
+// Close closes every connection. It is called when the API shuts down: without it, the server
+// would wait until the timeout, because an SSE stream never ends on its own.
 func (b *Broker) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -187,7 +189,7 @@ func (b *Broker) Close() {
 	b.closeSubscriptions()
 }
 
-// closeSubscriptions cierra todas las conexiones de esta instancia. Se llama con b.mu tomado.
+// closeSubscriptions closes every connection of this instance. It is called with b.mu held.
 func (b *Broker) closeSubscriptions() {
 	for _, subs := range b.channels {
 		for sub := range subs {
@@ -196,10 +198,10 @@ func (b *Broker) closeSubscriptions() {
 	}
 }
 
-// authorizeTopics separa los temas que el usuario puede escuchar de los rechazados: los que no
-// tienen autorizador, están mal escritos o el autorizador no permite.
+// authorizeTopics splits the topics the user can listen to from the rejected ones: those
+// without an authorizer, misspelled, or not allowed by the authorizer.
 func (b *Broker) authorizeTopics(ctx context.Context, userID int64, topics []string) (allowed, rejected []string, err error) {
-	allowed, rejected = []string{}, []string{} // vacías, no nil: el evento ready envía [] y no null
+	allowed, rejected = []string{}, []string{} // empty, not nil: the ready event sends [] and not null
 	for _, topic := range topics {
 		kind, id, ok := strings.Cut(topic, ":")
 		b.mu.Lock()
@@ -222,8 +224,8 @@ func (b *Broker) authorizeTopics(ctx context.Context, userID int64, topics []str
 	return allowed, rejected, nil
 }
 
-// subscribe abre una conexión del usuario con la sesión indicada, que escucha su canal y los
-// temas indicados (ya autorizados).
+// subscribe opens a connection of the user with the given session, which listens to their
+// channel and the given topics (already authorized).
 func (b *Broker) subscribe(userID int64, sessionKey string, topics []string) (*subscription, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -255,7 +257,7 @@ func (b *Broker) subscribe(userID int64, sessionKey string, topics []string) (*s
 	return sub, nil
 }
 
-// unsubscribe cierra la conexión y la saca de sus canales.
+// unsubscribe closes the connection and takes it out of its channels.
 func (b *Broker) unsubscribe(sub *subscription) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

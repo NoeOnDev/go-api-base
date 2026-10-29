@@ -5,8 +5,8 @@ import (
 	"sync"
 )
 
-// Recorder guarda los correos en memoria en lugar de enviarlos. Es para los tests:
-// permite comprobar que se envió un correo y leer su contenido (por ejemplo, el enlace).
+// Recorder keeps the emails in memory instead of sending them. It is for the tests: it lets
+// them check that an email was sent and read its content (for example, the link).
 type Recorder struct {
 	mu       sync.Mutex
 	messages []Message
@@ -22,14 +22,14 @@ func (r *Recorder) Send(_ context.Context, msg Message) error {
 	return nil
 }
 
-// Messages devuelve los correos enviados, en orden.
+// Messages returns the sent emails, in order.
 func (r *Recorder) Messages() []Message {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]Message(nil), r.messages...)
 }
 
-// Last devuelve el último correo enviado a la dirección indicada.
+// Last returns the last email sent to the given address.
 func (r *Recorder) Last(to string) (Message, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

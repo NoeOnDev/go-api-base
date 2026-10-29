@@ -12,12 +12,12 @@ import (
 	"time"
 )
 
-// SMTPSender envía correos por SMTP.
+// SMTPSender sends emails over SMTP.
 //
-// Con el puerto 465 usa TLS desde el inicio. Con cualquier otro (normalmente 587) se conecta
-// en texto plano y pasa a TLS con STARTTLS, que es obligatorio salvo contra localhost
-// (Mailpit en desarrollo no usa TLS). Si hay usuario, se autentica con PLAIN, que net/smtp
-// solo permite sobre TLS o contra localhost.
+// With port 465 it uses TLS from the start. With any other (usually 587) it connects in plain
+// text and upgrades to TLS with STARTTLS, which is mandatory except against localhost (Mailpit
+// in development does not use TLS). If there is a user, it authenticates with PLAIN, which
+// net/smtp only allows over TLS or against localhost.
 type SMTPSender struct {
 	Host     string
 	Port     int
@@ -26,16 +26,16 @@ type SMTPSender struct {
 	From     *mail.Address
 }
 
-// NewSMTPSender valida el remitente (por ejemplo "My App <no-reply@myapp.com>") y crea el sender.
+// NewSMTPSender validates the sender (for example "My App <no-reply@myapp.com>") and creates the sender.
 func NewSMTPSender(host string, port int, username, password, from string) (*SMTPSender, error) {
 	addr, err := mail.ParseAddress(from)
 	if err != nil {
-		return nil, fmt.Errorf("remitente inválido %q: %w", from, err)
+		return nil, fmt.Errorf("invalid sender %q: %w", from, err)
 	}
 	return &SMTPSender{Host: host, Port: port, Username: username, Password: password, From: addr}, nil
 }
 
-// sendTimeout es el tiempo máximo para todo el envío de un correo.
+// sendTimeout is the maximum time for the whole sending of an email.
 const sendTimeout = 30 * time.Second
 
 func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
@@ -49,7 +49,7 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
 
 	conn, err := s.dial(ctx)
 	if err != nil {
-		return fmt.Errorf("smtp: conectar a %s:%d: %w", s.Host, s.Port, err)
+		return fmt.Errorf("smtp: connect to %s:%d: %w", s.Host, s.Port, err)
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
@@ -58,7 +58,7 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
 	c, err := smtp.NewClient(conn, s.Host)
 	if err != nil {
 		conn.Close()
-		return fmt.Errorf("smtp: iniciar sesión SMTP: %w", err)
+		return fmt.Errorf("smtp: start the SMTP session: %w", err)
 	}
 	defer c.Close()
 
@@ -68,13 +68,13 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
 				return fmt.Errorf("smtp: STARTTLS: %w", err)
 			}
 		} else if !isLocalhost(s.Host) {
-			return errors.New("smtp: el servidor no ofrece STARTTLS; no se envían credenciales ni correos sin cifrar")
+			return errors.New("smtp: the server does not offer STARTTLS; no credentials or emails are sent unencrypted")
 		}
 	}
 
 	if s.Username != "" {
 		if err := c.Auth(smtp.PlainAuth("", s.Username, s.Password, s.Host)); err != nil {
-			return fmt.Errorf("smtp: autenticación: %w", err)
+			return fmt.Errorf("smtp: authentication: %w", err)
 		}
 	}
 
@@ -90,10 +90,10 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
 		return fmt.Errorf("smtp: DATA: %w", err)
 	}
 	if _, err := w.Write(raw); err != nil {
-		return fmt.Errorf("smtp: escribir el correo: %w", err)
+		return fmt.Errorf("smtp: write the email: %w", err)
 	}
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("smtp: enviar el correo: %w", err)
+		return fmt.Errorf("smtp: send the email: %w", err)
 	}
 
 	return c.Quit()

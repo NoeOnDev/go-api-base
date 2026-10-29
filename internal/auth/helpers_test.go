@@ -20,7 +20,7 @@ import (
 )
 
 // Helpers shared by the tests of several auth features. They live here, and not in the test of
-// one feature, so that removing a feature with its tests (see "Quitar funciones" in
+// one feature, so that removing a feature with its tests (see "Removing features" in
 // docs/auth.md) does not break the tests of the others.
 
 type apiError struct {

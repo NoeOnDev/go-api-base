@@ -1,20 +1,20 @@
-# Cómo agregar un recurso
+# Adding a resource
 
-Esta guía usa como ejemplo un recurso `orders` (pedidos de cada usuario). Antes de empezar, elegí qué ejemplo copiar:
+This guide uses an `orders` resource (each user's orders) as the example. Before starting, choose which example to copy:
 
-| Si los datos… | Copiá | Por ejemplo |
+| If the data… | Copy | For example |
 |---|---|---|
-| son **de cada usuario** | `internal/notes` | pedidos, tareas, direcciones, favoritos |
-| son **compartidos** y los gestiona un admin | `internal/categories` | categorías, sucursales, configuraciones |
-| son compartidos y **se relacionan con otra tabla** o necesitan filtros | `internal/products` | productos, artículos, servicios |
+| belongs **to each user** | `internal/notes` | orders, tasks, addresses, favorites |
+| is **shared** and managed by an admin | `internal/categories` | categories, branches, settings |
+| is shared and **relates to another table** or needs filters | `internal/products` | products, items, services |
 
-## 1. Migración
+## 1. Migration
 
 ```bash
 make migrate-new name=create_orders
 ```
 
-Crea `migrations/0000N_create_orders.sql`. Completalo:
+It creates `migrations/0000N_create_orders.sql`. Fill it in:
 
 ```sql
 -- +goose Up
@@ -33,18 +33,18 @@ CREATE INDEX orders_user_id_idx ON orders (user_id, id DESC);
 DROP TABLE orders;
 ```
 
-**Buenas prácticas:**
-- **El dinero va en centavos** (`bigint`).
-- **Toda clave foránea lleva índice**: PostgreSQL no lo crea solo.
-- **Para las relaciones, elegí qué pasa al borrar:**
-  - `ON DELETE CASCADE`: borra lo dependiente;
-  - `ON DELETE RESTRICT`: impide el borrado, como `products` → `categories`.
+**Good practices:**
+- **Money goes in cents** (`bigint`).
+- **Every foreign key gets an index**: PostgreSQL does not create it on its own.
+- **For relationships, choose what happens on delete:**
+  - `ON DELETE CASCADE`: deletes the dependent rows;
+  - `ON DELETE RESTRICT`: prevents the deletion, like `products` → `categories`.
 
-Aplicala con `make migrate-up`, o reiniciando la API, que migra al arrancar.
+Apply it with `make migrate-up`, or by restarting the API, which migrates on startup.
 
-## 2. Consultas
+## 2. Queries
 
-Creá `internal/db/queries/orders.sql`. Si los datos son de cada usuario, **todas** las consultas filtran por `user_id`:
+Create `internal/db/queries/orders.sql`. If the data belongs to each user, **every** query filters by `user_id`:
 
 ```sql
 -- name: GetOrder :one
@@ -53,75 +53,75 @@ FROM orders
 WHERE id = $1 AND user_id = $2;
 ```
 
-El comentario `-- name: Nombre :tipo` define la función que se va a generar:
+The `-- name: Name :kind` comment defines the function that will be generated:
 
-| Tipo | Devuelve |
+| Kind | Returns |
 |---|---|
-| `:one` | una fila; `pgx.ErrNoRows` si no existe |
-| `:many` | un slice de filas (vacío si no hay) |
-| `:exec` | solo error |
-| `:execrows` | cantidad de filas afectadas |
+| `:one` | one row; `pgx.ErrNoRows` if it does not exist |
+| `:many` | a slice of rows (empty if there are none) |
+| `:exec` | only an error |
+| `:execrows` | the number of affected rows |
 
-**Patrones útiles**, todos con ejemplos en `products.sql`:
-- **Parámetros con nombre:** `sqlc.arg('limit')`.
-- **Filtros opcionales:** `(sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))`. sqlc genera un puntero, y `nil` significa "sin filtro".
-- **Búsqueda por texto:** `ILIKE '%' || $1 || '%'`, como en `products`, no usa índices: PostgreSQL recorre toda la tabla. Alcanza para unos miles de filas. Si crece, una migración con la extensión `pg_trgm` y un índice que sí sirve para esas búsquedas:
+**Useful patterns**, all with examples in `products.sql`:
+- **Named parameters:** `sqlc.arg('limit')`.
+- **Optional filters:** `(sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))`. sqlc generates a pointer, and `nil` means "no filter".
+- **Text search:** `ILIKE '%' || $1 || '%'`, as in `products`, does not use indexes: PostgreSQL scans the whole table. It is enough for a few thousand rows. If it grows, a migration with the `pg_trgm` extension and an index that does work for those searches:
 
   ```sql
   CREATE EXTENSION IF NOT EXISTS pg_trgm;
   CREATE INDEX products_name_trgm_idx ON products USING gin (name gin_trgm_ops);
   ```
-- **Datos de otra tabla:** un `JOIN`, nombrando las columnas con `AS` (`c.name AS category_name`).
+- **Data from another table:** a `JOIN`, naming the columns with `AS` (`c.name AS category_name`).
 
-## 3. Generar el código
+## 3. Generate the code
 
 ```bash
 make sqlc
 ```
 
-Genera en `internal/store` el struct `Order` y funciones como `GetOrder(ctx, params)`. **No edites esos archivos**: se regeneran.
+It generates the `Order` struct and functions like `GetOrder(ctx, params)` in `internal/store`. **Do not edit those files**: they are regenerated.
 
-## 4. Paquete del recurso
+## 4. The resource package
 
-Copiá el paquete de ejemplo a `internal/orders` y adaptá cada archivo:
+Copy the example package to `internal/orders` and adapt each file:
 
 - **`validation.go`:**
-  - El struct de entrada con sus tags JSON, `normalize()` y `validate()`.
-  - Para las reglas comunes usá `internal/validate`: `Required`, `MaxLen`, `Slug` y `NonNegative`.
-  - Juntá los errores en `fields := httpx.Fields{}`, con un mensaje por campo (`fields["title"] = i18n.M("validation.required")`), y devolvé `httpx.Validation(fields)`. Los mensajes son claves de los catálogos de `internal/i18n`, no texto: ver [idiomas](i18n.md).
+  - The input struct with its JSON tags, `normalize()` and `validate()`.
+  - For the common rules use `internal/validate`: `Required`, `MaxLen`, `Slug` and `NonNegative`.
+  - Gather the errors in `fields := httpx.Fields{}`, with one message per field (`fields["title"] = i18n.M("validation.required")`), and return `httpx.Validation(fields)`. The messages are keys of the `internal/i18n` catalogs, not text: see [languages](i18n.md).
 - **`handlers.go`:**
-  - El struct de respuesta y `toResponse`.
-  - Un handler por endpoint, con la firma `func(w, r) error`.
-  - Con sesión, el usuario es `auth.MustUser(r.Context())`.
-  - Traducí los errores:
+  - The response struct and `toResponse`.
+  - One handler per endpoint, with the signature `func(w, r) error`.
+  - With a session, the user is `auth.MustUser(r.Context())`.
+  - Translate the errors:
 
-    | Error | Respuesta |
+    | Error | Response |
     |---|---|
-    | `pgx.ErrNoRows` o 0 filas afectadas | `httpx.NotFound("order_not_found")` |
-    | `db.IsUniqueViolation(err)` | `httpx.Conflict("order_number_taken", "campo")` |
-    | `db.IsForeignKeyViolation(err)` al crear o editar | `httpx.Validation` |
-    | `db.IsForeignKeyViolation(err)` al borrar | `httpx.Conflict("order_in_use", "")` |
-    | cada código nuevo | su mensaje en `internal/i18n/locales/*.json` (`"errors.order_not_found": "…"`) y una fila en la tabla de [idiomas](i18n.md) |
-    | cualquier otro | envolverlo con contexto: `fmt.Errorf("crear pedido: %w", err)` |
+    | `pgx.ErrNoRows` or 0 affected rows | `httpx.NotFound("order_not_found")` |
+    | `db.IsUniqueViolation(err)` | `httpx.Conflict("order_number_taken", "field")` |
+    | `db.IsForeignKeyViolation(err)` when creating or editing | `httpx.Validation` |
+    | `db.IsForeignKeyViolation(err)` when deleting | `httpx.Conflict("order_in_use", "")` |
+    | each new code | its message in `internal/i18n/locales/*.json` (`"errors.order_not_found": "…"`) and a row in the table of [languages](i18n.md) |
+    | anything else | wrap it with context: `fmt.Errorf("create order: %w", err)` |
 
-- **Varios cambios que van juntos, en una transacción.** Si una operación hace más de una escritura y tiene que pasar todo o nada (por ejemplo, crear el pedido y descontar el stock), usá `pgx.BeginFunc` con las consultas de la transacción (`q.WithTx(tx)`). Si la función devuelve un error, se deshace todo:
+- **Several changes that belong together, in a transaction.** If an operation makes more than one write and everything or nothing must happen (for example, creating the order and decrementing the stock), use `pgx.BeginFunc` with the transaction's queries (`q.WithTx(tx)`). If the function returns an error, everything is rolled back:
 
   ```go
-  // El handler necesita el pool (pasáselo al crearlo en routes.go).
+  // The handler needs the pool (pass it when creating it in routes.go).
   err := pgx.BeginFunc(r.Context(), h.db, func(tx pgx.Tx) error {
   	q := h.q.WithTx(tx)
   	order, err := q.CreateOrder(r.Context(), params)
   	if err != nil {
-  		return fmt.Errorf("crear pedido: %w", err)
+  		return fmt.Errorf("create order: %w", err)
   	}
   	return q.DecrementStock(r.Context(), store.DecrementStockParams{ProductID: order.ProductID, Quantity: order.Quantity})
   })
   ```
 
-  - **Nada lento adentro:** calculá antes lo que tarda (un hash con `auth.HashPassword`, una llamada a otra API). Mientras la transacción está abierta, ocupa una conexión de la base y puede bloquear filas.
-  - **Avisos después del commit:** publicar un evento (`broker.Publish`) o encolar un trabajo fuera de la transacción va después del `BeginFunc`. Para encolar dentro de la misma transacción, usá `InsertTx` (ver [docs/jobs.md](jobs.md)).
-  - **Si dos peticiones simultáneas pueden pisarse** (leer, decidir y escribir), bloqueá la fila al empezar con `SELECT … FOR UPDATE`, como hace `issueToken` con `LockUser`.
-- **`routes.go`:** las rutas, con la protección que corresponda:
+  - **Nothing slow inside:** compute what takes time beforehand (a hash with `auth.HashPassword`, a call to another API). While the transaction is open, it takes a database connection and can lock rows.
+  - **Notices after the commit:** publishing an event (`broker.Publish`) or queuing a job outside the transaction goes after the `BeginFunc`. To queue inside the same transaction, use `InsertTx` (see [docs/jobs.md](jobs.md)).
+  - **If two simultaneous requests can step on each other** (read, decide and write), lock the row at the start with `SELECT … FOR UPDATE`, as `issueToken` does with `LockUser`.
+- **`routes.go`:** the routes, with the right protection:
 
   ```go
   mux.Handle("GET /orders", authn.RequireUser(httpx.Handle(h.list)))
@@ -129,31 +129,31 @@ Copiá el paquete de ejemplo a `internal/orders` y adaptá cada archivo:
   mux.Handle("GET /admin/orders", authn.RequireAdmin(httpx.Handle(h.listAll)))
   ```
 
-- **`handlers_test.go`:** con `testutil.NewDB`, `testutil.Login`, `testutil.NewAPI`, `testutil.Do` y `testutil.Decode`, como en `internal/products`. Cubrí:
-  - el caso feliz;
-  - validación (422);
-  - no encontrado (404);
-  - sin sesión (401);
-  - sin permiso (403) o pertenencia (el recurso de otro usuario da 404), según corresponda.
+- **`handlers_test.go`:** with `testutil.NewDB`, `testutil.Login`, `testutil.NewAPI`, `testutil.Do` and `testutil.Decode`, as in `internal/products`. Cover:
+  - the happy path;
+  - validation (422);
+  - not found (404);
+  - no session (401);
+  - no permission (403) or ownership (another user's resource gives 404), as applicable.
 
-## 5. Registrar las rutas
+## 5. Register the routes
 
-En `internal/server/routes.go`:
+In `internal/server/routes.go`:
 
 ```go
 orders.Register(mux, orders.NewHandler(queries), authService)
 ```
 
-## 6. Verificar
+## 6. Check
 
 ```bash
 make check
 ```
 
-Corre gofmt, comprueba que el código generado esté al día, y ejecuta go vet, los tests y govulncheck.
+It runs gofmt, checks that the generated code is up to date, and runs go vet, staticcheck, the tests and govulncheck.
 
-## Con un agente
+## With an agent
 
-Como `AGENTS.md` describe estos patrones, alcanza con pedir algo como:
+Since `AGENTS.md` describes these patterns, it is enough to ask for something like:
 
-> Creá el recurso `orders` de cada usuario, con `status` (pending, paid o cancelled) y `total_cents`, siguiendo el patrón de `notes`. Agregá `PUT /orders/{id}/cancel`, que solo cancela pedidos pendientes.
+> Create the per-user `orders` resource, with `status` (pending, paid or cancelled) and `total_cents`, following the `notes` pattern. Add `PUT /orders/{id}/cancel`, which only cancels pending orders.

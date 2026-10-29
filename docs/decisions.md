@@ -1,298 +1,299 @@
-# Decisiones de diseño
+# Design decisions
 
-Por qué la plantilla está armada así. Si cambiás alguna decisión, actualizá este archivo.
+Why the template is built this way. If you change a decision, update this file.
 
-## Librería estándar primero
+## Standard library first
 
-`net/http` (con las rutas por método y parámetro de Go 1.22), `encoding/json`, `log/slog` y `testing` cubren lo necesario para una API.
-Menos dependencias significa menos actualizaciones, menos vulnerabilidades posibles y un código que se entiende sin conocer un framework.
+`net/http` (with Go 1.22's method and parameter routing), `encoding/json`, `log/slog` and `testing` cover what an API needs.
+Fewer dependencies means fewer updates, fewer possible vulnerabilities and code that can be understood without knowing a framework.
 
-La plantilla trae mucho resuelto (autenticación con 2FA, rotación de claves, cola de trabajos, tiempo real), pero lo arma sobre la librería estándar: lo que crece es el código propio, que se puede leer y cambiar, no la lista de dependencias. TOTP, el cifrado, SSE y el envío por SMTP, por ejemplo, no suman ninguna.
+The template comes with a lot already solved (authentication with 2FA, key rotation, job queue, real time), but it builds it on the standard library: what grows is our own code, which can be read and changed, not the list of dependencies. TOTP, encryption, SSE and SMTP sending, for example, add none.
 
-**Dependencias del binario:**
-- `pgx`: driver de PostgreSQL.
-- `goose`: migraciones.
-- `river`: la cola de trabajos, sobre el mismo PostgreSQL (ver "Trabajos en segundo plano con River").
-- Tres paquetes del equipo de Go:
+**Dependencies of the binary:**
+- `pgx`: PostgreSQL driver.
+- `goose`: migrations.
+- `river`: the job queue, on the same PostgreSQL (see "Background jobs with River").
+- Four packages from the Go team:
   - `golang.org/x/crypto`: argon2id;
-  - `golang.org/x/time`: límite de peticiones por IP;
-  - `golang.org/x/term`: leer la contraseña en `create-admin` sin mostrarla.
+  - `golang.org/x/time`: per-IP request limits;
+  - `golang.org/x/term`: reading the password in `create-admin` without showing it;
+  - `golang.org/x/text`: choosing the language from `Accept-Language` (see `docs/i18n.md`).
 
-## pgx + sqlc en lugar de un ORM
+## pgx + sqlc instead of an ORM
 
-- Escribís SQL normal, y sqlc genera funciones Go con tipos a partir de él. Los errores de SQL aparecen al generar, no en producción.
-- No hay consultas ocultas ni problemas N+1 inesperados.
-- pgx es el driver más completo y rápido para PostgreSQL en Go.
+- You write plain SQL, and sqlc generates typed Go functions from it. SQL errors show up when generating, not in production.
+- There are no hidden queries or unexpected N+1 problems.
+- pgx is the most complete and fastest PostgreSQL driver for Go.
 
-## Migraciones con goose, embebidas y aplicadas al arrancar
+## Migrations with goose, embedded and applied on startup
 
-- Son archivos `.sql` versionados, fáciles de revisar.
-- Van dentro del binario (`embed`): para desplegar alcanza con copiar un solo archivo.
-- La API migra al arrancar, con un advisory lock de PostgreSQL para que dos instancias no migren a la vez. Es simple, y desplegar no pide ningún paso aparte.
-- sqlc lee las mismas migraciones como esquema, así que son la única fuente de verdad.
+- They are versioned `.sql` files, easy to review.
+- They go inside the binary (`embed`): deploying is copying a single file.
+- The API migrates on startup, with a PostgreSQL advisory lock so two instances do not migrate at once. It is simple, and deploying needs no separate step.
+- sqlc reads the same migrations as its schema, so they are the single source of truth.
 
-## Herramientas con versión fija en el Makefile
+## Pinned tool versions in the Makefile
 
-sqlc, goose (la CLI), staticcheck y govulncheck se ejecutan con `go run paquete@versión`, con la versión en una variable del `Makefile` (`SQLC_VERSION`, etc.):
-- **No hace falta instalar nada:** la primera vez se descargan, verificadas contra la base de checksums de Go, y se compilan; después se usan desde la caché.
-- **No agregan dependencias al `go.mod` de la API.** sqlc sola arrastra cientos.
-- **Funcionan en proyectos creados con `gonew`.** Un módulo aparte (por ejemplo `tools/go.mod`) no sirve: Go excluye las subcarpetas con su propio `go.mod` al empaquetar el módulo, así que `gonew` no las copia.
+sqlc, goose (the CLI), staticcheck and govulncheck run with `go run package@version`, with the version in a `Makefile` variable (`SQLC_VERSION`, etc.):
+- **Nothing to install:** the first time they are downloaded, verified against Go's checksum database, and built; after that they are used from the cache.
+- **They add no dependencies to the API's `go.mod`.** sqlc alone pulls in hundreds.
+- **They work in projects created with `gonew`.** A separate module (for example `tools/go.mod`) does not work: Go excludes subfolders with their own `go.mod` when packaging the module, so `gonew` does not copy them.
 
-Para actualizar una herramienta, cambiá su versión en el `Makefile`.
+To update a tool, change its version in the `Makefile`.
 
-## Formato único de errores
+## A single error format
 
 ```json
 {"error": {"code": "validation_failed", "message": "...", "fields": {"title": "This field is required."}}}
 ```
 
-El frontend maneja todos los errores igual. Cada error tiene un código específico (`email_taken`, y no un `conflict` compartido por nueve casos), que es también la clave de su mensaje en los catálogos: así el frontend puede distinguir los casos sin leer el texto, y el texto sale en el idioma de la petición (ver `docs/i18n.md`). Los errores 500 no exponen detalles; la causa real queda en el log con su `request_id`.
+The frontend handles every error the same way. Each error has a specific code (`email_taken`, and not a `conflict` shared by nine cases), which is also the key of its message in the catalogs: that way the frontend can tell the cases apart without reading the text, and the text comes in the request's language (see `docs/i18n.md`). 500 errors do not expose details; the real cause is in the log with its `request_id`.
 
-## Handlers que devuelven error
+## Handlers that return an error
 
-`func(w, r) error` más `httpx.Handle` centraliza el manejo de errores: cada handler termina con `return err` y no se repite código para responder errores.
+`func(w, r) error` plus `httpx.Handle` centralizes error handling: each handler ends with `return err` and no code is repeated to respond with errors.
 
-## Respuestas separadas de los structs de la base
+## Responses separate from the database structs
 
-Cada recurso define su struct de respuesta. Agregar una columna a la tabla no cambia la API sin que lo decidas, y nunca se expone un campo por accidente (por ejemplo, un hash de contraseña).
+Each resource defines its response struct. Adding a column to the table does not change the API without you deciding it, and no field is ever exposed by accident (for example, a password hash).
 
-## Sesiones con cookie en lugar de JWT
+## Cookie sessions instead of JWT
 
-- **Más seguras para un frontend web:** la cookie `HttpOnly` no se puede leer desde JavaScript, a diferencia de un JWT guardado en `localStorage`.
-- **Se pueden revocar al instante** (logout, cambio de contraseña, bloquear un usuario): basta con borrar la fila. Un JWT sigue siendo válido hasta que vence.
-- **El costo es una consulta por petición** (`GetSessionUser`, por clave primaria). Es despreciable a esta escala.
-- **En la base se guarda el SHA-256 del token**, no el token: si alguien lee la tabla, no puede usar las sesiones.
+- **Safer for a web frontend:** the `HttpOnly` cookie cannot be read from JavaScript, unlike a JWT stored in `localStorage`.
+- **They can be revoked instantly** (logout, password change, blocking a user): deleting the row is enough. A JWT stays valid until it expires.
+- **The cost is one query per request** (`GetSessionUser`, by primary key). It is negligible at this scale.
+- **The database stores the SHA-256 of the token**, not the token: whoever reads the table cannot use the sessions.
 
-JWT conviene cuando varios servicios validan sesiones sin acceso a la base, o para APIs de terceros. Ninguno de los dos es el caso de esta plantilla.
+JWT makes sense when several services validate sessions without access to the database, or for third-party APIs. Neither is the case for this template.
 
-**En producción, la cookie se llama `__Host-session`.** El navegador solo acepta ese prefijo si la cookie es `Secure`, tiene `Path=/` y no tiene `Domain`, así que un subdominio (por ejemplo, uno comprometido) no puede crearla ni pisarla. En desarrollo se llama `session`, porque el prefijo exige HTTPS.
+**In production, the cookie is called `__Host-session`.** The browser only accepts that prefix if the cookie is `Secure`, has `Path=/` and has no `Domain`, so a subdomain (for example, a compromised one) cannot create or overwrite it. In development it is called `session`, because the prefix requires HTTPS.
 
-**Encabezados:** todas las respuestas llevan `X-Content-Type-Options: nosniff`, y las de `/auth`, `Cache-Control: no-store`, porque algunas llevan secretos (el del 2FA, los códigos de recuperación). El resto de la API no lleva `no-store`, porque un listado público puede querer caché; un recurso con datos personales puede sumarlo con `httpx.NoStore`.
+**Headers:** every response carries `X-Content-Type-Options: nosniff`, and the `/auth` ones, `Cache-Control: no-store`, because some carry secrets (the 2FA one, the recovery codes). The rest of the API does not carry `no-store`, because a public list may want caching; a resource with personal data can add it with `httpx.NoStore`.
 
-## Correos en segundo plano y por SMTP
+## Emails in the background and over SMTP
 
-- **SMTP con `net/smtp` de la librería estándar**, en lugar del SDK de un proveedor: funciona con cualquiera (Resend, Brevo, Amazon SES, Mailgun, el correo del hosting) y con Mailpit en desarrollo, y cambiar de proveedor es cambiar cuatro variables.
-- **Pasan por la cola de trabajos** (`jobs.MailSender`): la respuesta no espera al servidor de correo, y si el SMTP falla o la API se reinicia, el correo no se pierde. Se reintenta hasta 5 veces, con una espera cada vez más larga.
-- **El correo encolado va cifrado** con `secretbox`: los de recuperación llevan un enlace con token, y la tabla de la cola guarda los trabajos terminados 24 horas.
-- **Como mucho 4 envíos a la vez** (la cola `email`): cada uno abre su propia conexión SMTP, y los proveedores rechazan muchas conexiones simultáneas.
-- **Plantillas en texto plano**, embebidas en el binario. Se leen bien en cualquier cliente y no tienen problemas de compatibilidad con HTML.
+- **SMTP with the standard library's `net/smtp`**, instead of a provider's SDK: it works with any provider (Resend, Brevo, Amazon SES, Mailgun, your hosting's mail) and with Mailpit in development, and switching providers is changing four variables.
+- **They go through the job queue** (`jobs.MailSender`): the response does not wait for the mail server, and if SMTP fails or the API restarts, the email is not lost. It is retried up to 5 times, with a longer wait each time.
+- **The queued email is encrypted** with `secretbox`: the reset ones carry a link with a token, and the queue table keeps finished jobs for 24 hours.
+- **At most 4 sendings at once** (the `email` queue): each one opens its own SMTP connection, and providers reject many simultaneous connections.
+- **Plain-text templates**, embedded in the binary, one folder per language. They read well in any client and have no HTML compatibility problems.
 
-## Tokens de un solo uso por correo
+## One-time tokens by email
 
-Recuperar la contraseña y verificar el email usan la tabla `user_tokens`:
-- **Como en las sesiones**, se guarda solo el SHA-256 del token.
-- **Vencen** a la hora (recuperación) o a las 24 horas (verificación).
-- **Solo sirve el último enlace:** pedir uno nuevo invalida el anterior.
-- **No se pueden usar dos veces:** se validan y borran en una sola sentencia (`DELETE … RETURNING`), así que ni dos peticiones simultáneas pueden reutilizarlos.
-- **Se anulan cuando cambia lo que los respaldaba:** una contraseña nueva borra los desafíos del 2FA y el cambio de email pendientes (se obtuvieron con la anterior), y un email nuevo borra los enlaces de recuperación enviados al viejo.
+Password reset and email verification use the `user_tokens` table:
+- **As with sessions**, only the SHA-256 of the token is stored.
+- **They expire** after an hour (reset) or 24 hours (verification).
+- **Only the last link works:** asking for a new one invalidates the previous one.
+- **They cannot be used twice:** they are validated and deleted in a single statement (`DELETE … RETURNING`), so not even two simultaneous requests can reuse them.
+- **They are cancelled when what backed them changes:** a new password deletes the pending 2FA challenges and email change (they were obtained with the previous one), and a new email deletes the reset links sent to the old one.
 
-Los enlaces apuntan al **frontend** (`FRONTEND_URL`), no a la API: la pantalla toma el token de la URL y llama a la API. Así la API sigue siendo solo JSON.
+The links point to the **frontend** (`FRONTEND_URL`), not to the API: the screen takes the token from the URL and calls the API. That way the API stays JSON only.
 
-## Qué revela la API sobre los emails registrados
+## What the API reveals about registered emails
 
-- **El login y "olvidé mi contraseña" no lo revelan:** responden lo mismo exista o no el email, el login calcula un hash de argon2 igual para tardar lo mismo, y el límite por cuenta cuenta también los emails que no existen.
-- **El registro y el cambio de email sí:** un email en uso responde `409`. Sin eso, quien se equivoca de cuenta o ya estaba registrado no sabría por qué no puede seguir, y el cambio de email nunca se confirmaría. Es lo habitual (Laravel hace lo mismo en el registro), y el registro tiene su límite por IP, así que no sirve para revisar muchos emails rápido.
+- **The login and "forgot my password" do not reveal it:** they respond the same whether the email exists or not, the login computes an argon2 hash anyway to take the same time, and the per-account limit also counts emails that do not exist.
+- **Registration and email change do:** an email in use responds `409`. Without it, whoever picks the wrong account or was already registered would not know why they cannot go on, and the email change would never be confirmed. It is the usual practice (Laravel does the same on registration), and registration has its per-IP limit, so it is not useful to check many emails quickly.
 
-Con eso, alguien puede averiguar si un email está registrado, aunque no por el login. Lo que se protege es lo que importa: la contraseña no se puede probar sin límite, y el tiempo del login no distingue un email de otro.
+With that, someone can find out whether an email is registered, although not through the login. What matters is protected: the password cannot be tried without limit, and the login's timing does not tell one email from another.
 
-Si un proyecto necesita ocultarlo del todo, el registro tiene que responder siempre lo mismo ("revisá tu correo") y avisarle por correo al dueño del email si ya tenía cuenta, y el cambio de email, aceptar el pedido y avisar al confirmarlo.
+If a project needs to hide it completely, registration has to always respond the same ("check your email") and email the owner of the address if they already had an account, and the email change has to accept the request and notify on confirmation.
 
-## Verificación de email opcional
+## Optional email verification
 
-Viene desactivada (`REQUIRE_EMAIL_VERIFICATION=false`), porque muchos proyectos privados no la necesitan.
+It is off by default (`REQUIRE_EMAIL_VERIFICATION=false`), because many private projects do not need it.
 
-Activada, bloquea las rutas protegidas con un `403 email_not_verified` en lugar de impedir el login. Así el usuario puede entrar, ver el aviso y pedir otro enlace sin quedar trabado.
+When on, it blocks the protected routes with a `403 email_not_verified` instead of preventing the login. That way the user can log in, see the notice and ask for another link without getting stuck.
 
-## 2FA con TOTP propio
+## 2FA with our own TOTP
 
-- **TOTP (RFC 6238) implementado con la librería estándar** (unas 100 líneas en `internal/totp`, probadas con los vectores oficiales del RFC), en lugar de sumar una dependencia.
-- **El QR lo dibuja el frontend** a partir de `otpauth_url`, porque generar la imagen en Go necesitaría otra librería.
-- **El secreto se cifra con `secretbox`:** AES-256-GCM con una clave derivada de `ENCRYPTION_KEY` mediante HKDF. Así, un respaldo de la base filtrado no alcanza para generar códigos. El id del usuario va como dato asociado: un secreto copiado a otra fila no se puede descifrar.
-- **Los códigos de recuperación se guardan como HMAC** con otra clave derivada, sobre el código y el id del usuario. Son aleatorios de unos 50 bits, así que un hash rápido alcanza si va con clave: sin `ENCRYPTION_KEY` no se pueden probar por fuerza bruta.
-- **Se rechaza el reuso de un código** guardando el último paso usado, con un `UPDATE … WHERE totp_last_step < $2` atómico.
-- **El login en dos pasos usa un desafío** en `user_tokens` y una cookie `HttpOnly`, no un token en el cuerpo de la respuesta. El frontend no maneja secretos, y el desafío vence en 5 minutos.
-- **El 2FA es voluntario.** Obligarlo para ciertos roles es fácil de agregar en un proyecto (un control en `RequireAdmin`), pero cada proyecto lo decide.
+- **TOTP (RFC 6238) implemented with the standard library** (about 100 lines in `internal/totp`, tested with the RFC's official vectors), instead of adding a dependency.
+- **The frontend draws the QR code** from `otpauth_url`, because generating the image in Go would need another library.
+- **The secret is encrypted with `secretbox`:** AES-256-GCM with a key derived from `ENCRYPTION_KEY` through HKDF. That way, a leaked database backup is not enough to generate codes. The user's id goes as associated data: a secret copied to another row cannot be decrypted.
+- **The recovery codes are stored as HMACs** with another derived key, over the code and the user's id. They are random, about 50 bits, so a fast hash is enough if it is keyed: without `ENCRYPTION_KEY` they cannot be brute-forced.
+- **Reusing a code is rejected** by storing the last step used, with an atomic `UPDATE … WHERE totp_last_step < $2`.
+- **The two-step login uses a challenge** in `user_tokens` and an `HttpOnly` cookie, not a token in the response body. The frontend handles no secrets, and the challenge expires in 5 minutes.
+- **2FA is opt-in.** Making it mandatory for certain roles is easy to add in a project (a check in `RequireAdmin`), but each project decides.
 
-## Claves rotables con identificador
+## Rotatable keys with an identifier
 
-`secretbox` es un llavero: una clave actual y las anteriores (`ENCRYPTION_PREVIOUS_KEYS`).
+`secretbox` is a keyring: a current key and the previous ones (`ENCRYPTION_PREVIOUS_KEYS`).
 
-- **Cada dato cifrado lleva el identificador de su clave** (una huella derivada con HKDF), así la API sabe con cuál descifrar sin probarlas todas. Laravel, con `APP_PREVIOUS_KEYS`, sí prueba una tras otra.
-- **La rotación es gradual:** cada secreto se vuelve a cifrar cuando su usuario usa el 2FA, y `rotate-keys` termina el resto.
-- **El reporte indica cuándo se puede quitar una clave vieja**, para no hacerlo a ciegas.
-- **Los códigos de recuperación guardan el `key_id` de su HMAC**, porque sin el código original no se puede saber con qué clave se calcularon.
+- **Each encrypted value carries the identifier of its key** (a fingerprint derived with HKDF), so the API knows which one decrypts it without trying them all. Laravel, with `APP_PREVIOUS_KEYS`, does try one after another.
+- **The rotation is gradual:** each secret is encrypted again when its user uses 2FA, and `rotate-keys` finishes the rest.
+- **The report says when an old key can be removed**, so it is not done blindly.
+- **The recovery codes store the `key_id` of their HMAC**, because without the original code there is no way to know which key computed it.
 
-Se descartó un servicio de claves externo (AWS KMS, Vault): suma otro servicio, costo y complejidad. Si un proyecto lo exige (por ejemplo, por una norma de cumplimiento), el cambio queda acotado: las claves maestras que hoy salen de `ENCRYPTION_KEY` vendrían del servicio al arrancar, y `secretbox` sigue igual.
+An external key service (AWS KMS, Vault) was ruled out: it adds another service, cost and complexity. If a project requires it (for example, for a compliance standard), the change is contained: the master keys that today come from `ENCRYPTION_KEY` would come from the service on startup, and `secretbox` stays the same.
 
-## argon2id para las contraseñas
+## argon2id for passwords
 
-Es el algoritmo recomendado por OWASP. Los parámetros (19 MiB, 2 iteraciones, 1 hilo) son los mínimos que recomiendan, elegidos para que funcione bien incluso en un VPS de 1 vCPU. En un servidor con más recursos se pueden subir en `defaultParams` (`internal/auth/password.go`).
+It is the algorithm OWASP recommends. The parameters (19 MiB, 2 iterations, 1 thread) are the minimum they recommend, chosen so it works well even on a 1 vCPU VPS. On a server with more resources they can be raised in `defaultParams` (`internal/auth/password.go`).
 
-Van guardados dentro de cada hash (formato PHC), así que se pueden subir más adelante sin invalidar las contraseñas existentes. Cada una se vuelve a hashear con los parámetros nuevos la próxima vez que su usuario entra (es el único momento en que la API tiene la contraseña): ese login calcula un hash más, una sola vez.
+They are stored inside each hash (PHC format), so they can be raised later without invalidating the existing passwords. Each one is hashed again with the new parameters the next time its user logs in (the only moment the API has the password): that login computes one more hash, once.
 
-**Como mucho un hash por núcleo a la vez** (un semáforo en `password.go`). Cada hash reserva 19 MiB: sin tope, 200 logins simultáneos llevaban el proceso de 16 MiB a 2,5 GiB en 2 núcleos, y en un VPS chico el sistema lo habría matado. Con el tope, el pico queda en unos 120 MiB y los logins terminan incluso antes, porque la CPU ya no se reparte entre 200 hashes. Si el cliente se va mientras espera su turno, no se calcula nada.
+**At most one hash per core at a time** (a semaphore in `password.go`). Each hash reserves 19 MiB: without a cap, 200 simultaneous logins took the process from 16 MiB to 2.5 GiB on 2 cores, and on a small VPS the system would have killed it. With the cap, the peak stays around 120 MiB and the logins even finish sooner, because the CPU is no longer split among 200 hashes. If the client leaves while waiting for its turn, nothing is computed.
 
-## Protección CSRF con la librería estándar
+## CSRF protection with the standard library
 
-`http.CrossOriginProtection` (Go 1.25) rechaza las peticiones que modifican datos cuando el navegador indica que vienen de otro sitio (`Sec-Fetch-Site`, `Origin`). Junto con la cookie `SameSite=Lax`, reemplaza a los tokens CSRF clásicos sin que el frontend tenga que hacer nada.
+`http.CrossOriginProtection` (Go 1.25) rejects the requests that modify data when the browser says they come from another site (`Sec-Fetch-Site`, `Origin`). Together with the `SameSite=Lax` cookie, it replaces classic CSRF tokens without the frontend having to do anything.
 
-Los orígenes de `CORS_ALLOWED_ORIGINS` se consideran confiables.
+The origins of `CORS_ALLOWED_ORIGINS` are considered trusted.
 
-## Límites de intentos
+## Attempt limits
 
-Todos permiten unos intentos seguidos y después recargan uno cada cierto tiempo. Hay dos tipos, según dónde guardan la cuenta:
+They all allow a few attempts in a row and then refill one every so often. There are two kinds, depending on where they keep the count:
 
-**Por IP, en memoria** (`httpx.RateLimiter`, un token bucket de `golang.org/x/time/rate`), en las rutas de auth sin sesión, uno por grupo (login, registro, 2FA, tokens, correos). Son generosos, porque detrás de una IP puede haber muchas personas (una oficina, CGNAT); sirven sobre todo contra quien prueba muchas cuentas desde una sola IP. Al principio había uno solo para todo, de 5 por minuto, y cortaba a usuarios legítimos. Están en memoria porque son una primera barrera barata: no le suman una escritura a la base por petición, que es lo que importa ante una ráfaga. Con varias instancias cada una cuenta por separado, y se acepta porque son una barrera gruesa. Una clave inactiva se olvida recién cuando su límite ya se habría recargado.
+**Per IP, in memory** (`httpx.RateLimiter`, a token bucket from `golang.org/x/time/rate`), on the auth routes without a session, one per group (login, registration, 2FA, tokens, emails). They are generous, because there can be many people behind an IP (an office, CGNAT); they mostly work against someone trying many accounts from a single IP. At first there was a single one for everything, of 5 per minute, and it cut off legitimate users. They are in memory because they are a cheap first barrier: they do not add a database write per request, which is what matters against a burst. With several instances each one counts separately, and that is accepted because they are a coarse barrier. An idle key is forgotten only once its limit would have refilled.
 
-**Por cuenta o por usuario, en PostgreSQL** (`internal/ratelimit`). Son los que frenan la fuerza bruta contra una cuenta, así que tienen que valer igual en todas las instancias y no reiniciarse con un despliegue:
+**Per account or per user, in PostgreSQL** (`internal/ratelimit`). These are the ones that stop brute force against an account, so they must apply the same on every instance and not reset with a deploy:
 
-- **Por usuario, en las acciones sensibles con sesión** (cambiar la contraseña, el 2FA): ahí el ataque lo hace alguien con una sesión, y la IP no aporta nada.
-- **Por cuenta, en el login:** 10 intentos seguidos por email y luego uno por minuto, vengan de la IP que vengan. Cuenta también los emails que no existen, para no revelar cuáles están registrados.
-- **Por usuario, en el código del 2FA:** quien llega a ese paso ya tiene la contraseña y puede repartir sus intentos entre muchas IPs. Además, cada desafío admite 5 intentos (contados en la base, con un `UPDATE` atómico); después hay que volver a poner la contraseña, y se le avisa al usuario por correo.
-- **Por destinatario, en los correos:** desde muchas IPs tampoco se le pueden mandar decenas de correos a una persona. En "olvidé mi contraseña" el límite es silencioso, para no revelar qué emails existen, y no invalida el último enlace enviado.
+- **Per user, on the sensitive actions with a session** (changing the password, 2FA): there the attack comes from someone with a session, and the IP adds nothing.
+- **Per account, on the login:** 10 attempts in a row per email and then one per minute, whatever IP they come from. It also counts emails that do not exist, so as not to reveal which are registered.
+- **Per user, on the 2FA code:** whoever reaches that step already has the password and can spread their attempts across many IPs. Besides, each challenge allows 5 attempts (counted in the database, with an atomic `UPDATE`); after that the password must be entered again, and the user is warned by email.
+- **Per recipient, on the emails:** dozens of emails cannot be sent to one person from many IPs either. In "forgot my password" the limit is silent, so as not to reveal which emails exist, and it does not invalidate the last link sent.
 
-Usan el algoritmo GCRA, que da el mismo resultado que el token bucket guardando una sola fecha por clave: cuándo vuelve a tener todos sus intentos. Cada intento es un solo `INSERT … ON CONFLICT DO UPDATE … WHERE`, atómico, así dos instancias que gastan a la vez no se pisan (lo prueba `TestLimiterConcurrent`). La clave se guarda como SHA-256, porque puede ser un email, y la limpieza de cada hora borra las que ya se recargaron. Cuesta una escritura por intento, que no se nota al lado del argon2 del login. Redis lo haría igual de bien, pero sería un servicio más.
+They use the GCRA algorithm, which gives the same result as the token bucket while storing a single date per key: when it has all its attempts again. Each attempt is a single atomic `INSERT … ON CONFLICT DO UPDATE … WHERE`, so two instances spending at once do not step on each other (`TestLimiterConcurrent` tests it). The key is stored as a SHA-256, because it can be an email, and the hourly cleanup deletes those that already refilled. It costs one write per attempt, which goes unnoticed next to the login's argon2. Redis would do it just as well, but it would be one more service.
 
-El límite por cuenta tiene un costo: quien conozca un email puede bloquear ese login **mientras siga enviando intentos**, y le alcanza con uno por minuto. Recuperar la contraseña reinicia los límites del login y del 2FA, pero eso sirve cuando el ataque ya terminó: si continúa, el atacante vuelve a gastar los intentos. Se aceptó porque, sin el límite, un ataque repartido entre cientos de IPs prueba contraseñas sin freno, y porque el bloqueo dura solo lo que dura el ataque.
+The per-account limit has a cost: whoever knows an email can block that login **as long as they keep sending attempts**, and one per minute is enough for them. A password reset resets the login and 2FA limits, but that helps once the attack is over: if it continues, the attacker spends the attempts again. It was accepted because, without the limit, an attack spread over hundreds of IPs tries passwords unchecked, and because the block lasts only as long as the attack.
 
-Si un proyecto necesita evitar ese bloqueo, la técnica habitual son las *device cookies* de OWASP: un dispositivo donde el usuario ya entró no cuenta para el límite.
+If a project needs to avoid that block, the usual technique is OWASP's *device cookies*: a device where the user already logged in does not count toward the limit.
 
-La IP se lee de `X-Forwarded-For` solo con `TRUST_PROXY=true`, y aun así **solo si la conexión viene de localhost o de una red privada**, que es donde está el proxy: en el mismo servidor (`127.0.0.1`) o en una red de Docker (`172.x`). Si el puerto de la API quedara abierto a internet por error, quien se conecte directo no puede inventar su IP para esquivar los límites. Es el mismo criterio que usa Rails por defecto. Con `TRUSTED_PROXIES` se indican las direcciones exactas del proxy (IPs o rangos CIDR), en lugar de toda red privada. Sirve para un proxy en otro servidor, y para los proveedores cuya red privada se comparte entre clientes del mismo centro de datos: ahí "la red privada" incluye a otras personas.
+The IP is read from `X-Forwarded-For` only with `TRUST_PROXY=true`, and even then **only if the connection comes from localhost or a private network**, which is where the proxy is: on the same server (`127.0.0.1`) or on a Docker network (`172.x`). If the API port were open to the internet by mistake, whoever connects directly cannot make up their IP to dodge the limits. It is the same criterion Rails uses by default. `TRUSTED_PROXIES` sets the exact addresses of the proxy (IPs or CIDR ranges), instead of every private network. It is useful for a proxy on another server, and for providers whose private network is shared between customers of the same data center: there "the private network" includes other people.
 
-`X-Forwarded-For` se recorre **de derecha a izquierda, salteando los proxies de confianza**: cada proxy agrega al final la IP que se le conectó, así que la primera que no es de un proxy es la del cliente. Con un solo proxy es el último valor; con dos (Cloudflare delante de Caddy), el último es el de Cloudflare, y tomarlo haría que todos los usuarios de un mismo nodo compartan los límites. Lo que queda a la izquierda del cliente lo puede escribir él mismo, así que no se usa. Es el mismo algoritmo que la opción `trusted_proxies_strict` de Caddy.
+`X-Forwarded-For` is walked **from right to left, skipping the trusted proxies**: each proxy appends the IP that connected to it, so the first one that is not a proxy is the client's. With a single proxy it is the last value; with two (Cloudflare in front of Caddy), the last one is Cloudflare's, and taking it would make every user of the same node share the limits. What is left of the client can be written by the client, so it is not used. It is the same algorithm as Caddy's `trusted_proxies_strict` option.
 
-La regla tiene un límite: confía en cualquier conexión desde una red privada. Con Docker y el puerto publicado a todas las interfaces, en algunas configuraciones (por ejemplo, IPv6 sin `ip6tables`) Docker reenvía las conexiones de afuera con `docker-proxy`, y la API las ve llegar desde el gateway (`172.17.0.1`), que es privado. Para la API, esa conexión es igual a la del proxy legítimo, así que el código no puede distinguirlas. Por eso el puerto de la API no debe quedar abierto a internet, y conviene indicar con `TRUSTED_PROXIES` la IP exacta del proxy.
+The rule has a limit: it trusts any connection from a private network. With Docker and the port published on every interface, in some setups (for example, IPv6 without `ip6tables`) Docker forwards outside connections with `docker-proxy`, and the API sees them arrive from the gateway (`172.17.0.1`), which is private. To the API, that connection is the same as the legitimate proxy's, so the code cannot tell them apart. That is why the API port must not be open to the internet, and it is best to set the exact IP of the proxy with `TRUSTED_PROXIES`.
 
-Las IPv6 se agrupan por bloque `/64`: un proveedor le asigna a cada cliente un `/64` entero, así que contar por dirección exacta permitiría esquivar el límite rotando direcciones.
+IPv6 addresses are grouped per `/64` block: a provider assigns a whole `/64` to each customer, so counting per exact address would allow dodging the limit by rotating addresses.
 
-## La plantilla no es una dependencia
+## The template is not a dependency
 
-`gonew` copia el código, y los proyectos creados no quedan conectados a la plantilla: mejorarla no rompe nada en ellos. Por eso en este repositorio se puede reorganizar libremente, incluidas las migraciones, que representan el esquema inicial.
+`gonew` copies the code, and the projects created are not connected to the template: improving it breaks nothing in them. That is why this repository can be reorganized freely, including the migrations, which represent the initial schema.
 
-La plantilla se versiona con tags (`v0.1.0`, …) y un `CHANGELOG.md`, y el archivo `TEMPLATE_VERSION` lleva la versión actual. Como se copia con el resto, cada proyecto sabe de qué versión salió, y al llevarle cambios más nuevos lo actualiza. Llevar una mejora a un proyecto existente se hace a mano, mirando el cambio en el historial. Cuando una versión cambia el esquema, el CHANGELOG trae el SQL para la migración nueva del proyecto.
+The template is versioned with tags (`v0.1.0`, …) and a `CHANGELOG.md`, and the `TEMPLATE_VERSION` file holds the current version. Since it is copied with the rest, each project knows which version it came from, and updates it when it brings in newer changes. Bringing an improvement to an existing project is done by hand, looking at the change in the history. When a version changes the schema, the CHANGELOG has the SQL for the project's new migration.
 
-**La misma regla vale en cada proyecto:** mientras no esté desplegado, las migraciones originales se editan (sumar `ALTER TABLE` por cada campo solo ensucia el historial). Después del primer despliegue, cada cambio va en una migración nueva, porque la base de producción ya aplicó las anteriores.
+**The same rule applies in each project:** while it is not deployed, the original migrations are edited (adding an `ALTER TABLE` for each field only clutters the history). After the first deploy, each change goes in a new migration, because the production database already applied the previous ones.
 
-## Ejemplos de recursos
+## Example resources
 
-Cada ejemplo muestra algo distinto, y entre los tres cubren los casos más comunes:
-- `notes`: pertenencia por usuario.
-- `categories`: escritura de admin, valor único y no borrar si está en uso.
-- `products`: JOIN, filtros, búsqueda y FK inválida.
+Each example shows something different, and together the three cover the most common cases:
+- `notes`: per-user ownership.
+- `categories`: admin writes, a unique value and no deleting while in use.
+- `products`: JOIN, filters, search and an invalid FK.
 
-En un proyecto real se conservan los que sirvan y se borran los demás.
+In a real project you keep the useful ones and delete the rest.
 
-Un recurso ajeno responde **404 y no 403**, para no revelar que existe.
+Someone else's resource responds **404 and not 403**, so as not to reveal that it exists.
 
-## Dinero en centavos
+## Money in cents
 
-`price_cents bigint` en lugar de `float` (tiene errores de redondeo) o `numeric` (se mapea a un tipo incómodo en Go). El frontend divide por 100 para mostrarlo.
+`price_cents bigint` instead of `float` (it has rounding errors) or `numeric` (it maps to an awkward type in Go). The frontend divides by 100 to show it.
 
-## Base de pruebas separada y protegida
+## A separate, protected test database
 
-Los tests usan **solo** `TEST_DATABASE_URL`, una base distinta de la de desarrollo (`DATABASE_URL`), así que nunca tocan los datos que usás para probar a mano o mostrar demos.
+The tests use **only** `TEST_DATABASE_URL`, a database different from the development one (`DATABASE_URL`), so they never touch the data you use to test by hand or show demos.
 
-Como cada test vacía todas las tablas, `testutil.NewDB` se niega a correr si la base de pruebas no termina en `_test` o si es la misma que `DATABASE_URL`. Así, un error al copiar variables no puede borrar la base de desarrollo, ni mucho menos la de producción. Es la misma convención que usan Rails y Django.
+Since each test empties every table, `testutil.NewDB` refuses to run if the test database does not end in `_test` or if it is the same as `DATABASE_URL`. That way, a mistake when copying variables cannot delete the development database, let alone the production one. It is the same convention Rails and Django use.
 
-## Tests de integración en serie
+## Integration tests in series
 
-Los paquetes comparten la base de pruebas y cada test la vacía al empezar. Por eso `make test` usa `go test -p 1`. Con la escala actual, todos los tests tardan alrededor de un segundo y medio.
+The packages share the test database and each test empties it when it starts. That is why `make test` uses `go test -p 1`. At the current scale, all the tests take around a second and a half.
 
-## IDs bigint
+## bigint IDs
 
-`bigint GENERATED ALWAYS AS IDENTITY` funciona en cualquier versión de PostgreSQL y es eficiente.
-Si necesitás IDs no adivinables, una alternativa es UUIDv7: PostgreSQL 18 lo genera de forma nativa con `uuidv7()`.
+`bigint GENERATED ALWAYS AS IDENTITY` works on any PostgreSQL version and is efficient.
+If you need unguessable IDs, an alternative is UUIDv7: PostgreSQL 18 generates it natively with `uuidv7()`.
 
-## Logs con slog
+## Logs with slog
 
-En desarrollo se usa texto legible y en producción JSON, que es lo que procesan las herramientas de logs.
-Cada línea de una petición lleva su `request_id`, que también se devuelve en el encabezado `X-Request-ID`. Así, un error que reporta un usuario se puede encontrar en los logs.
+In development, readable text is used, and in production JSON, which is what log tools process.
+Each line of a request carries its `request_id`, which is also returned in the `X-Request-ID` header. That way, an error a user reports can be found in the logs.
 
-`GET /healthz` se registra en `debug` (con `httpx.Quiet`): un monitor lo consulta cada pocos segundos, y en `info` llenaría el log de líneas iguales. Si la base no responde, el `503` se registra como error, igual que cualquier 5xx.
+`GET /healthz` is logged at `debug` (with `httpx.Quiet`): a monitor calls it every few seconds, and at `info` it would fill the log with identical lines. If the database does not respond, the `503` is logged as an error, like any 5xx.
 
-## Timeouts del servidor
+## Server timeouts
 
 `ReadHeaderTimeout` 5 s, `ReadTimeout` 15 s, `WriteTimeout` 30 s, `IdleTimeout` 60 s.
-Sin ellos, un cliente lento puede mantener conexiones abiertas indefinidamente.
+Without them, a slow client can keep connections open indefinitely.
 
-Los streams SSE no tienen `WriteTimeout` (los cortaría a los 30 segundos), pero **cada escritura tiene un plazo de 10 segundos**: un cliente que deja de leer sin cerrar la conexión se desconecta, en lugar de trabar el handler y seguir ocupando su lugar.
+SSE streams have no `WriteTimeout` (it would cut them after 30 seconds), but **each write has a 10-second deadline**: a client that stops reading without closing the connection is disconnected, instead of blocking the handler and keeping its slot.
 
-**Al apagar**, el servidor HTTP y los trabajos en segundo plano se detienen al mismo tiempo, cada uno con `SHUTDOWN_TIMEOUT` (10 segundos por defecto). Si alguna petición no terminó a tiempo, se corta. El gestor de procesos tiene que esperar un poco más que `SHUTDOWN_TIMEOUT` antes de matar el proceso; algunos esperan solo 10 segundos por defecto.
+**On shutdown**, the HTTP server and the background jobs stop at the same time, each one with `SHUTDOWN_TIMEOUT` (10 seconds by default). If a request did not finish in time, it is cut. The process manager must wait a bit longer than `SHUTDOWN_TIMEOUT` before killing the process; some wait only 10 seconds by default.
 
 ## Panics
 
-`Recover` registra el panic con su stack y el `request_id`, y responde un `500` con el formato de error de la API. Si la respuesta ya había empezado (por ejemplo, a mitad de un stream SSE), no responde nada: el JSON quedaría mezclado con lo ya enviado. Corta la conexión con `http.ErrAbortHandler`.
+`Recover` logs the panic with its stack and the `request_id`, and responds a `500` with the API's error format. If the response had already started (for example, halfway through an SSE stream), it responds nothing: the JSON would be mixed with what was already sent. It cuts the connection with `http.ErrAbortHandler`.
 
-## Rutas inexistentes
+## Missing routes
 
-Cualquier ruta no registrada responde 404 en JSON. Un método no permitido en una ruta existente (por ejemplo `POST /healthz`) también responde 404, porque la ruta comodín `/` tiene prioridad sobre el 405 de `net/http`. Es una simplificación aceptada.
+Any unregistered route responds 404 in JSON. A method not allowed on an existing route (for example `POST /healthz`) also responds 404, because the `/` catch-all route takes priority over `net/http`'s 405. It is an accepted simplification.
 
-## Versión de Go
+## Go version
 
-`go.mod` pide Go 1.27.3, que incluye las correcciones de seguridad de octubre de 2026 (`crypto/x509`, `net/http`, `crypto/tls`).
-Con `GOTOOLCHAIN=auto` (el valor por defecto), una versión anterior de Go descarga la correcta automáticamente.
+`go.mod` requires Go 1.27.3, which includes the October 2026 security fixes (`crypto/x509`, `net/http`, `crypto/tls`).
+With `GOTOOLCHAIN=auto` (the default), an older Go version downloads the right one automatically.
 
-## Funciones de cuenta
+## Account features
 
-Las que Laravel Jetstream suma sobre Breeze: sesiones por dispositivo, cambiar el email y borrar la cuenta.
+The ones Laravel Jetstream adds over Breeze: sessions per device, changing the email and deleting the account.
 
-- **Pedir la contraseña** en todo lo que con una sesión robada permitiría quedarse con la cuenta o hacer daño difícil de deshacer: cambiar el email, borrar la cuenta y cerrar todas las demás sesiones. Cerrar una sola sesión no la pide.
-- **El email cambia recién al confirmarlo desde la dirección nueva**, con un aviso a la actual: así un error de tipeo no deja la cuenta inaccesible, y el dueño se entera si no fue él.
-- **La última actividad de cada sesión se guarda cada 5 minutos**, no en cada petición: sería una escritura en la base por petición. Alcanza para mostrar "activa hace un rato" y para el vencimiento por inactividad.
-- **No se puede borrar al único admin**, con las filas de los admins bloqueadas en la transacción, para que dos no se borren a la vez.
+- **Ask for the password** in everything that, with a stolen session, would allow keeping the account or doing damage that is hard to undo: changing the email, deleting the account and closing every other session. Closing a single session does not ask for it.
+- **The email changes only once it is confirmed from the new address**, with a notice to the current one: that way a typo does not leave the account inaccessible, and the owner finds out if it was not them.
+- **The last activity of each session is stored every 5 minutes**, not on each request: that would be a database write per request. It is enough to show "active a while ago" and for the idle expiry.
+- **The only admin cannot be deleted**, with the admins' rows locked in the transaction, so two cannot be deleted at once.
 
-## Trabajos en segundo plano con River
+## Background jobs with River
 
-[River](https://riverqueue.com) guarda la cola en PostgreSQL. Se eligió frente a:
-- **Una cola propia** (con `SELECT … FOR UPDATE SKIP LOCKED`): parece simple, pero los reintentos, los trabajos trabados, los periódicos sin duplicados y el apagado ordenado son cientos de líneas difíciles de probar. River lo resuelve y es una dependencia chica (usa el mismo pgx).
-- **Redis** (con Asynq, por ejemplo): suma otro servicio que instalar, respaldar y vigilar. Además, PostgreSQL permite encolar dentro de la misma transacción que los datos, algo que con Redis no se puede.
+[River](https://riverqueue.com) keeps the queue in PostgreSQL. It was chosen over:
+- **Our own queue** (with `SELECT … FOR UPDATE SKIP LOCKED`): it looks simple, but retries, stuck jobs, periodic jobs without duplicates and orderly shutdown are hundreds of lines that are hard to test. River solves it and is a small dependency (it uses the same pgx).
+- **Redis** (with Asynq, for example): it adds another service to install, back up and monitor. Besides, PostgreSQL allows queuing inside the same transaction as the data, which Redis cannot do.
 
-Decisiones:
-- **Los workers corren dentro del proceso de la API.** Un solo binario y un solo servicio; se pueden separar si un proyecto lo necesita (ver `docs/jobs.md`).
-- **Su esquema entra como migración de goose** (exportado con su CLI), no con el migrador de River: goose sigue siendo la única fuente del esquema.
-- **La limpieza de sesiones y tokens vencidos es un trabajo periódico**, en lugar de hacerse en cada login.
-- **No se incluye River UI**, su interfaz web: suma otra dependencia y necesita su propia autenticación.
+Decisions:
+- **The workers run inside the API process.** A single binary and a single service; they can be split if a project needs it (see `docs/jobs.md`).
+- **Its schema comes in as a goose migration** (exported with its CLI), not with River's migrator: goose is still the single source of the schema.
+- **Cleaning up expired sessions and tokens is a periodic job**, instead of being done on each login.
+- **River UI**, its web interface, **is not included**: it adds another dependency and needs its own authentication.
 
-## Tiempo real con SSE
+## Real time with SSE
 
-Server-Sent Events, con la librería estándar, en lugar de WebSockets:
-- **Cubren los casos habituales:** notificaciones, ver en vivo los cambios de otros (tipo Jira), cambios de estado y la respuesta de un agente de IA mientras se genera. En todos, el navegador envía poco (por REST) y el servidor avisa.
-- **Sin dependencias ni protocolo nuevo:** es HTTP normal. Usa la misma cookie de sesión, pasa por los mismos middlewares y por cualquier proxy, y el navegador se reconecta solo.
-- **Los WebSockets hacen falta** cuando el navegador envía mucho y muy seguido (un dibujo colaborativo). Ese caso necesita además resolver ediciones simultáneas, que depende de cada proyecto, así que se agregan ahí.
+Server-Sent Events, with the standard library, instead of WebSockets:
+- **They cover the usual cases:** notifications, seeing others' changes live (like Jira), state changes and an AI agent's response while it is generated. In all of them, the browser sends little (over REST) and the server notifies.
+- **No dependencies or new protocol:** it is plain HTTP. It uses the same session cookie, goes through the same middlewares and through any proxy, and the browser reconnects on its own.
+- **WebSockets are needed** when the browser sends a lot and very often (a collaborative drawing). That case also needs to resolve simultaneous edits, which depends on each project, so they are added there.
 
-Decisiones:
-- **Los temas necesitan un autorizador:** un tema sin autorizador se rechaza, así no se puede escuchar lo ajeno inventando un nombre. Un tema rechazado no corta la conexión: se informa en el evento `ready`, y el usuario sigue recibiendo su canal. Así, si lo sacan de un proyecto, no pierde sus notificaciones y el frontend sabe qué tema perdió.
-- **No se reenvían los eventos perdidos.** Al reconectarse, el frontend pide el estado por REST: es más simple y no pierde nada, porque la fuente de verdad es la base.
-- **Un stream no sobrevive a su sesión:** se corta en el acto con el logout o cuando auth cierra las demás sesiones (contraseña, 2FA), se revisa la sesión con cada latido y dura como mucho 15 minutos. Sin esto, alguien con una sesión robada seguiría recibiendo eventos después de que el dueño recupera la contraseña.
-- **El stream quita el `WriteTimeout` solo para su petición**, y al apagar la API se cierran todos (`RegisterOnShutdown`); si no, el apagado esperaría hasta el timeout.
-- **Límites de 10 conexiones por usuario y 1000 en total**, porque cada una es un socket y una goroutine abiertos. Cada conexión ocupa unos 11 KB.
-- **Varias instancias con `LISTEN/NOTIFY` de PostgreSQL**, sin Redis: cada broker entrega lo suyo en el acto y avisa a los demás. Un mensaje de más de 8000 bytes (el máximo de un `NOTIFY`) se guarda en `realtime_messages`, y viaja su id. Si se corta la conexión de `LISTEN`, al reconectarse corta los streams, porque pudo perder eventos (ver `docs/realtime.md`).
+Decisions:
+- **Topics need an authorizer:** a topic without an authorizer is rejected, so nobody can listen to other people's data by making up a name. A rejected topic does not cut the connection: it is reported in the `ready` event, and the user keeps receiving their channel. That way, if they are removed from a project, they do not lose their notifications and the frontend knows which topic they lost.
+- **Lost events are not resent.** On reconnecting, the frontend asks for the state over REST: it is simpler and loses nothing, because the source of truth is the database.
+- **A stream does not outlive its session:** it is cut at once with the logout or when auth closes the other sessions (password, 2FA), the session is checked on each heartbeat and it lasts at most 15 minutes. Without this, someone with a stolen session would keep receiving events after the owner resets the password.
+- **The stream removes the `WriteTimeout` only for its request**, and on shutdown the API closes them all (`RegisterOnShutdown`); otherwise, the shutdown would wait until the timeout.
+- **Limits of 10 connections per user and 1000 in total**, because each one is an open socket and goroutine. Each connection takes about 11 KB.
+- **Multiple instances with PostgreSQL's `LISTEN/NOTIFY`**, without Redis: each broker delivers its own at once and notifies the others. A message larger than 8000 bytes (the maximum of a `NOTIFY`) is stored in `realtime_messages`, and its id travels. If the `LISTEN` connection is cut, on reconnecting it cuts the streams, because it may have lost events (see `docs/realtime.md`).
 
-## Varias instancias
+## Multiple instances
 
-La API funciona igual con una instancia que con varias detrás de un balanceador, por ejemplo para desplegar sin cortar el servicio. Lo que tiene que valer para todas pasa por PostgreSQL, sin Redis:
+The API works the same with one instance as with several behind a load balancer, for example to deploy without downtime. What must apply to all of them goes through PostgreSQL, without Redis:
 
-| Qué | Cómo se coordina |
+| What | How it is coordinated |
 |---|---|
-| Sesiones | En la tabla `sessions`: cualquier instancia atiende cualquier petición, sin pegar un usuario a una instancia |
-| Límites por cuenta y por usuario | `internal/ratelimit`, en la tabla `rate_limits` |
-| Migraciones | Un advisory lock: migra una sola instancia |
-| Trabajos | River reparte la cola entre las instancias, y una sola (la líder) encola los periódicos |
-| Tiempo real | Los brokers se avisan con `LISTEN/NOTIFY` (ver `docs/realtime.md`) |
+| Sessions | In the `sessions` table: any instance serves any request, without pinning a user to an instance |
+| Per-account and per-user limits | `internal/ratelimit`, in the `rate_limits` table |
+| Migrations | An advisory lock: a single instance migrates |
+| Jobs | River spreads the queue among the instances, and a single one (the leader) queues the periodic ones |
+| Real time | The brokers notify each other with `LISTEN/NOTIFY` (see `docs/realtime.md`) |
 
-Queda en cada instancia, a propósito:
-- **Los límites por IP:** son una barrera gruesa y barata. Con N instancias, el límite efectivo es N veces mayor.
-- **Los límites de conexiones SSE** (10 por usuario, 1000 en total) **y el tope de hashes de argon2** (uno por núcleo): protegen los recursos de cada proceso.
+Kept in each instance, on purpose:
+- **The per-IP limits:** they are a coarse, cheap barrier. With N instances, the effective limit is N times higher.
+- **The SSE connection limits** (10 per user, 1000 in total) **and the cap on argon2 hashes** (one per core): they protect each process's resources.
 
-`LISTEN` necesita una conexión directa a PostgreSQL, o PgBouncer en modo `session`. Con PgBouncer en modo `transaction` no llegan los avisos: ni los del tiempo real ni los que usa River (que en ese caso necesita `PollOnly`).
+`LISTEN` needs a direct connection to PostgreSQL, or PgBouncer in `session` mode. With PgBouncer in `transaction` mode the notifications do not arrive: neither the real-time ones nor the ones River uses (which in that case needs `PollOnly`).
 
-Una regla para el código nuevo: **nada que tenga que valer para todas las instancias se guarda en memoria** (un contador, una caché, un "ya se hizo"). Va en PostgreSQL.
+A rule for new code: **nothing that must apply to every instance is kept in memory** (a counter, a cache, an "already done"). It goes in PostgreSQL.
 
-## Qué no incluye
+## What it does not include
 
-- 2FA obligatorio, y passkeys o WebAuthn.
-- Login con Google u otros proveedores (OAuth).
-- Permisos más finos que `user`/`admin`.
-- WebSockets (ver "Tiempo real con SSE").
+- Mandatory 2FA, and passkeys or WebAuthn.
+- Login with Google or other providers (OAuth).
+- Permissions finer than `user`/`admin`.
+- WebSockets (see "Real time with SSE").
 
-No es una lista de pendientes: son funciones que dependen de cada proyecto, y se agregan en el proyecto que las necesite.
+It is not a to-do list: they are features that depend on each project, and they are added in the project that needs them.

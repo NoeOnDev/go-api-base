@@ -1,63 +1,63 @@
-# Tiempo real
+# Real time
 
-La plantilla envía eventos al navegador con **Server-Sent Events (SSE)**: una conexión HTTP que queda abierta y por la que el servidor va mandando eventos. Funciona solo con la librería estándar de Go, pasa por cualquier proxy y el navegador se reconecta solo si se corta.
+The template sends events to the browser with **Server-Sent Events (SSE)**: an HTTP connection that stays open and through which the server keeps sending events. It works with Go's standard library alone, goes through any proxy and the browser reconnects on its own if it is cut.
 
-Cubre los casos más comunes:
+It covers the most common cases:
 
-| Caso | Cómo |
+| Case | How |
 |---|---|
-| Notificaciones dentro del sistema | `internal/notifications` (ya incluido) |
-| Ver en vivo los cambios de otro colaborador (tipo Jira) | Un **tema** por tablero o proyecto |
-| Cambios de estado (un pago, un proceso largo) | Un evento en el canal del usuario |
-| La respuesta de un agente de IA mientras se genera | `realtime.Stream` en un `POST` |
+| In-app notifications | `internal/notifications` (already included) |
+| Seeing another collaborator's changes live (like Jira) | A **topic** per board or project |
+| State changes (a payment, a long process) | An event on the user's channel |
+| An AI agent's response while it is generated | `realtime.Stream` in a `POST` |
 
-## Cómo funciona
+## How it works
 
-- **`GET /events`** (con sesión) abre el stream. Cada conexión escucha:
-  - **el canal del usuario**, siempre: sus notificaciones y los cambios en sus datos;
-  - **los temas que pida**, como `/events?topics=project:42,board:7`, si tiene permiso.
-- El primer evento es **`ready`**, con los temas que escucha y los que se rechazaron por falta de permiso: `{"topics": ["board:7"], "rejected": ["project:42"]}`. Un tema rechazado no corta la conexión: el usuario sigue recibiendo su canal y los demás temas.
-- Cada 25 segundos llega un latido (un comentario SSE, que el navegador ignora), para que el proxy no corte la conexión.
-- **El stream se corta cuando se cierra su sesión:**
-  - en el acto, con el logout de esa sesión, o cuando se cierran las demás sesiones del usuario (al cambiar o recuperar la contraseña y al activar o desactivar el 2FA). Así, quien tenga una sesión robada deja de recibir eventos antes del aviso de "se cambió tu contraseña";
-  - en el próximo latido (25 segundos como mucho), si la sesión venció o se borró por otro lado;
-  - y a los 15 minutos de todos modos (entre 13 y 17, al azar, para que después de un reinicio no se renueven todas las pestañas a la vez). El navegador se reconecta solo, y en la reconexión se vuelven a revisar la sesión y los permisos de cada tema.
-- **No se reenvían los eventos perdidos.** Si la conexión se corta, el navegador se reconecta solo y vuelve a recibir `ready`: ahí el frontend tiene que pedir el estado por REST. La fuente de verdad es siempre la base; los eventos solo avisan que algo cambió.
+- **`GET /events`** (with a session) opens the stream. Each connection listens to:
+  - **the user's channel**, always: their notifications and the changes in their data;
+  - **the topics it asks for**, like `/events?topics=project:42,board:7`, if it has permission.
+- The first event is **`ready`**, with the topics it listens to and those rejected for lack of permission: `{"topics": ["board:7"], "rejected": ["project:42"]}`. A rejected topic does not cut the connection: the user keeps receiving their channel and the other topics.
+- Every 25 seconds a heartbeat arrives (an SSE comment, which the browser ignores), so the proxy does not cut the connection.
+- **The stream is cut when its session is closed:**
+  - at once, with the logout of that session, or when the user's other sessions are closed (on a password change or reset and when 2FA is turned on or off). That way, whoever has a stolen session stops receiving events before the "your password was changed" notice;
+  - on the next heartbeat (25 seconds at most), if the session expired or was deleted some other way;
+  - and after 15 minutes anyway (between 13 and 17, at random, so that after a restart not every tab renews at once). The browser reconnects on its own, and on reconnection the session and the permissions of each topic are checked again.
+- **Lost events are not resent.** If the connection is cut, the browser reconnects on its own and receives `ready` again: that is when the frontend must ask for the state over REST. The source of truth is always the database; the events only say that something changed.
 
-### Lo que ya publica la plantilla
+### What the template already publishes
 
-| Evento | Canal | Datos |
+| Event | Channel | Data |
 |---|---|---|
-| `notification` | del usuario | La notificación completa |
-| `notification.read` | del usuario | `{"id": 5}` o `{"all": true}`, para actualizar el contador en las demás pestañas |
-| `note.created`, `note.updated` | del dueño | La nota |
-| `note.deleted` | del dueño | `{"id": 5}` |
+| `notification` | the user's | The whole notification |
+| `notification.read` | the user's | `{"id": 5}` or `{"all": true}`, to update the counter in the other tabs |
+| `note.created`, `note.updated` | the owner's | The note |
+| `note.deleted` | the owner's | `{"id": 5}` |
 
-Las notificaciones de seguridad (`password_changed`, `two_factor_enabled`, `two_factor_disabled`) las envía auth.
+The security notifications (`password_changed`, `two_factor_enabled`, `two_factor_disabled`) are sent by auth.
 
-## Desde el frontend (React)
+## From the frontend (React)
 
 ```js
-// Una sola conexión para toda la app (por ejemplo, en un contexto de React). Se arma en una
-// función para poder volver a crearla, con sus listeners, si hay que reconectar a mano.
+// A single connection for the whole app (for example, in a React context). It is built in a
+// function so it can be created again, with its listeners, if it has to be reconnected by hand.
 let events;
 
 function connect(topics = []) {
   const query = topics.length > 0 ? `?topics=${topics.join(",")}` : "";
   events = new EventSource(`/api/events${query}`, { withCredentials: true });
 
-  // Se dispara al conectarse y cada vez que se reconecta: pedí el estado de nuevo.
+  // Fires on connecting and every time it reconnects: ask for the state again.
   events.addEventListener("ready", (e) => {
-    queryClient.invalidateQueries(); // con TanStack Query, o el refetch que uses
+    queryClient.invalidateQueries(); // with TanStack Query, or the refetch you use
 
-    // Temas que ya no puede escuchar (por ejemplo, lo sacaron del proyecto que está mirando).
+    // Topics it can no longer listen to (for example, they removed them from the project they are viewing).
     const { rejected } = JSON.parse(e.data);
     if (rejected.length > 0) showLostAccess(rejected);
   });
 
   events.addEventListener("notification", (e) => {
     const notification = JSON.parse(e.data);
-    showToast(notification.message); // ya en el idioma del usuario (ver docs/i18n.md)
+    showToast(notification.message); // already in the user's language (see docs/i18n.md)
   });
 
   events.addEventListener("note.updated", (e) => {
@@ -69,56 +69,56 @@ function connect(topics = []) {
 }
 ```
 
-`withCredentials: true` hace falta solo si el frontend está en otro dominio (con CORS configurado). En el mismo dominio, la cookie viaja sola.
+`withCredentials: true` is needed only if the frontend is on another domain (with CORS configured). On the same domain, the cookie travels on its own.
 
-**Abrí la conexión cuando el usuario ya pueda usar la app.** `GET /events` está detrás de `RequireUser`, así que con `REQUIRE_EMAIL_VERIFICATION=true` responde `403 email_not_verified` mientras el email no esté confirmado. Llamá a `connect()` después del login, solo si `email_verified_at` no es `null` (o si la verificación no es obligatoria).
+**Open the connection when the user can already use the app.** `GET /events` is behind `RequireUser`, so with `REQUIRE_EMAIL_VERIFICATION=true` it responds `403 email_not_verified` while the email is not confirmed. Call `connect()` after the login, only if `email_verified_at` is not `null` (or if verification is not required).
 
-**Cuando la conexión no se puede abrir**, el `EventSource` deja de reintentar y queda con `readyState === EventSource.CLOSED`. Pasa con la sesión cerrada (`401`), con el email sin verificar cuando la verificación es obligatoria (`403`), con demasiadas conexiones abiertas (`429`) o con la API reiniciándose (`503`). El navegador no deja saber cuál fue, así que conviene preguntarle a la API con una ruta que pase por los mismos controles que `/events` (`RequireUser`), como `/notifications`:
+**When the connection cannot be opened**, the `EventSource` stops retrying and stays with `readyState === EventSource.CLOSED`. It happens with a closed session (`401`), with an unverified email when verification is required (`403`), with too many open connections (`429`) or with the API restarting (`503`). The browser does not say which one it was, so it is best to ask the API with a route that goes through the same checks as `/events` (`RequireUser`), like `/notifications`:
 
 ```js
 async function handleClosed(topics) {
-  if (events.readyState !== EventSource.CLOSED) return; // un corte de red: se reconecta solo
+  if (events.readyState !== EventSource.CLOSED) return; // a network glitch: it reconnects on its own
 
   const res = await fetch("/api/notifications?limit=1", { credentials: "include" });
   if (res.status === 401) {
-    redirectToLogin(); // la sesión se cerró
+    redirectToLogin(); // the session was closed
     return;
   }
   if (res.status === 403 && (await res.json()).error.code === "email_not_verified") {
-    showVerifyEmailNotice(); // no reintentar: va a seguir fallando hasta que confirme el email
+    showVerifyEmailNotice(); // do not retry: it will keep failing until the email is confirmed
     return;
   }
-  // La sesión y el email están bien: eran demasiadas conexiones o la API reiniciándose.
+  // The session and the email are fine: too many connections, or the API restarting.
   setTimeout(() => connect(topics), 10_000);
 }
 ```
 
-Así el frontend no necesita saber si la verificación es obligatoria: la respuesta ya lo dice. Si quitaste las notificaciones, sirve cualquier otra ruta con `RequireUser`, como `/notes`.
+That way the frontend does not need to know whether verification is required: the response already says so. If you removed the notifications, any other route with `RequireUser` works, like `/notes`.
 
-Un tema sin permiso no llega acá: se informa en `ready` y la conexión sigue abierta.
+A topic without permission does not end up here: it is reported in `ready` and the connection stays open.
 
-**Para escuchar un tema**, abrí la conexión con `connect(["project:42"])`. Si el usuario entra a otro tablero, cerrá la conexión (`events.close()`) y abrí otra con el tema nuevo.
+**To listen to a topic**, open the connection with `connect(["project:42"])`. If the user goes to another board, close the connection (`events.close()`) and open another one with the new topic.
 
-## Publicar eventos
+## Publishing events
 
-Desde un handler, con el broker (`server.Deps.Broker`, pasáselo al recurso al registrarlo):
+From a handler, with the broker (`server.Deps.Broker`, pass it to the resource when registering it):
 
 ```go
-// Al canal de un usuario
+// To a user's channel
 h.broker.PublishToUser(r.Context(), user.ID, realtime.Event{Type: "invoice.paid", Data: invoice})
 
-// A un tema: todos los que lo estén mirando
+// To a topic: everyone who is watching it
 h.broker.Publish(r.Context(), "project:42", realtime.Event{Type: "task.moved", Data: task})
 ```
 
-- **Publicá después de guardar** (y, si hay transacción, después del `Commit`): si el evento llega antes que el dato, el frontend pide el estado y no lo encuentra.
-- `Publish` no bloquea. Si una conexión no lee a tiempo (más de 64 eventos acumulados), se cierra y el navegador se reconecta.
-- **Desde un worker** (`internal/jobs`) funciona igual: sumá el broker a `jobs.Deps`. Los workers corren en el mismo proceso, así que comparten el broker.
-- Para una notificación que además quede guardada, usá `notifications.Service.Notify(ctx, userID, "kind", datos)`.
+- **Publish after saving** (and, with a transaction, after the `Commit`): if the event arrives before the data, the frontend asks for the state and does not find it.
+- `Publish` does not block. If a connection does not read in time (more than 64 pending events), it is closed and the browser reconnects.
+- **From a worker** (`internal/jobs`) it works the same: add the broker to `jobs.Deps`. The workers run in the same process, so they share the broker.
+- For a notification that is also stored, use `notifications.Service.Notify(ctx, userID, "kind", data)`.
 
-## Temas con permiso
+## Topics with permissions
 
-Cada tipo de tema necesita un `Authorizer` que diga quién puede escucharlo. Un tema sin autorizador, o que el autorizador no permite, se rechaza: llega en `rejected` del evento `ready` y no se escucha. Así nadie puede escuchar datos ajenos inventando un nombre. Se registra donde se registran las rutas del recurso:
+Each topic kind needs an `Authorizer` that says who can listen to it. A topic without an authorizer, or one the authorizer does not allow, is rejected: it arrives in `rejected` of the `ready` event and is not listened to. That way nobody can listen to other people's data by making up a name. It is registered where the resource's routes are registered:
 
 ```go
 // internal/projects/routes.go
@@ -131,40 +131,40 @@ broker.Authorize("project", func(ctx context.Context, userID int64, id string) (
 })
 ```
 
-El canal del usuario (`user:<id>`) no se puede pedir como tema: cada uno escucha solo el suyo.
+The user's channel (`user:<id>`) cannot be asked for as a topic: each user listens only to their own.
 
-**Al quitarle a alguien el acceso** (por ejemplo, sacarlo de un proyecto), llamá a `broker.DisconnectUser(ctx, userID)`: se reconecta solo, y como ya no tiene permiso, el tema llega en `rejected`, mientras sigue recibiendo sus notificaciones. Si no lo hacés, deja de escucharlo igual en unos 15 minutos, cuando su stream se renueva.
+**When you take away someone's access** (for example, removing them from a project), call `broker.DisconnectUser(ctx, userID)`: they reconnect on their own, and since they no longer have permission, the topic arrives in `rejected`, while they keep receiving their notifications. If you don't, they stop listening to it anyway in about 15 minutes, when their stream renews.
 
-## Transmitir la respuesta de un agente de IA
+## Streaming an AI agent's response
 
-`realtime.Stream` sirve para cualquier respuesta larga que se envía de a partes. Para un chat, el frontend hace un `POST` con el mensaje, y la API responde con un stream:
+`realtime.Stream` works for any long response sent in parts. For a chat, the frontend makes a `POST` with the message, and the API responds with a stream:
 
 ```go
 // POST /chat
 func (h *Handler) chat(w http.ResponseWriter, r *http.Request) error {
 	var in chatInput
 	if err := httpx.Decode(w, r, &in); err != nil {
-		return err // todavía se puede responder un error JSON normal
+		return err // a normal JSON error can still be returned
 	}
 
 	stream, err := realtime.Open(w, r)
 	if err != nil {
 		return err
 	}
-	// Desde acá la respuesta ya empezó (status 200): los errores van como evento.
+	// From here on the response has started (status 200): errors go as an event.
 
 	for chunk, err := range h.llm.Stream(r.Context(), in.Message) {
 		if err != nil {
-			_ = stream.Send(realtime.Event{Type: "error", Data: "no se pudo generar la respuesta"})
+			_ = stream.Send(realtime.Event{Type: "error", Data: "generation_failed"})
 			return nil
 		}
 		select {
 		case <-h.broker.Done():
-			return nil // la API se está apagando
+			return nil // the API is shutting down
 		default:
 		}
 		if err := stream.Send(realtime.Event{Type: "token", Data: chunk}); err != nil {
-			return nil // el usuario cerró la pestaña: r.Context() también se cancela
+			return nil // the user closed the tab: r.Context() is cancelled too
 		}
 	}
 	_ = stream.Send(realtime.Event{Type: "done"})
@@ -172,11 +172,12 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) error {
 }
 ```
 
-- `Open` quita el `WriteTimeout` de 30 segundos para esta petición, así una respuesta larga no se corta.
-- Si el usuario cierra la pestaña, `r.Context()` se cancela: pasalo a la llamada del modelo para dejar de generar (y de pagar tokens).
-- Va por `POST`, así que pasa por la protección CSRF como cualquier otra ruta.
+- `Open` removes the 30-second `WriteTimeout` for this request, so a long response is not cut.
+- If the user closes the tab, `r.Context()` is cancelled: pass it to the model call to stop generating (and paying for tokens).
+- It goes over `POST`, so it goes through the CSRF protection like any other route.
+- The error event carries a code (`generation_failed`), not a text: the frontend shows the message in the user's language, as with the other errors (see [docs/i18n.md](i18n.md)).
 
-En el frontend, `EventSource` solo hace `GET`, así que la respuesta se lee con `fetch`:
+In the frontend, `EventSource` only does `GET`, so the response is read with `fetch`:
 
 ```js
 const res = await fetch("/api/chat", {
@@ -191,7 +192,7 @@ for (;;) {
   if (done) break;
   buffer += value;
   const events = buffer.split("\n\n");
-  buffer = events.pop(); // el último puede estar incompleto
+  buffer = events.pop(); // the last one may be incomplete
   for (const raw of events) {
     const type = raw.match(/^event: (.*)$/m)?.[1];
     const data = raw.match(/^data: (.*)$/m)?.[1];
@@ -200,57 +201,57 @@ for (;;) {
 }
 ```
 
-Librerías como `@microsoft/fetch-event-source` o el SDK de IA que uses hacen este parseo por vos.
+Libraries like `@microsoft/fetch-event-source`, or the AI SDK you use, do this parsing for you.
 
-## Límites
+## Limits
 
-| Límite | Valor | Al superarlo |
+| Limit | Value | When exceeded |
 |---|---|---|
-| Conexiones por usuario | 10 (pestañas o dispositivos) | `429 too_many_connections` |
-| Conexiones en total | 1000 | `429 too_many_connections` |
-| Temas por conexión | 20 | `400` |
+| Connections per user | 10 (tabs or devices) | `429 too_many_connections` |
+| Connections in total | 1000 | `429 too_many_connections` |
+| Topics per connection | 20 | `400` |
 
-Cada conexión abierta ocupa unos **11 KB** de memoria (medido con 500 conexiones). Los valores están en `internal/realtime/broker.go`, y son por instancia de la API.
+Each open connection takes about **11 KB** of memory (measured with 500 connections). The values are in `internal/realtime/broker.go`, and they are per API instance.
 
-## Detrás de un proxy
+## Behind a proxy
 
-- **Sin buffer:** el proxy tiene que reenviar cada evento apenas llega, sin juntarlos. La API envía `X-Accel-Buffering: no`, que algunos proxies respetan para no guardar la respuesta en su buffer.
-- **Latido:** cada 25 segundos, por debajo de los 60 que suelen esperar los proxies antes de cortar una conexión sin tráfico.
-- **HTTP/2:** con HTTP/1.1, el navegador abre como mucho 6 conexiones por dominio, y cada pestaña con `EventSource` ocupa una. Con HTTP/2, lo habitual con HTTPS, no hay ese límite.
+- **No buffering:** the proxy must forward each event as soon as it arrives, without batching them. The API sends `X-Accel-Buffering: no`, which some proxies honor to avoid buffering the response.
+- **Heartbeat:** every 25 seconds, below the 60 that proxies usually wait before cutting a connection without traffic.
+- **HTTP/2:** with HTTP/1.1, the browser opens at most 6 connections per domain, and each tab with an `EventSource` takes one. With HTTP/2, the usual with HTTPS, there is no such limit.
 
-## Varias instancias
+## Multiple instances
 
-Cada instancia de la API tiene su broker, con sus conexiones. Con `Listen` (lo llama `cmd/api/main.go`), los brokers se avisan con `LISTEN/NOTIFY` de PostgreSQL. Así, un evento publicado en cualquier instancia llega a las conexiones de todas, y lo mismo los cierres de sesión (`SessionEnded`, `UserSessionsEnded`, `DisconnectUser`). Quien publica no tiene que hacer nada distinto. El código está en `internal/realtime/instances.go`.
+Each API instance has its broker, with its connections. With `Listen` (called by `cmd/api/main.go`), the brokers notify each other with PostgreSQL's `LISTEN/NOTIFY`. That way, an event published on any instance reaches the connections of all of them, and so do the session closings (`SessionEnded`, `UserSessionsEnded`, `DisconnectUser`). The publisher does not have to do anything different. The code is in `internal/realtime/instances.go`.
 
-- **Cada instancia entrega lo suyo en el acto** y envía el mensaje por `NOTIFY`. Las demás lo reciben y lo entregan a sus conexiones; la que lo envió lo ignora.
-- **Eventos grandes:** un `NOTIFY` admite menos de 8000 bytes. Un mensaje más grande, como el evento de una nota larga, se guarda en la tabla `realtime_messages`, y por `NOTIFY` viaja solo su id. La limpieza de cada hora borra los viejos. No hace falta vigilar el tamaño, aunque un evento chico (ids y lo que cambió) sigue siendo lo mejor.
-- **Si se corta la conexión de `LISTEN`** (se reinicia PostgreSQL, falla la red), se reconecta sola. Al reconectarse corta los streams abiertos en esa instancia: mientras no escuchaba pudo perderse algún evento, y al reconectarse el navegador vuelve a pedir el estado.
-- **Usa una conexión propia**, aparte del pool, que aparece en `pg_stat_activity` como `realtime-listener`. Necesita una conexión directa a PostgreSQL, o PgBouncer en modo `session`.
-- **Los límites de conexiones son por instancia:** con 3 instancias, un usuario puede llegar a 30.
-- En los tests, el broker vive solo en memoria (sin `Listen`). `internal/realtime/instances_test.go` prueba dos instancias sobre la misma base.
+- **Each instance delivers its own at once** and sends the message by `NOTIFY`. The others receive it and deliver it to their connections; the one that sent it ignores it.
+- **Large events:** a `NOTIFY` allows less than 8000 bytes. A larger message, like the event of a long note, is stored in the `realtime_messages` table, and only its id travels by `NOTIFY`. The hourly cleanup deletes the old ones. There is no need to watch the size, although a small event (ids and what changed) is still best.
+- **If the `LISTEN` connection is cut** (PostgreSQL restarts, the network fails), it reconnects on its own. On reconnecting it cuts the streams open on that instance: some event may have been lost while it was not listening, and on reconnecting the browser asks for the state again.
+- **It uses its own connection**, apart from the pool, which shows up in `pg_stat_activity` as `realtime-listener`. It needs a direct connection to PostgreSQL, or PgBouncer in `session` mode.
+- **The connection limits are per instance:** with 3 instances, a user can reach 30.
+- In the tests, the broker lives only in memory (without `Listen`). `internal/realtime/instances_test.go` tests two instances on the same database.
 
-## Por qué no WebSockets
+## Why not WebSockets
 
-SSE cubre todo lo de arriba: en esos casos el navegador envía poco (con REST normal) y el servidor avisa. Los WebSockets hacen falta cuando el navegador envía mucho y muy seguido, como cursores y trazos en un dibujo colaborativo. Ese caso necesita además resolver qué pasa cuando dos personas editan lo mismo a la vez (con técnicas como CRDT), y eso depende de cada proyecto. Por eso no vienen en la plantilla: se agregan en el proyecto que los necesite, y el broker les sirve igual.
+SSE covers everything above: in those cases the browser sends little (with normal REST) and the server notifies. WebSockets are needed when the browser sends a lot and very often, like cursors and strokes in a collaborative drawing. That case also needs to solve what happens when two people edit the same thing at once (with techniques like CRDTs), and that depends on each project. That is why they are not in the template: they are added in the project that needs them, and the broker works for them too.
 
-## Quitar el tiempo real
+## Removing real time
 
-Si un proyecto no lo necesita:
+If a project does not need it:
 
-1. Borrá `internal/realtime` e `internal/notifications`, las migraciones `00009_create_notifications.sql` y `00011_create_realtime_messages.sql`, y las consultas `notifications.sql` y `realtime.sql` de `internal/db/queries`.
-2. En `internal/server/routes.go`, quitá el campo `Broker` de `Deps`, el broker, el servicio de notificaciones, `GET /events` y `notifications.Register`. En las opciones de auth, quitá `Notifier` y `SessionWatcher` (son opcionales).
-3. En `internal/notes`, quitá el broker, las llamadas a `PublishToUser` y `events_test.go`. En `cmd/api/main.go`, quitá el broker, `Listen` y `RegisterOnShutdown`.
-4. En `internal/jobs/cleanup.go`, quitá el borrado de las notificaciones y de los mensajes del tiempo real, con sus constantes (`notificationRetention` y `realtimeMessageRetention`) y sus líneas en el comentario de `CleanupArgs`. En `cleanup_test.go`, borrá `TestCleanupDeletesOldNotifications` y `TestCleanupDeletesOldRealtimeMessages`.
-5. En `internal/testutil`, borrá `events.go` y `WithBroker` (en `http.go`). En los tests de otros paquetes:
-   - borrá los que abren un stream con `OpenEvents`: `TestRevokeSessionCutsItsStream` y `TestDeleteAccountCutsStreams` en `internal/auth`, y `TestEventsEndToEnd` en `internal/server`;
-   - en `internal/auth`, `TestDeleteAccount` y `TestChangeEmail` también revisan la tabla `notifications`: quitá esas partes.
-6. `make sqlc` (borra también el código generado de las consultas que quitaste) y `make check`.
+1. Delete `internal/realtime` and `internal/notifications`, the `00009_create_notifications.sql` and `00011_create_realtime_messages.sql` migrations, and the `notifications.sql` and `realtime.sql` queries of `internal/db/queries`.
+2. In `internal/server/routes.go`, remove the `Broker` field of `Deps`, the broker, the notifications service, `GET /events` and `notifications.Register`. In the auth options, remove `Notifier` and `SessionWatcher` (they are optional).
+3. In `internal/notes`, remove the broker, the `PublishToUser` calls and `events_test.go`. In `cmd/api/main.go`, remove the broker, `Listen` and `RegisterOnShutdown`.
+4. In `internal/jobs/cleanup.go`, remove the deletion of the notifications and of the real-time messages, with their constants (`notificationRetention` and `realtimeMessageRetention`) and their lines in the `CleanupArgs` comment. In `cleanup_test.go`, delete `TestCleanupDeletesOldNotifications` and `TestCleanupDeletesOldRealtimeMessages`.
+5. In `internal/testutil`, delete `events.go` and `WithBroker` (in `http.go`). In the tests of other packages:
+   - delete the ones that open a stream with `OpenEvents`: `TestRevokeSessionCutsItsStream` and `TestDeleteAccountCutsStreams` in `internal/auth`, and `TestEventsEndToEnd` in `internal/server`;
+   - in `internal/auth`, `TestDeleteAccount` and `TestChangeEmail` also check the `notifications` table: remove those parts.
+6. `make sqlc` (it also deletes the generated code of the queries you removed) and `make check`.
 
-Para quitar solo las notificaciones y dejar el tiempo real:
-1. Borrá `internal/notifications`, la migración `00009_create_notifications.sql` y la consulta `notifications.sql`.
-2. En `internal/server/routes.go`, quitá el servicio de notificaciones, `notifications.Register` y el `Notifier` de las opciones de auth.
-3. En `internal/jobs/cleanup.go`, quitá el borrado de las notificaciones, `notificationRetention` y su línea en el comentario de `CleanupArgs`; en `cleanup_test.go`, borrá `TestCleanupDeletesOldNotifications`.
-4. En `internal/auth`, quitá las partes de `TestDeleteAccount` y `TestChangeEmail` que revisan la tabla `notifications`.
-5. `make sqlc` y `make check`.
+To remove only the notifications and keep real time:
+1. Delete `internal/notifications`, the `00009_create_notifications.sql` migration and the `notifications.sql` query.
+2. In `internal/server/routes.go`, remove the notifications service, `notifications.Register` and the `Notifier` of the auth options.
+3. In `internal/jobs/cleanup.go`, remove the deletion of the notifications, `notificationRetention` and its line in the `CleanupArgs` comment; in `cleanup_test.go`, delete `TestCleanupDeletesOldNotifications`.
+4. In `internal/auth`, remove the parts of `TestDeleteAccount` and `TestChangeEmail` that check the `notifications` table.
+5. `make sqlc` and `make check`.
 
-Las dos recetas se probaron en una copia del proyecto, con una base de pruebas creada solo con las migraciones que quedan.
+Both recipes were tested on a copy of the project, with a test database created only with the remaining migrations.

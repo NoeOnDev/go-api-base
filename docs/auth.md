@@ -1,200 +1,200 @@
-# Autenticación
+# Authentication
 
-La API usa **sesiones guardadas en PostgreSQL** y enviadas en una **cookie `HttpOnly`**. No usa JWT.
+The API uses **sessions stored in PostgreSQL** and sent in an **`HttpOnly` cookie**. It does not use JWT.
 
-Incluye:
-- registro, login y logout;
-- perfil y cambio de contraseña;
-- recuperar la contraseña por correo;
-- verificar el email (opcional);
-- 2FA con app de autenticación y códigos de recuperación (voluntario para cada usuario);
-- roles `user`/`admin`.
+It includes:
+- registration, login and logout;
+- profile and password change;
+- password reset by email;
+- email verification (optional);
+- 2FA with an authenticator app and recovery codes (opt-in for each user);
+- `user`/`admin` roles.
 
-Cada función se puede quitar si un proyecto no la necesita (ver [al final](#quitar-funciones)).
+Each feature can be removed if a project does not need it (see [the end](#removing-features)).
 
-## Cómo funcionan las sesiones
+## How sessions work
 
-1. **Inicio de sesión:** `POST /auth/register` o `POST /auth/login` crean una sesión. La API genera un token aleatorio de 256 bits, guarda en la base solo su SHA-256 y envía el token en la cookie `session`. Si ese navegador ya tenía una sesión (por ejemplo, al cambiar de cuenta), se cierra; las de otros dispositivos siguen abiertas.
-2. **Cada petición:** el navegador envía la cookie automáticamente. `RequireUser` busca la sesión, comprueba que no haya vencido (`SESSION_TTL`, 7 días por defecto) y deja el usuario en el contexto.
-3. **Cierre de sesión:** `POST /auth/logout` borra la sesión de la base y la cookie del navegador.
+1. **Login:** `POST /auth/register` or `POST /auth/login` create a session. The API generates a random 256-bit token, stores only its SHA-256 in the database and sends the token in the `session` cookie. If that browser already had a session (for example, when switching accounts), it is closed; the ones on other devices stay open.
+2. **Each request:** the browser sends the cookie automatically. `RequireUser` finds the session, checks that it has not expired (`SESSION_TTL`, 7 days by default) and puts the user in the context.
+3. **Logout:** `POST /auth/logout` deletes the session from the database and the cookie from the browser.
 
-La cookie tiene estos atributos:
+The cookie has these attributes:
 
-| Atributo | Para qué |
+| Attribute | What for |
 |---|---|
-| `HttpOnly` | JavaScript no puede leerla: un ataque XSS no puede robar la sesión |
-| `SameSite=Lax` | El navegador no la envía en peticiones disparadas por otro sitio |
-| `Secure` | Solo viaja por HTTPS. Se controla con `COOKIE_SECURE` y está activado por defecto en producción |
-| `Path=/` | Vale para toda la API |
-| Sin `Domain` | Solo vale para el host que la creó, no para sus subdominios |
-| Prefijo `__Host-` | Solo en producción (`COOKIE_SECURE=true`): la cookie se llama `__Host-session`, y el navegador la rechaza si no es `Secure`, con `Path=/` y sin `Domain`. Así ningún subdominio puede crearla ni pisarla. En desarrollo se llama `session` |
+| `HttpOnly` | JavaScript cannot read it: an XSS attack cannot steal the session |
+| `SameSite=Lax` | The browser does not send it in requests triggered by another site |
+| `Secure` | It only travels over HTTPS. Controlled with `COOKIE_SECURE`, and on by default in production |
+| `Path=/` | It applies to the whole API |
+| No `Domain` | It only applies to the host that created it, not to its subdomains |
+| `__Host-` prefix | Only in production (`COOKIE_SECURE=true`): the cookie is called `__Host-session`, and the browser rejects it unless it is `Secure`, with `Path=/` and without `Domain`. That way no subdomain can create or overwrite it. In development it is called `session` |
 
-El desafío del 2FA usa una cookie con los mismos atributos: `two_factor_challenge`, o `__Host-two_factor_challenge` en producción. El frontend no necesita conocer estos nombres, porque las cookies son `HttpOnly` y viajan solas.
+The 2FA challenge uses a cookie with the same attributes: `two_factor_challenge`, or `__Host-two_factor_challenge` in production. The frontend does not need to know these names, because the cookies are `HttpOnly` and travel on their own.
 
 ## Endpoints
 
-| Método | Ruta | Acceso | Cuerpo | Respuesta |
+| Method | Path | Access | Body | Response |
 |---|---|---|---|---|
-| `POST` | `/auth/register` | público | `{name, email, password}` | `201` con el usuario y la cookie; `409` si el email ya existe; `422` |
-| `POST` | `/auth/login` | público | `{email, password}` | `200` con el usuario y la cookie; `202 {two_factor_required: true}` si tiene 2FA; `401` si los datos no coinciden |
-| `POST` | `/auth/logout` | público | | `204`, siempre (también si la sesión ya venció) |
-| `GET` | `/auth/me` | sesión | | `200` con el usuario |
-| `PUT` | `/auth/me` | sesión | `{name, locale?}` | `200` con el usuario |
-| `DELETE` | `/auth/me` | sesión | `{password}` | `204`, borra la cuenta; `422` si la contraseña es incorrecta; `409` si es el único admin |
-| `PUT` | `/auth/email` | sesión | `{email, password}` | `202`, envía el enlace al email nuevo; `409` si está en uso; `422` |
-| `POST` | `/auth/email/confirm` | público | `{token}` | `204`, cambia el email; `422` si el enlace no es válido o venció; `409` si el email lo tomó otra cuenta |
-| `GET` | `/auth/sessions` | sesión | | `200 {data: [{id, user_agent, ip, created_at, last_seen_at, current}]}` |
-| `DELETE` | `/auth/sessions/{id}` | sesión | | `204`; `404` si no es del usuario; `422` si es la actual |
-| `POST` | `/auth/sessions/revoke-others` | sesión | `{password}` | `204`, cierra todas las demás |
-| `PUT` | `/auth/password` | usuario | `{current_password, password}` | `204`; `422` si la contraseña actual es incorrecta |
-| `POST` | `/auth/password/forgot` | público | `{email}` | `202`, siempre |
-| `POST` | `/auth/password/reset` | público | `{token, password}` | `204`; `422` si el enlace no es válido o venció |
-| `POST` | `/auth/email/verify` | público | `{token}` | `204`; `422` si el enlace no es válido o venció |
-| `POST` | `/auth/email/resend` | sesión | | `202`; `204` si el email ya estaba verificado |
-| `POST` | `/auth/two-factor/challenge` | cookie del desafío | `{code}` o `{recovery_code}` | `200` con el usuario y la cookie de sesión; `422` si el código es incorrecto; `401` si el desafío venció; `503` si el secreto no se puede descifrar |
-| `POST` | `/auth/two-factor/setup` | usuario | | `200 {secret, otpauth_url}`; `409` si ya está activo |
-| `POST` | `/auth/two-factor/enable` | usuario | `{code, password}` | `200 {recovery_codes}`; `422` si el código o la contraseña son incorrectos |
-| `POST` | `/auth/two-factor/disable` | usuario | `{password}` | `204` |
-| `POST` | `/auth/two-factor/recovery-codes` | usuario | `{password}` | `200 {recovery_codes}` nuevos |
+| `POST` | `/auth/register` | public | `{name, email, password}` | `201` with the user and the cookie; `409` if the email already exists; `422` |
+| `POST` | `/auth/login` | public | `{email, password}` | `200` with the user and the cookie; `202 {two_factor_required: true}` if they have 2FA; `401` if the credentials do not match |
+| `POST` | `/auth/logout` | public | | `204`, always (also if the session already expired) |
+| `GET` | `/auth/me` | session | | `200` with the user |
+| `PUT` | `/auth/me` | session | `{name, locale?}` | `200` with the user |
+| `DELETE` | `/auth/me` | session | `{password}` | `204`, deletes the account; `422` if the password is wrong; `409` if it is the only admin |
+| `PUT` | `/auth/email` | session | `{email, password}` | `202`, sends the link to the new email; `409` if it is in use; `422` |
+| `POST` | `/auth/email/confirm` | public | `{token}` | `204`, changes the email; `422` if the link is not valid or expired; `409` if another account took the email |
+| `GET` | `/auth/sessions` | session | | `200 {data: [{id, user_agent, ip, created_at, last_seen_at, current}]}` |
+| `DELETE` | `/auth/sessions/{id}` | session | | `204`; `404` if it is not the user's; `422` if it is the current one |
+| `POST` | `/auth/sessions/revoke-others` | session | `{password}` | `204`, closes all the others |
+| `PUT` | `/auth/password` | user | `{current_password, password}` | `204`; `422` if the current password is wrong |
+| `POST` | `/auth/password/forgot` | public | `{email}` | `202`, always |
+| `POST` | `/auth/password/reset` | public | `{token, password}` | `204`; `422` if the link is not valid or expired |
+| `POST` | `/auth/email/verify` | public | `{token}` | `204`; `422` if the link is not valid or expired |
+| `POST` | `/auth/email/resend` | session | | `202`; `204` if the email was already verified |
+| `POST` | `/auth/two-factor/challenge` | challenge cookie | `{code}` or `{recovery_code}` | `200` with the user and the session cookie; `422` if the code is wrong; `401` if the challenge expired; `503` if the secret cannot be decrypted |
+| `POST` | `/auth/two-factor/setup` | user | | `200 {secret, otpauth_url}`; `409` if it is already on |
+| `POST` | `/auth/two-factor/enable` | user | `{code, password}` | `200 {recovery_codes}`; `422` if the code or the password are wrong |
+| `POST` | `/auth/two-factor/disable` | user | `{password}` | `204` |
+| `POST` | `/auth/two-factor/recovery-codes` | user | `{password}` | `200 {recovery_codes}`, new ones |
 
-En la columna de acceso:
-- **sesión:** cualquier usuario logueado, aunque no haya verificado su email.
-- **usuario:** además exige el email verificado, si `REQUIRE_EMAIL_VERIFICATION=true`.
+In the access column:
+- **session:** any logged-in user, even without a verified email.
+- **user:** also requires a verified email, if `REQUIRE_EMAIL_VERIFICATION=true`.
 
-El usuario se devuelve así (nunca incluye la contraseña):
+The user is returned like this (it never includes the password):
 
 ```json
-{"id": 1, "name": "Ana", "email": "ana@ejemplo.com", "role": "user", "email_verified_at": null, "two_factor_enabled": false, "locale": "es-MX", "created_at": "..."}
+{"id": 1, "name": "Alice", "email": "alice@example.com", "role": "user", "email_verified_at": null, "two_factor_enabled": false, "locale": "es-MX", "created_at": "..."}
 ```
 
-**Reglas:**
-- Nombre obligatorio, de hasta 100 caracteres.
-- Email válido, que se guarda en minúsculas.
-- Contraseña de 8 a 128 caracteres.
+**Rules:**
+- Required name, up to 100 characters.
+- Valid email, stored in lowercase.
+- Password from 8 to 128 characters.
 
-## Perfil y cambio de contraseña
+## Profile and password change
 
-- **`PUT /auth/me`** cambia el nombre y, si viene, el idioma (`locale`: uno de los disponibles, como `en` o `es-MX`). El idioma decide en qué idioma le llegan los correos y las notificaciones; el registro guarda el que pidió el navegador (ver [idiomas](i18n.md)). El email se cambia aparte (ver "Cambiar el email"), porque hay que verificar la dirección nueva.
-- **`PUT /auth/password`** pide la contraseña actual, así alguien que encuentre la sesión abierta no puede cambiarla. Al cambiarla se **cierran todas las demás sesiones** del usuario y la actual sigue activa, y se **cancela un cambio de email pendiente** (ver "Cambiar el email").
+- **`PUT /auth/me`** changes the name and, if present, the language (`locale`: one of the available ones, like `en` or `es-MX`). The language decides which language the emails and notifications reach the user in; registration stores the one the browser asked for (see [languages](i18n.md)). The email is changed separately (see "Changing the email"), because the new address must be verified.
+- **`PUT /auth/password`** asks for the current password, so someone who finds the session open cannot change it. Changing it **closes every other session** of the user while the current one stays active, and **cancels a pending email change** (see "Changing the email").
 
-## Sesiones por dispositivo
+## Sessions per device
 
-Cada sesión guarda el navegador (user-agent), la IP con la que se inició y su última actividad, que se actualiza como mucho cada 5 minutos para no escribir en la base en cada petición.
+Each session stores the browser (user agent), the IP it started from and its last activity, which is updated at most every 5 minutes so the database is not written on every request.
 
-- **`GET /auth/sessions`** las lista, de la más reciente a la más vieja, y marca la de este dispositivo (`current`). El user-agent llega tal cual: para mostrarlo legible ("Firefox en Windows"), el frontend puede usar una librería como `ua-parser-js`.
-- **`DELETE /auth/sessions/{id}`** cierra una, por ejemplo la de un dispositivo que el usuario no reconoce. Se cortan en el acto sus streams de `GET /events`. La actual se cierra con `POST /auth/logout`.
-- **`POST /auth/sessions/revoke-others`** con `{password}` cierra todas las demás. Pide la contraseña, como Laravel Jetstream, porque es masivo: así alguien con una sesión robada no puede echar al dueño de todos sus dispositivos.
+- **`GET /auth/sessions`** lists them, from the newest to the oldest, and marks the one of this device (`current`). The user agent arrives as is: to show it readably ("Firefox on Windows"), the frontend can use a library like `ua-parser-js`.
+- **`DELETE /auth/sessions/{id}`** closes one, for example that of a device the user does not recognize. Its `GET /events` streams are cut at once. The current one is closed with `POST /auth/logout`.
+- **`POST /auth/sessions/revoke-others`** with `{password}` closes all the others. It asks for the password, like Laravel Jetstream, because it is a bulk action: that way someone with a stolen session cannot kick the owner out of all their devices.
 
-**Vencimiento por inactividad (opcional):** con `SESSION_IDLE_TIMEOUT` (por ejemplo `30m`), una sesión sin actividad durante ese tiempo deja de servir, además del vencimiento fijo de `SESSION_TTL`. Tiene que ser de al menos 15 minutos, porque la actividad se guarda cada 5. Un stream de `GET /events` abierto no cuenta como actividad: una pestaña olvidada no mantiene viva la sesión. Las sesiones vencidas por inactividad tampoco aparecen en `GET /auth/sessions`.
+**Idle expiry (optional):** with `SESSION_IDLE_TIMEOUT` (for example `30m`), a session without activity for that long stops working, besides the fixed `SESSION_TTL` expiry. It must be at least 15 minutes, because activity is stored every 5. An open `GET /events` stream does not count as activity: a forgotten tab does not keep the session alive. Sessions expired by inactivity do not show up in `GET /auth/sessions` either.
 
-## Cambiar el email
+## Changing the email
 
-1. El frontend llama a **`PUT /auth/email`** con `{email, password}`.
-   - **Pide la contraseña:** si no, alguien con una sesión robada cambiaría el email, después recuperaría la contraseña con él y se quedaría con la cuenta.
-   - Si el email ya está en uso responde `409`, igual que el registro.
-2. La API envía un enlace a **`FRONTEND_URL/confirm-email?token=…`** a la dirección **nueva**, que vence en 1 hora, y un **aviso a la actual**, por si el pedido no lo hizo el dueño.
-3. **El email no cambia todavía.** La pantalla `/confirm-email` del frontend toma el `token` y llama a **`POST /auth/email/confirm`** con `{token}`. Recién ahí cambia, y queda verificado. Es pública, como la verificación, así funciona aunque el enlace se abra en otro dispositivo.
+1. The frontend calls **`PUT /auth/email`** with `{email, password}`.
+   - **It asks for the password:** otherwise, someone with a stolen session would change the email, then reset the password with it and keep the account.
+   - If the email is already in use it responds `409`, like registration.
+2. The API sends a link to **`FRONTEND_URL/confirm-email?token=…`** to the **new** address, which expires in 1 hour, and a **notice to the current one**, in case the owner did not make the request.
+3. **The email does not change yet.** The frontend's `/confirm-email` screen takes the `token` and calls **`POST /auth/email/confirm`** with `{token}`. Only then does it change, and it is verified. It is public, like verification, so it works even if the link is opened on another device.
 
-Al confirmar se envía la notificación `email_changed`. Si mientras tanto otra cuenta tomó ese email, responde `409` y no cambia nada.
+On confirmation the `email_changed` notification is sent. If another account took that email in the meantime, it responds `409` and nothing changes.
 
-**Lo que se anula:**
-- Al confirmar, los enlaces de recuperación de contraseña pendientes, que se enviaron al email anterior: si el usuario lo cambió porque perdió ese correo, quien lo tenga no puede usarlos.
-- Al cambiar o recuperar la contraseña, el cambio de email pendiente: lo pudo pedir quien conocía la contraseña anterior, para quedarse con el email y, desde ahí, con la cuenta.
+**What gets cancelled:**
+- On confirmation, the pending password reset links, which were sent to the previous email: if the user changed it because they lost that mailbox, whoever has it cannot use them.
+- On a password change or reset, the pending email change: it could have been requested by whoever knew the previous password, to keep the email and, from there, the account.
 
-## Borrar la cuenta
+## Deleting the account
 
-**`DELETE /auth/me`** con `{password}` borra la cuenta y todos sus datos: sesiones, tokens, códigos de recuperación, notas y notificaciones, por `ON DELETE CASCADE`. Se cortan sus streams, se borra la cookie y se le envía un último correo ("tu cuenta fue eliminada"), por si no fue el dueño.
+**`DELETE /auth/me`** with `{password}` deletes the account and all its data: sessions, tokens, recovery codes, notes and notifications, through `ON DELETE CASCADE`. Its streams are cut, the cookie is deleted and a last email is sent ("your account was deleted"), in case it was not the owner.
 
-- **No se puede borrar la única cuenta de administrador** (`409`): primero hay que nombrar otro admin. Así nadie deja la API sin administrador por error.
-- **Cada tabla de un proyecto con datos del usuario tiene que referenciarlo con `ON DELETE CASCADE`** (o `SET NULL`, si los datos deben quedar sin dueño, como una factura). Con `RESTRICT`, el borrado falla con `409` y no se borra nada.
-- Los correos que ya estaban en la cola para ese usuario se envían igual.
+- **The only administrator account cannot be deleted** (`409`): another admin must be appointed first. That way nobody leaves the API without an administrator by mistake.
+- **Every table of a project with user data must reference the user with `ON DELETE CASCADE`** (or `SET NULL`, if the data must stay without an owner, like an invoice). With `RESTRICT`, the deletion fails with `409` and nothing is deleted.
+- The emails already in the queue for that user are sent anyway.
 
-## Recuperar la contraseña
+## Resetting the password
 
-1. El usuario pide el enlace: `POST /auth/password/forgot` con su email.
-   - La API responde **siempre** `202` con el mismo mensaje, exista o no el email, para no revelar qué cuentas existen.
-   - Si existe, envía un correo con un enlace a **`FRONTEND_URL/reset-password?token=…`**, que vence en 1 hora y sirve una sola vez.
-2. La pantalla `/reset-password` del frontend toma el `token` de la URL, pide la contraseña nueva y llama a `POST /auth/password/reset` con `{token, password}`.
-3. La API cambia la contraseña, **cierra todas las sesiones** del usuario y marca su email como verificado (demostró que recibe correos en esa dirección). El usuario vuelve a iniciar sesión.
+1. The user asks for the link: `POST /auth/password/forgot` with their email.
+   - The API **always** responds `202` with the same message, whether the email exists or not, so as not to reveal which accounts exist.
+   - If it exists, it sends an email with a link to **`FRONTEND_URL/reset-password?token=…`**, which expires in 1 hour and works only once.
+2. The frontend's `/reset-password` screen takes the `token` from the URL, asks for the new password and calls `POST /auth/password/reset` with `{token, password}`.
+3. The API changes the password, **closes every session** of the user and marks their email as verified (they proved they get emails at that address). The user logs in again.
 
-Pedir un enlace nuevo invalida el anterior. Si la contraseña no cumple las reglas, el token no se gasta y el usuario puede corregirla.
+Asking for a new link invalidates the previous one. If the password does not meet the rules, the token is not spent and the user can fix it.
 
-## Verificar el email
+## Verifying the email
 
-Con **`REQUIRE_EMAIL_VERIFICATION=true`**:
+With **`REQUIRE_EMAIL_VERIFICATION=true`**:
 
-1. Al registrarse, el usuario recibe un correo con un enlace a **`FRONTEND_URL/verify-email?token=…`**, que vence en 24 horas.
-2. Hasta que lo abra, las rutas protegidas (`RequireUser`, `RequireAdmin`) responden **`403` con el código `email_not_verified`**. El frontend debería mostrar un aviso con un botón para reenviar el correo (`POST /auth/email/resend`).
-3. La pantalla `/verify-email` del frontend toma el `token` y llama a `POST /auth/email/verify` con `{token}`.
+1. On registration, the user gets an email with a link to **`FRONTEND_URL/verify-email?token=…`**, which expires in 24 hours.
+2. Until they open it, the protected routes (`RequireUser`, `RequireAdmin`) respond **`403` with the `email_not_verified` code**. The frontend should show a notice with a button to send the email again (`POST /auth/email/resend`).
+3. The frontend's `/verify-email` screen takes the `token` and calls `POST /auth/email/verify` with `{token}`.
 
-Mientras no verificó, el usuario sí puede usar `/auth/me` (que trae `email_verified_at: null`), editar su perfil, cerrar sesión y pedir otro enlace. Los admins creados con `create-admin` quedan verificados.
+While unverified, the user can still use `/auth/me` (which has `email_verified_at: null`), edit their profile, log out and ask for another link. Admins created with `create-admin` are verified.
 
-Con la opción en `false` (por defecto) no se envía ningún correo al registrarse y nada se bloquea.
+With the option set to `false` (the default) no email is sent on registration and nothing is blocked.
 
-## 2FA (verificación en dos pasos)
+## 2FA (two-factor authentication)
 
-Cada usuario puede activarlo si quiere. Funciona con cualquier app de autenticación: Google Authenticator, Microsoft Authenticator, Authy, 1Password, Bitwarden, etc.
+Each user can turn it on if they want. It works with any authenticator app: Google Authenticator, Microsoft Authenticator, Authy, 1Password, Bitwarden, etc.
 
-### Activar
+### Turning it on
 
-1. El frontend llama a `POST /auth/two-factor/setup` y recibe `{secret, otpauth_url}`.
-2. Muestra `otpauth_url` como **código QR** (en React, con `qrcode.react`: `<QRCodeSVG value={otpauth_url} />`) y `secret` en texto, para cargarlo a mano.
-3. El usuario lo escanea con su app y escribe el código de 6 dígitos que aparece.
-4. El frontend llama a `POST /auth/two-factor/enable` con `{code, password}`. Si los dos son correctos, el 2FA queda activo y la respuesta trae **10 códigos de recuperación**.
-5. El frontend muestra los códigos **una sola vez**, con la opción de copiarlos o descargarlos. Sirven para entrar si el usuario pierde el teléfono.
+1. The frontend calls `POST /auth/two-factor/setup` and gets `{secret, otpauth_url}`.
+2. It shows `otpauth_url` as a **QR code** (in React, with `qrcode.react`: `<QRCodeSVG value={otpauth_url} />`) and `secret` as text, to type it by hand.
+3. The user scans it with their app and types the 6-digit code that shows up.
+4. The frontend calls `POST /auth/two-factor/enable` with `{code, password}`. If both are right, 2FA is on and the response has **10 recovery codes**.
+5. The frontend shows the codes **only once**, with the option to copy or download them. They let the user in if they lose their phone.
 
-Hasta que se confirma con `enable`, el 2FA no está activo, así que un QR mal escaneado no deja a nadie bloqueado. Al activarlo se cierran las demás sesiones.
+Until it is confirmed with `enable`, 2FA is not on, so a badly scanned QR code does not lock anyone out. Turning it on closes the other sessions.
 
-`enable` **pide la contraseña**, como desactivarlo: si no, alguien con una sesión robada activaría el 2FA con su propia app y, al cerrarse las demás sesiones, dejaría al dueño afuera (recuperar la contraseña no desactiva el 2FA).
+`enable` **asks for the password**, like turning it off: otherwise, someone with a stolen session would turn on 2FA with their own app and, as the other sessions close, lock the owner out (a password reset does not turn off 2FA).
 
-### Iniciar sesión con 2FA
+### Logging in with 2FA
 
-1. `POST /auth/login` con email y contraseña correctos responde **`202 {"two_factor_required": true}`** y una cookie `HttpOnly` con el desafío, que vence en 5 minutos. Todavía no hay sesión.
-2. El frontend muestra el campo del código y llama a `POST /auth/two-factor/challenge` con:
-   - `{"code": "123456"}`, el código de la app; o
-   - `{"recovery_code": "xxxxx-xxxxx"}`, un código de recuperación (se acepta en mayúsculas o sin guion).
-3. Si es correcto, responde `200` con el usuario y crea la sesión, como un login normal.
+1. `POST /auth/login` with the right email and password responds **`202 {"two_factor_required": true}`** and an `HttpOnly` cookie with the challenge, which expires in 5 minutes. There is no session yet.
+2. The frontend shows the code field and calls `POST /auth/two-factor/challenge` with:
+   - `{"code": "123456"}`, the app's code; or
+   - `{"recovery_code": "xxxxx-xxxxx"}`, a recovery code (accepted in uppercase or without the hyphen).
+3. If it is right, it responds `200` with the user and creates the session, like a normal login.
 
-Un código incorrecto responde `422` y deja reintentar. Cada desafío admite **5 intentos**:
-- Al quinto código incorrecto responde **`401 two_factor_locked`**, borra el desafío y le envía al usuario un **correo de aviso** con la fecha y la IP: quien llegó a ese paso conoce su contraseña.
-- Si el desafío venció o ya no existe, responde `401` y hay que volver a ingresar la contraseña.
-- Además, cada usuario tiene **10 intentos seguidos y luego uno cada 6 minutos**, vengan de la IP que vengan. Al superarlos responde `429` con `Retry-After`.
+A wrong code responds `422` and allows retrying. Each challenge allows **5 attempts**:
+- On the fifth wrong code it responds **`401 two_factor_locked`**, deletes the challenge and sends the user a **warning email** with the date and the IP: whoever reached that step knows their password.
+- If the challenge expired or no longer exists, it responds `401` and the password must be entered again.
+- Besides, each user has **10 attempts in a row and then one every 6 minutes**, whatever IP they come from. Past that it responds `429` with `Retry-After`.
 
-### Desactivar y regenerar códigos
+### Turning it off and regenerating codes
 
-- **`POST /auth/two-factor/disable`** con `{password}`: desactiva el 2FA, borra los códigos de recuperación y cierra las demás sesiones.
-- **`POST /auth/two-factor/recovery-codes`** con `{password}`: genera 10 códigos nuevos; los anteriores dejan de servir.
+- **`POST /auth/two-factor/disable`** with `{password}`: turns off 2FA, deletes the recovery codes and closes the other sessions.
+- **`POST /auth/two-factor/recovery-codes`** with `{password}`: generates 10 new codes; the previous ones stop working.
 
-### Seguridad del 2FA
+### 2FA security
 
-- **Códigos TOTP estándar** (RFC 6238): 6 dígitos, cambian cada 30 segundos y se tolera ±30 segundos de desfase del reloj.
-- **Un código ya usado se rechaza** aunque siga vigente, así que un código interceptado no sirve para otro login.
-- **El secreto se guarda cifrado** con AES-256-GCM y la clave `ENCRYPTION_KEY`, atado al usuario. Los códigos de recuperación se guardan como HMAC, nunca en texto plano, y cada uno sirve una vez.
-- **Fuerza bruta del código:** 5 intentos por desafío y un límite por usuario, independiente de la IP (ver arriba). Con eso, adivinar un código queda cerca de un 0,07 % por día.
-- **Recuperar la contraseña no saltea el 2FA:** el siguiente login vuelve a pedir el código.
-- **Si un usuario pierde el teléfono y los códigos**, un admin puede desactivarle el 2FA desde la base:
+- **Standard TOTP codes** (RFC 6238): 6 digits, they change every 30 seconds and a clock drift of ±30 seconds is tolerated.
+- **A code already used is rejected** even if it is still valid, so an intercepted code is useless for another login.
+- **The secret is stored encrypted** with AES-256-GCM and the `ENCRYPTION_KEY` key, bound to the user. The recovery codes are stored as HMACs, never in plain text, and each one works once.
+- **Brute force of the code:** 5 attempts per challenge and a per-user limit, independent of the IP (see above). With that, guessing a code stays around 0.07% per day.
+- **A password reset does not skip 2FA:** the next login asks for the code again.
+- **If a user loses their phone and the codes**, an admin can turn off their 2FA from the database:
 
   ```sql
   UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL WHERE email = '…';
   ```
 
-**Cuidado con `ENCRYPTION_KEY`:** es obligatoria y hay que guardarla como cualquier secreto de producción. Se puede rotar sin afectar a nadie, y si se pierde, el segundo paso del login responde `503 two_factor_unavailable` con un mensaje claro. Todo esto está en [docs/encryption.md](encryption.md).
+**Be careful with `ENCRYPTION_KEY`:** it is required and must be kept like any production secret. It can be rotated without affecting anyone, and if it is lost, the second step of the login responds `503 two_factor_unavailable` with a clear message. All of this is in [docs/encryption.md](encryption.md).
 
-## Correos
+## Emails
 
-| Variable | Para qué |
+| Variable | What for |
 |---|---|
-| `MAIL_DRIVER` | `log`: escribe los correos en el log, para desarrollo sin servidor. `smtp`: los envía |
-| `MAIL_FROM` | Remitente |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | Datos SMTP de tu proveedor (Resend, Brevo, Amazon SES, Mailgun o el correo del hosting), normalmente con el puerto 587 |
-| `FRONTEND_URL` | Base de los enlaces de los correos |
+| `MAIL_DRIVER` | `log`: writes the emails to the log, for development without a server. `smtp`: sends them |
+| `MAIL_FROM` | Sender |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | Your provider's SMTP details (Resend, Brevo, Amazon SES, Mailgun or your hosting's mail), usually with port 587 |
+| `FRONTEND_URL` | Base of the links in the emails |
 
-**Cómo se envían:**
-- **Por la cola de trabajos** (`jobs.MailSender`, ver [docs/jobs.md](jobs.md)): la respuesta HTTP no espera al servidor de correo, y el correo se guarda cifrado en la base hasta que sale.
-- **Si un envío falla**, se reintenta hasta 5 veces, con una espera cada vez más larga, y cada error queda en el log. Una caída del SMTP o un reinicio de la API no pierden correos.
-- **Conexión cifrada:** con el puerto 465 se usa TLS desde el inicio; con los demás, STARTTLS, que es obligatorio salvo contra `localhost`.
+**How they are sent:**
+- **Through the job queue** (`jobs.MailSender`, see [docs/jobs.md](jobs.md)): the HTTP response does not wait for the mail server, and the email is stored encrypted in the database until it goes out.
+- **If a sending fails**, it is retried up to 5 times, with a longer wait each time, and each error is logged. An SMTP outage or an API restart does not lose emails.
+- **Encrypted connection:** with port 465, TLS is used from the start; with the others, STARTTLS, which is mandatory except against `localhost`.
 
-**En desarrollo** se recomienda **Mailpit**, un servidor SMTP falso que muestra los correos en `http://localhost:8025`:
+**In development**, **Mailpit** is recommended, a fake SMTP server that shows the emails at `http://localhost:8025`:
 
 ```env
 MAIL_DRIVER=smtp
@@ -202,74 +202,74 @@ SMTP_HOST=localhost
 SMTP_PORT=1025
 ```
 
-Las plantillas están en `internal/auth/emails/<idioma>/*.txt` (`en` y `es-MX`), en texto plano, y cada una define su asunto en la primera línea. Cada correo sale en el idioma del usuario. Para cambiar los textos, editá esos archivos; para sumar un idioma, ver [idiomas](i18n.md).
+The templates are in `internal/auth/emails/<language>/*.txt` (`en` and `es-MX`), in plain text, and each one defines its subject with `{{define "subject"}}`. Each email goes out in the user's language. To change the texts, edit those files; to add a language, see [languages](i18n.md).
 
 ## Roles
 
-- **`user`:** el rol de quien se registra con `/auth/register`.
-- **`admin`:** se crea con el comando `create-admin`:
+- **`user`:** the role of whoever registers with `/auth/register`.
+- **`admin`:** created with the `create-admin` command:
 
   ```bash
-  make create-admin email=admin@cliente.com name="Administrador"
+  make create-admin email=admin@client.com name="Administrator"
   ```
 
-  En producción, con el binario:
+  In production, with the binary:
 
   ```bash
-  ./api create-admin -email admin@cliente.com
+  ./api create-admin -email admin@client.com
   ```
 
-  La contraseña se pide por la terminal sin mostrarse, o se toma de la variable `ADMIN_PASSWORD`.
+  The password is asked for in the terminal without being shown, or taken from the `ADMIN_PASSWORD` variable.
 
-En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usuario no es admin.
+In the routes, `RequireAdmin` responds `401` if there is no session and `403` if the user is not an admin.
 
-## Seguridad incluida
+## Built-in security
 
-- **Contraseñas con argon2id** (19 MiB, 2 iteraciones, 1 hilo, según OWASP), con sal aleatoria.
-- **Login sin filtraciones:** siempre responde el mismo `401` y tarda lo mismo exista o no el email. "Olvidé mi contraseña" también responde siempre lo mismo. El registro sí indica si un email está en uso (`409`), porque si no el usuario no sabría por qué falla.
-- **Tokens de un solo uso** para recuperar la contraseña y verificar el email: en la base solo se guarda su SHA-256, vencen, y se validan y borran en una sola operación, así que no se pueden usar dos veces.
-- **Las sesiones se cierran al cambiar o recuperar la contraseña**, por si alguien había entrado con la anterior.
-- **Una contraseña nueva corta los logins con 2FA a medio hacer y los cambios de email pendientes:** al cambiarla o recuperarla se borran los desafíos y el enlace de cambio de email, que se obtuvieron con la anterior. Al recuperarla, además, se reinicia el límite de intentos del 2FA del usuario, por si alguien con la contraseña vieja lo había agotado.
-- **Límites de peticiones por grupo de rutas**, cada uno por separado (el segundo paso del 2FA no gasta los intentos del login). Al superarlos se responde `429` con `Retry-After`. Los valores están juntos en `internal/server/routes.go`, para ajustarlos:
+- **Passwords with argon2id** (19 MiB, 2 iterations, 1 thread, as OWASP recommends), with a random salt.
+- **Login without leaks:** it always responds the same `401` and takes the same time whether the email exists or not. "Forgot my password" also always responds the same. Registration does say whether an email is in use (`409`), because otherwise the user would not know why it fails.
+- **Single-use tokens** to reset the password and verify the email: only their SHA-256 is stored in the database, they expire, and they are validated and deleted in a single operation, so they cannot be used twice.
+- **Sessions are closed on a password change or reset**, in case someone had logged in with the previous one.
+- **A new password cuts half-finished 2FA logins and pending email changes:** changing or resetting it deletes the challenges and the email change link, which were obtained with the previous one. A reset also resets the user's 2FA attempt limit, in case someone with the old password had used it up.
+- **Request limits per group of routes**, each one separately (the second step of 2FA does not spend the login attempts). Past them, the API responds `429` with `Retry-After`. The values are together in `internal/server/routes.go`, to adjust them:
 
-  | Grupo | Rutas | Por | Límite |
+  | Group | Routes | Per | Limit |
   |---|---|---|---|
-  | Login | `POST /auth/login` | IP | 20 seguidos, luego 1 cada 3 s |
-  | Registro | `POST /auth/register` | IP | 10 seguidos, luego 1 cada 10 s |
-  | 2FA | `POST /auth/two-factor/challenge` | IP | 20 seguidos, luego 1 cada 3 s |
-  | Tokens | `reset`, `email/verify` | IP | 10 seguidos, luego 1 cada 6 s |
-  | Correos | `forgot`, `resend` | IP | 10 seguidos, luego 1 por minuto |
-  | Cuenta | cambiar la contraseña y administrar el 2FA | **usuario** | 5 seguidos, luego 1 cada 12 s |
+  | Login | `POST /auth/login` | IP | 20 in a row, then 1 every 3 s |
+  | Registration | `POST /auth/register` | IP | 10 in a row, then 1 every 10 s |
+  | 2FA | `POST /auth/two-factor/challenge` | IP | 20 in a row, then 1 every 3 s |
+  | Tokens | `reset`, `email/verify` | IP | 10 in a row, then 1 every 6 s |
+  | Emails | `forgot`, `resend` | IP | 10 in a row, then 1 per minute |
+  | Account | changing the password and managing 2FA | **user** | 5 in a row, then 1 every 12 s |
 
-  Los de IP son generosos porque muchas personas pueden compartir una IP (una oficina, una universidad, los datos móviles). Las IPv6 se cuentan por bloque `/64`. Los de cuenta van por usuario, así los usuarios detrás de una misma IP no se cruzan.
-- **Límites por usuario**, aunque los pedidos lleguen de muchas IPs:
-  - **Login:** 10 intentos seguidos por email y luego uno por minuto. Cuenta también los emails que no existen, para no revelar cuáles están registrados. Recuperar la contraseña lo reinicia, aunque contra un ataque que sigue en curso eso no alcanza (ver [decisiones](decisions.md#límites-de-intentos)).
-  - **Código del 2FA:** 10 intentos seguidos y luego uno cada 6 minutos.
-  - **Correos a una misma persona:** 3 seguidos de cada tipo (recuperación, verificación, aviso) y luego uno cada 20 minutos. En `forgot`, al superarlo no se envía nada y la respuesta es la misma de siempre, para no revelar si el email existe; el último enlace enviado sigue sirviendo. `resend` responde `429`.
-- **Dónde se cuentan:** los de IP, en memoria, en cada instancia de la API. Los de usuario, cuenta y destinatario (los de esta lista y el grupo Cuenta) están en PostgreSQL (`internal/ratelimit`): valen para todas las instancias y no se reinician al desplegar.
-- **Como mucho un hash de argon2 por núcleo a la vez**, para que muchos logins simultáneos no agoten la memoria del servidor. Los demás esperan su turno.
-- **Encabezados:** `X-Content-Type-Options: nosniff` en todas las respuestas y `Cache-Control: no-store` en todas las de `/auth`.
-- **2FA** opcional para cada usuario (ver la sección [2FA](#2fa-verificación-en-dos-pasos)).
-- **Protección CSRF** (`http.CrossOriginProtection` de Go): rechaza con `403` los `POST`/`PUT`/`DELETE` que el navegador envía desde otro sitio. Las peticiones sin encabezados de navegador (`curl`, apps móviles) no se ven afectadas.
-- **Limpieza:** un trabajo de cada hora borra las sesiones y los tokens vencidos, y las claves de los límites que ya se recargaron (ver [trabajos](jobs.md)).
+  The IP ones are generous because many people can share an IP (an office, a university, mobile data). IPv6 addresses are counted per `/64` block. The account ones go per user, so users behind the same IP do not get mixed up.
+- **Per-user limits**, even if the requests come from many IPs:
+  - **Login:** 10 attempts in a row per email and then one per minute. It also counts emails that do not exist, so as not to reveal which are registered. A password reset resets it, although against an attack still in progress that is not enough (see [decisions](decisions.md#attempt-limits)).
+  - **2FA code:** 10 attempts in a row and then one every 6 minutes.
+  - **Emails to the same person:** 3 in a row of each kind (reset, verification, notice) and then one every 20 minutes. In `forgot`, past the limit nothing is sent and the response is the usual one, so as not to reveal whether the email exists; the last link sent still works. `resend` responds `429`.
+- **Where they are counted:** the IP ones, in memory, in each instance of the API. The user, account and recipient ones (those in this list and the Account group) are in PostgreSQL (`internal/ratelimit`): they apply to every instance and are not reset on a deploy.
+- **At most one argon2 hash per core at a time**, so many simultaneous logins do not exhaust the server's memory. The rest wait their turn.
+- **Headers:** `X-Content-Type-Options: nosniff` on every response and `Cache-Control: no-store` on every `/auth` one.
+- **2FA**, optional for each user (see the [2FA](#2fa-two-factor-authentication) section).
+- **CSRF protection** (Go's `http.CrossOriginProtection`): it rejects with `403` the `POST`/`PUT`/`DELETE` requests the browser sends from another site. Requests without browser headers (`curl`, mobile apps) are not affected.
+- **Cleanup:** an hourly job deletes the expired sessions and tokens, and the keys of the limits that already refilled (see [jobs](jobs.md)).
 
-## Desde el frontend (React)
+## From the frontend (React)
 
-**Pantallas que necesita el frontend:**
-- login y registro;
-- perfil (nombre y cambio de contraseña);
-- "olvidé mi contraseña";
-- `/reset-password`, la del enlace del correo;
-- `/verify-email`, la del enlace del correo, solo con la verificación activa;
-- un aviso de "confirmá tu email" cuando una respuesta trae `email_not_verified`;
-- el segundo paso del login (el código del 2FA) cuando el login responde `202`. Si ese paso responde `401` (por ejemplo, `two_factor_locked`), volver a la pantalla de login;
-- en el perfil, activar el 2FA (QR, código y códigos de recuperación) y desactivarlo;
-- en el perfil, las sesiones por dispositivo (con "cerrar" y "cerrar todas las demás"), cambiar el email y borrar la cuenta;
-- `/confirm-email`, la del enlace del correo para confirmar un email nuevo.
+**Screens the frontend needs:**
+- login and registration;
+- profile (name and password change);
+- "forgot my password";
+- `/reset-password`, the one of the email link;
+- `/verify-email`, the one of the email link, only with verification on;
+- a "confirm your email" notice when a response has `email_not_verified`;
+- the second step of the login (the 2FA code) when the login responds `202`. If that step responds `401` (for example, `two_factor_locked`), go back to the login screen;
+- in the profile, turning 2FA on (QR code, code and recovery codes) and off;
+- in the profile, the sessions per device (with "close" and "close all the others"), changing the email and deleting the account;
+- `/confirm-email`, the one of the email link to confirm a new email.
 
-### Mismo dominio (recomendado)
+### Same domain (recommended)
 
-Si el frontend y la API se sirven bajo el mismo dominio, por ejemplo `cliente.com` y `cliente.com/api`, no hace falta CORS y la cookie funciona sin configurar nada:
+If the frontend and the API are served under the same domain, for example `client.com` and `client.com/api`, CORS is not needed and the cookie works without configuring anything:
 
 ```js
 const res = await fetch("/api/auth/login", {
@@ -279,78 +279,78 @@ const res = await fetch("/api/auth/login", {
 });
 ```
 
-### Dominios distintos
+### Different domains
 
-Si el frontend y la API están en dominios distintos, por ejemplo `app.cliente.com` y `api.cliente.com`:
+If the frontend and the API are on different domains, for example `app.client.com` and `api.client.com`:
 
-1. Configurá el origen del frontend en la API:
+1. Set the frontend's origin in the API:
 
    ```env
-   CORS_ALLOWED_ORIGINS=https://app.cliente.com
-   FRONTEND_URL=https://app.cliente.com
+   CORS_ALLOWED_ORIGINS=https://app.client.com
+   FRONTEND_URL=https://app.client.com
    ```
 
-2. Enviá la cookie en cada `fetch` con `credentials: "include"`:
+2. Send the cookie in each `fetch` with `credentials: "include"`:
 
    ```js
-   const res = await fetch("https://api.cliente.com/auth/me", { credentials: "include" });
+   const res = await fetch("https://api.client.com/auth/me", { credentials: "include" });
    if (res.status === 401) {
-     // sin sesión: redirigir al login
+     // no session: redirect to the login
    }
    ```
 
-Con `SameSite=Lax`, el navegador envía la cookie entre **subdominios del mismo sitio** (`app.cliente.com` → `api.cliente.com`). Si el frontend estuviera en un sitio completamente distinto (`cliente-app.com` → `api.otro.com`), haría falta `SameSite=None`. No lo recomiendo: es mejor poner ambos bajo el mismo dominio.
+With `SameSite=Lax`, the browser sends the cookie between **subdomains of the same site** (`app.client.com` → `api.client.com`). If the frontend were on a completely different site (`client-app.com` → `api.other.com`), `SameSite=None` would be needed. I don't recommend it: it is better to put both under the same domain.
 
-### En desarrollo
+### In development
 
-Si Vite corre en `http://localhost:5173` y la API en `http://localhost:8080`, el sitio es el mismo (`localhost`), así que la cookie viaja. Para esto alcanza con:
+If Vite runs on `http://localhost:5173` and the API on `http://localhost:8080`, the site is the same (`localhost`), so the cookie travels. This is enough:
 
 ```env
 CORS_ALLOWED_ORIGINS=http://localhost:5173
 FRONTEND_URL=http://localhost:5173
 ```
 
-`COOKIE_SECURE` ya es `false` en desarrollo, así que la cookie funciona sin HTTPS.
+`COOKIE_SECURE` is already `false` in development, so the cookie works without HTTPS.
 
-## Proteger rutas nuevas
+## Protecting new routes
 
-En el `routes.go` de cada recurso:
+In each resource's `routes.go`:
 
 ```go
-mux.Handle("GET /orders", authn.RequireUser(httpx.Handle(h.list)))            // cualquier usuario (con el email verificado, si se exige)
-mux.Handle("DELETE /orders/{id}", authn.RequireAdmin(httpx.Handle(h.delete))) // solo admin
-mux.Handle("GET /products", httpx.Handle(h.list))                             // público
-mux.Handle("GET /products", authn.OptionalUser(httpx.Handle(h.list)))         // público, pero sabe si hay usuario
+mux.Handle("GET /orders", authn.RequireUser(httpx.Handle(h.list)))            // any user (with a verified email, if required)
+mux.Handle("DELETE /orders/{id}", authn.RequireAdmin(httpx.Handle(h.delete))) // admin only
+mux.Handle("GET /products", httpx.Handle(h.list))                             // public
+mux.Handle("GET /products", authn.OptionalUser(httpx.Handle(h.list)))         // public, but knows whether there is a user
 ```
 
-Dentro del handler:
+Inside the handler:
 
 ```go
 user := auth.MustUser(r.Context())
 ```
 
-## Quitar funciones
+## Removing features
 
-Todas las rutas están en `internal/auth/routes.go`. Para quitar una función, borrá sus rutas, sus archivos y sus tests, y hacé los cambios de la última columna. Lo que comparten varias funciones está en archivos que no se borran: `account.go`, `session.go`, `tokens.go` y `emails.go`, y en los tests, `helpers_test.go`.
+All the routes are in `internal/auth/routes.go`. To remove a feature, delete its routes, its files and its tests, and make the changes in the last column. What several features share is in files that are not deleted: `account.go`, `session.go`, `tokens.go` and `emails.go`, and in the tests, `helpers_test.go`. The email templates are in each language folder (`emails/en/`, `emails/es-MX/`): delete them from all of them.
 
-| Función | Rutas | Archivos que se borran | Además |
+| Feature | Routes | Files to delete | Also |
 |---|---|---|---|
-| Registro abierto (solo admins con `create-admin`) | `POST /auth/register` | La función `register` de `handlers.go`, y los `TestRegister…` de `handlers_test.go` | Varios tests crean el usuario con `POST /auth/register`: pasalos a `testutil.Login` |
-| Perfil y cambio de contraseña | `PUT /auth/me`, `PUT /auth/password` | `profile.go`, `account_test.go` | |
-| Sesiones por dispositivo | `/auth/sessions…` | `sessions.go`, `sessions_test.go` | |
-| Cambiar el email | `PUT /auth/email`, `/auth/email/confirm` | `email_change.go`, `email_change_test.go`, `emails/email_change*.txt` | |
-| Borrar la cuenta | `DELETE /auth/me` | `delete_account.go`, `delete_account_test.go`, `emails/account_deleted.txt` | |
-| Recuperar la contraseña | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go`, `password_reset_test.go`, `emails/password_reset.txt` | |
-| Verificar el email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go`, `email_verification_test.go`, `emails/verify_email.txt` | En `register` (`handlers.go`), el bloque `if s.opts.RequireVerifiedEmail`. Dejá `REQUIRE_EMAIL_VERIFICATION=false` |
-| 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/two_factor_locked.txt` | En `handlers.go`, el bloque `if u.TwoFactorEnabled` del login; en `auth.go`, `twoFactorLimiter`; en `password_reset.go`, su `resetLimit`; en `keys.go`, la llamada a `rotateTwoFactorKeys`. Si querés, también `internal/totp`, `testutil/twofactor.go` (con `TestTwoFactorChangesNotify` de `internal/notifications`) y la migración `00007` con `recovery_codes.sql` (después, `make sqlc`) |
+| Open registration (only admins with `create-admin`) | `POST /auth/register` | The `register` function of `handlers.go`, and the `TestRegister…` tests of `handlers_test.go` | Several tests create the user with `POST /auth/register`: move them to `testutil.Login` |
+| Profile and password change | `PUT /auth/me`, `PUT /auth/password` | `profile.go`, `account_test.go` | |
+| Sessions per device | `/auth/sessions…` | `sessions.go`, `sessions_test.go` | |
+| Changing the email | `PUT /auth/email`, `/auth/email/confirm` | `email_change.go`, `email_change_test.go`, `emails/*/email_change*.txt` | |
+| Deleting the account | `DELETE /auth/me` | `delete_account.go`, `delete_account_test.go`, `emails/*/account_deleted.txt` | |
+| Resetting the password | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go`, `password_reset_test.go`, `emails/*/password_reset.txt` | |
+| Verifying the email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go`, `email_verification_test.go`, `emails/*/verify_email.txt` | In `register` (`handlers.go`), the `if s.opts.RequireVerifiedEmail` block. Leave `REQUIRE_EMAIL_VERIFICATION=false` |
+| 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/*/two_factor_locked.txt` | In `handlers.go`, the login's `if u.TwoFactorEnabled` block; in `auth.go`, `twoFactorLimiter`; in `password_reset.go`, its `resetLimit`; in `keys.go`, the call to `rotateTwoFactorKeys`. Optionally, also `internal/totp`, `testutil/twofactor.go` (with `TestTwoFactorChangesNotify` of `internal/notifications`) and migration `00007` with `recovery_codes.sql` (then, `make sqlc`) |
 
-Al final, `make check`. Si falla un test de otra función, es uno que usaba la que quitaste: para preparar el caso, o para probar cómo se combinan las dos (por ejemplo, que cambiar la contraseña cancele un cambio de email pendiente). Borrá ese caso, o pasá su preparación a `testutil.Login`.
+Finally, `make check`. If a test of another feature fails, it is one that used the feature you removed: to set up the case, or to test how the two combine (for example, that changing the password cancels a pending email change). Delete that case, or move its setup to `testutil.Login`.
 
-Cada receta se probó por separado, en una copia del proyecto: compila, pasa `go vet` y staticcheck, y los tests que fallan son solo los de arriba. Para quitar varias funciones, hacé los pasos de cada una; si algo queda sin uso, staticcheck lo señala. Si cambiás auth, mantené esta tabla al día.
+Each recipe was tested separately, on a copy of the project: it compiles, passes `go vet` and staticcheck, and the failing tests are only the ones above. To remove several features, follow the steps of each one; if something is left unused, staticcheck points it out. If you change auth, keep this table up to date.
 
-## Qué no incluye
+## What it does not include
 
-- 2FA obligatorio (por rol o para todos).
-- Llaves de seguridad físicas o passkeys (WebAuthn).
-- Login con Google u otros proveedores (OAuth).
-- Permisos más finos que `user`/`admin`.
+- Mandatory 2FA (per role or for everyone).
+- Physical security keys or passkeys (WebAuthn).
+- Login with Google or other providers (OAuth).
+- Permissions finer than `user`/`admin`.

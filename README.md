@@ -1,266 +1,267 @@
 # go-api-base
 
-Plantilla de API REST en Go, completa y lista para producción, para proyectos personales, de clientes y de empresa. Trae resuelto lo que casi toda API necesita: autenticación con 2FA, correos, trabajos en segundo plano, tiempo real y seguridad. Así cada proyecto empieza directamente por lo suyo.
+A complete, production-ready REST API template in Go, for personal, client and company projects. It comes with what almost every API needs already solved: authentication with 2FA, emails, background jobs, real time and security. That way each project starts directly with its own work.
 
-Es completa, pero con pocas dependencias: prioriza la librería estándar y suma solo esto:
-- **PostgreSQL con pgx**
-- **migraciones con goose**
-- **consultas tipadas con sqlc**
-- **la cola de trabajos River**, también sobre PostgreSQL
-- paquetes oficiales del equipo de Go para las contraseñas y el límite de peticiones
+It is complete, but with few dependencies: it favors the standard library and adds only this:
+- **PostgreSQL with pgx**
+- **migrations with goose**
+- **typed queries with sqlc**
+- **the River job queue**, also on PostgreSQL
+- official packages from the Go team for passwords and request limits
 
-Corre como un solo binario, con PostgreSQL como único servicio (sin Redis ni colas aparte). Funciona igual con **una instancia o con varias** detrás de un balanceador: las sesiones, los límites por cuenta, la cola y el tiempo real se coordinan a través de PostgreSQL (ver [docs/decisions.md](docs/decisions.md#varias-instancias)).
+It runs as a single binary, with PostgreSQL as the only service (no Redis or separate queues). It works the same with **one instance or several** behind a load balancer: sessions, per-account limits, the queue and real time are coordinated through PostgreSQL (see [docs/decisions.md](docs/decisions.md#multiple-instances)).
 
-Incluye:
+It includes:
 
-- **Autenticación** con sesiones en cookie `HttpOnly`, contraseñas con argon2id y roles `user`/`admin`. Incluye perfil, cambio de contraseña, recuperación por correo, verificación de email opcional, 2FA con app de autenticación y códigos de recuperación, sesiones por dispositivo (con vencimiento por inactividad opcional), cambio de email verificado y borrado de cuenta. El primer admin se crea con un comando.
-- **Correos** por SMTP (cualquier proveedor), con plantillas editables. Pasan por la cola, así que se reintentan si fallan. En desarrollo se usa Mailpit o el log.
-- **Trabajos en segundo plano** con River, sobre PostgreSQL (sin Redis): reintentos, trabajos programados y periódicos, y encolado dentro de una transacción. Los workers corren en el mismo binario.
-- **Tiempo real con SSE:** `GET /events` envía al navegador los eventos del usuario y de los temas que escuche (con permiso). Sirve también para transmitir la respuesta de un agente de IA.
-- **Notificaciones** dentro del sistema, guardadas y enviadas en vivo. Auth las usa para avisar de cambios de seguridad.
-- **Seguridad:** protección CSRF, CORS configurable, límites de intentos (por IP, por cuenta en el login y el 2FA, y por destinatario en los correos), argon2 con tope de concurrencia, cookies `__Host-` en producción, encabezados `nosniff` y `no-store`, y timeouts del servidor.
-- **Base de la API:**
-  - formato único de errores en JSON
-  - validación y paginación
-  - logs con `slog` y un `request_id` por petición
-  - migraciones embebidas que se aplican al arrancar
-  - apagado limpio
-- **Tres recursos de ejemplo** para copiar:
-  - `notes`: datos de cada usuario
-  - `categories` y `products`: un catálogo con relaciones, filtros y permisos de admin
-- **Calidad:**
-  - tests de integración contra PostgreSQL
-  - `staticcheck` y `govulncheck`
-  - CI con GitHub Actions
+- **Authentication** with sessions in an `HttpOnly` cookie, passwords with argon2id and `user`/`admin` roles. It includes a profile, password change, password reset by email, optional email verification, 2FA with an authenticator app and recovery codes, sessions per device (with optional idle expiry), verified email change and account deletion. The first admin is created with a command.
+- **Emails** over SMTP (any provider), with editable templates. They go through the queue, so they are retried if they fail. In development, Mailpit or the log is used.
+- **Background jobs** with River, on PostgreSQL (no Redis): retries, scheduled and periodic jobs, and queuing inside a transaction. The workers run in the same binary.
+- **Real time with SSE:** `GET /events` sends the browser the user's events and those of the topics it listens to (with permission). It also works to stream an AI agent's response.
+- **In-app notifications**, stored and sent live. Auth uses them to warn about security changes.
+- **Security:** CSRF protection, configurable CORS, attempt limits (per IP, per account in the login and the 2FA, and per recipient in the emails), argon2 with a concurrency cap, `__Host-` cookies in production, `nosniff` and `no-store` headers, and server timeouts.
+- **API basics:**
+  - a single JSON error format
+  - validation and pagination
+  - logs with `slog` and a `request_id` per request
+  - embedded migrations applied on startup
+  - graceful shutdown
+- **User-facing text in several languages:** English by default and Mexican Spanish, chosen with `Accept-Language`.
+- **Three example resources** to copy:
+  - `notes`: each user's data
+  - `categories` and `products`: a catalog with relationships, filters and admin permissions
+- **Quality:**
+  - integration tests against PostgreSQL
+  - `staticcheck` and `govulncheck`
+  - CI with GitHub Actions
 
-## Requisitos
+## Requirements
 
-- Go 1.27.3 o más nuevo.
-- PostgreSQL, en cualquier versión con soporte.
+- Go 1.27.3 or newer.
+- PostgreSQL, any supported version.
 - `make`.
-- `gcc`, solo para compilar sqlc la primera vez (`make sqlc`).
+- `gcc`, only to build sqlc the first time (`make sqlc`).
 
-## Inicio rápido
+## Quick start
 
-1. **Crear la base de datos.** Este ejemplo usa un contenedor de PostgreSQL llamado `postgres_db`; adaptalo a tu instalación:
+1. **Create the database.** This example uses a PostgreSQL container called `postgres_db`; adapt it to your setup:
 
    ```bash
    docker exec -i postgres_db psql -U postgres <<'SQL'
-   CREATE ROLE go_api_base LOGIN PASSWORD 'cambiar-esta-contraseña';
+   CREATE ROLE go_api_base LOGIN PASSWORD 'change-this-password';
    CREATE DATABASE go_api_base OWNER go_api_base;
    CREATE DATABASE go_api_base_test OWNER go_api_base;
    SQL
    ```
 
-2. **Configurar el entorno.** Copiá el archivo de ejemplo, completá `DATABASE_URL` y `TEST_DATABASE_URL`, y generá la clave de cifrado:
+2. **Set up the environment.** Copy the example file, fill in `DATABASE_URL` and `TEST_DATABASE_URL`, and generate the encryption key:
 
    ```bash
    cp .env.example .env
    sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=$(make -s key)|" .env
    ```
 
-3. **(Opcional) Correos en desarrollo.** Levantá Mailpit, que muestra los correos en `http://localhost:8025`, y configurá `MAIL_DRIVER=smtp`, `SMTP_HOST=localhost` y `SMTP_PORT=1025`:
+3. **(Optional) Emails in development.** Start Mailpit, which shows the emails at `http://localhost:8025`, and set `MAIL_DRIVER=smtp`, `SMTP_HOST=localhost` and `SMTP_PORT=1025`:
 
    ```bash
    docker run -d --name mailpit -p 1025:1025 -p 8025:8025 axllent/mailpit:v1.31.6
    ```
 
-   Sin Mailpit, con `MAIL_DRIVER=log`, los correos (y sus enlaces) aparecen en el log de la API.
+   Without Mailpit, with `MAIL_DRIVER=log`, the emails (and their links) show up in the API's log.
 
-4. **Crear el administrador.** El comando aplica las migraciones y te pide la contraseña:
+4. **Create the administrator.** The command applies the migrations and asks for the password:
 
    ```bash
-   make create-admin email=admin@ejemplo.com name="Admin"
+   make create-admin email=admin@example.com name="Admin"
    ```
 
-5. **Levantar la API:**
+5. **Start the API:**
 
    ```bash
    make run
    ```
 
-6. **Probarla.** `-c` y `-b` guardan y envían la cookie de sesión:
+6. **Try it.** `-c` and `-b` store and send the session cookie:
 
    ```bash
    curl -c cookies.txt -X POST localhost:8080/auth/register \
-     -d '{"name":"Ana","email":"ana@ejemplo.com","password":"una-clave-larga"}'
-   curl -b cookies.txt -X POST localhost:8080/notes -d '{"title":"Mi primera nota"}'
+     -d '{"name":"Alice","email":"alice@example.com","password":"a-long-password"}'
+   curl -b cookies.txt -X POST localhost:8080/notes -d '{"title":"My first note"}'
    curl -b cookies.txt localhost:8080/notes
    curl 'localhost:8080/products?q=café'
    ```
 
 ## Endpoints
 
-| Método | Ruta | Acceso |
+| Method | Path | Access |
 |---|---|---|
-| `GET` | `/healthz` | Público. `200` si la API y la base responden, `503` si no |
-| `POST` | `/auth/register`, `/auth/login` | Público, con límite de intentos |
-| `POST` | `/auth/logout` | Público; borra la sesión si existe y siempre borra la cookie |
-| `GET`, `PUT` | `/auth/me` | Con sesión: ver y editar el perfil |
-| `PUT` | `/auth/password` | Con sesión: cambiar la contraseña (pide la actual y cierra las demás sesiones) |
-| `DELETE` | `/auth/me` | Con sesión: borrar la cuenta (pide la contraseña) |
-| `PUT`, `POST` | `/auth/email`, `/auth/email/confirm` | Cambiar el email: se pide con la contraseña y se confirma con el enlace que llega al nuevo |
-| `GET`, `DELETE`, `POST` | `/auth/sessions`, `/auth/sessions/{id}`, `/auth/sessions/revoke-others` | Con sesión: ver las sesiones por dispositivo y cerrarlas |
-| `POST` | `/auth/password/forgot`, `/auth/password/reset` | Público: recuperar la contraseña por correo |
-| `POST` | `/auth/email/verify`, `/auth/email/resend` | Verificar el email (obligatorio con `REQUIRE_EMAIL_VERIFICATION=true`) |
-| `POST` | `/auth/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Con sesión: activar y administrar el 2FA |
-| `POST` | `/auth/two-factor/challenge` | Segundo paso del login cuando el usuario tiene 2FA |
-| `GET` | `/events?topics=` | Con sesión: stream SSE con los eventos en tiempo real (ver [docs/realtime.md](docs/realtime.md)) |
-| `GET` | `/notifications?unread=` | Con sesión: las notificaciones del usuario y cuántas hay sin leer |
-| `POST` | `/notifications/{id}/read`, `/notifications/read-all` | Con sesión: marcarlas como leídas |
-| `GET`, `POST` | `/notes` | Con sesión; cada usuario ve solo sus notas |
-| `GET`, `PUT`, `DELETE` | `/notes/{id}` | Con sesión; la nota de otro usuario responde `404` |
-| `GET` | `/categories`, `/categories/{id}` | Público |
-| `POST`, `PUT`, `DELETE` | `/categories…` | Solo admin |
-| `GET` | `/products?category_id=&q=&active=`, `/products/{id}` | Público: los visitantes solo ven productos activos; el admin ve todos |
-| `POST`, `PUT`, `DELETE` | `/products…` | Solo admin |
+| `GET` | `/healthz` | Public. `200` if the API and the database respond, `503` if not |
+| `POST` | `/auth/register`, `/auth/login` | Public, with attempt limits |
+| `POST` | `/auth/logout` | Public; deletes the session if it exists and always deletes the cookie |
+| `GET`, `PUT` | `/auth/me` | With a session: view and edit the profile |
+| `PUT` | `/auth/password` | With a session: change the password (asks for the current one and closes the other sessions) |
+| `DELETE` | `/auth/me` | With a session: delete the account (asks for the password) |
+| `PUT`, `POST` | `/auth/email`, `/auth/email/confirm` | Change the email: requested with the password and confirmed with the link that reaches the new one |
+| `GET`, `DELETE`, `POST` | `/auth/sessions`, `/auth/sessions/{id}`, `/auth/sessions/revoke-others` | With a session: see the sessions per device and close them |
+| `POST` | `/auth/password/forgot`, `/auth/password/reset` | Public: reset the password by email |
+| `POST` | `/auth/email/verify`, `/auth/email/resend` | Verify the email (required with `REQUIRE_EMAIL_VERIFICATION=true`) |
+| `POST` | `/auth/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | With a session: turn on and manage 2FA |
+| `POST` | `/auth/two-factor/challenge` | Second step of the login when the user has 2FA |
+| `GET` | `/events?topics=` | With a session: SSE stream with the real-time events (see [docs/realtime.md](docs/realtime.md)) |
+| `GET` | `/notifications?unread=` | With a session: the user's notifications and how many are unread |
+| `POST` | `/notifications/{id}/read`, `/notifications/read-all` | With a session: mark them as read |
+| `GET`, `POST` | `/notes` | With a session; each user sees only their notes |
+| `GET`, `PUT`, `DELETE` | `/notes/{id}` | With a session; another user's note responds `404` |
+| `GET` | `/categories`, `/categories/{id}` | Public |
+| `POST`, `PUT`, `DELETE` | `/categories…` | Admin only |
+| `GET` | `/products?category_id=&q=&active=`, `/products/{id}` | Public: visitors only see active products; the admin sees all |
+| `POST`, `PUT`, `DELETE` | `/products…` | Admin only |
 
-Los listados aceptan `?limit=` (de 1 a 100, 20 por defecto) y `?offset=` (hasta 10000), y responden `{"data": [...], "meta": {"limit", "offset", "total"}}`. Un offset enorme hace lenta la consulta, porque PostgreSQL lee y descarta las filas anteriores; para recorrer más, conviene paginar por cursor (`WHERE id < $último`).
+Lists accept `?limit=` (from 1 to 100, 20 by default) and `?offset=` (up to 10000), and respond `{"data": [...], "meta": {"limit", "offset", "total"}}`. A huge offset makes the query slow, because PostgreSQL reads and discards the previous rows; to go further, paginate by cursor (`WHERE id < $last`).
 
-Todos los errores tienen la misma forma:
+All errors have the same shape:
 
 ```json
 {"error": {"code": "validation_failed", "message": "The data sent is not valid.", "fields": {"title": "This field is required."}}}
 ```
 
-| Código | Cuándo |
+| Status | When |
 |---|---|
-| `400` | JSON mal formado o ID inválido |
-| `401` | Sin sesión |
-| `403` | Sin permiso, o petición de otro origen |
-| `404` | El recurso no existe |
-| `409` | Valor repetido, o el recurso está en uso |
-| `422` | Validación |
-| `429` | Demasiados intentos |
-| `500` | Error interno, sin detalles; la causa queda en el log con su `request_id` |
+| `400` | Malformed JSON or invalid ID |
+| `401` | No session |
+| `403` | No permission, or a request from another origin |
+| `404` | The resource does not exist |
+| `409` | Repeated value, or the resource is in use |
+| `422` | Validation |
+| `429` | Too many attempts |
+| `500` | Internal error, without details; the cause is in the log with its `request_id` |
 
-Cada error tiene además un `code` específico (`email_taken`, `slug_taken`, `invalid_credentials`…), y `message` sale en el idioma que pide `Accept-Language`: inglés por defecto, o español de México. La lista completa de códigos y cómo agregar un idioma están en [docs/i18n.md](docs/i18n.md).
+Each error also has a specific `code` (`email_taken`, `slug_taken`, `invalid_credentials`…), and `message` comes in the language that `Accept-Language` asks for: English by default, or Mexican Spanish. The full list of codes and how to add a language are in [docs/i18n.md](docs/i18n.md).
 
-## Configuración
+## Configuration
 
-Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene la lista completa.
+Everything is configured with environment variables. [`.env.example`](.env.example) has the full list.
 
-| Variable | Por defecto | Para qué |
+| Variable | Default | What for |
 |---|---|---|
-| `APP_ENV` | `development` | `production` activa los logs en JSON y la cookie `Secure` |
-| `HTTP_ADDR` | `:8080` | Dirección del servidor |
-| `DATABASE_URL` | (obligatoria) | Conexión a PostgreSQL. El pool tiene 10 conexiones salvo que la URL indique otro tamaño (`?pool_max_conns=20`) |
-| `TEST_DATABASE_URL` | | Base de los tests de integración |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` o `error` |
-| `SHUTDOWN_TIMEOUT` | `10s` | Espera máxima al apagar el servidor |
-| `SESSION_TTL` | `168h` | Duración de la sesión |
-| `SESSION_IDLE_TIMEOUT` | `0` | Cierra una sesión sin actividad durante ese tiempo (por ejemplo `30m`, al menos `15m`). `0` lo desactiva |
-| `COOKIE_SECURE` | `true` en producción | La cookie solo viaja por HTTPS |
-| `CORS_ALLOWED_ORIGINS` | | Orígenes del frontend si está en otro dominio |
-| `TRUST_PROXY` | `false` | Leer la IP real de `X-Forwarded-For` (con un proxy delante). Solo se cree si la conexión viene de localhost o de una red privada |
-| `TRUSTED_PROXIES` | | Con `TRUST_PROXY=true`, las IPs o rangos CIDR exactos del proxy (por ejemplo `127.0.0.1`), en lugar de toda red privada. Con un CDN delante, como Cloudflare, también sus rangos (ver "Antes de producción") |
-| `FRONTEND_URL` | `http://localhost:5173` | Base de los enlaces de los correos |
-| `REQUIRE_EMAIL_VERIFICATION` | `false` | Exigir el email verificado para usar las rutas protegidas |
-| `MAIL_DRIVER` | `log` | `log` (escribe los correos en el log) o `smtp` |
-| `MAIL_FROM` | `no-reply@localhost` | Remitente |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | — / `587` | Datos del servidor SMTP |
-| `APP_NAME` | `Mi App` | Nombre que muestra la app de autenticación del 2FA |
-| `DEFAULT_LOCALE` | `en` | Idioma de los textos al usuario cuando la petición no pide uno disponible (ver [docs/i18n.md](docs/i18n.md)) |
-| `ENCRYPTION_KEY` | (obligatoria) | Clave para cifrar el secreto del 2FA. Generala con `make key` (ver [docs/encryption.md](docs/encryption.md)) |
-| `ENCRYPTION_PREVIOUS_KEYS` | | Claves anteriores, solo durante una rotación |
-| `JOBS_MAX_WORKERS` | `10` | Trabajos en segundo plano que corren a la vez (los correos tienen su propia cola de 4) |
-| `GOMEMLIMIT` | (sin límite) | Variable del propio Go, no de la plantilla. Con ella, el recolector de basura libera memoria antes de llegar a ese valor. En producción conviene cerca del 70 % de la RAM del servidor (con 1 GB, `700MiB`) |
+| `APP_ENV` | `development` | `production` turns on JSON logs and the `Secure` cookie |
+| `HTTP_ADDR` | `:8080` | Server address |
+| `DATABASE_URL` | (required) | PostgreSQL connection. The pool has 10 connections unless the URL sets another size (`?pool_max_conns=20`) |
+| `TEST_DATABASE_URL` | | Database of the integration tests |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
+| `SHUTDOWN_TIMEOUT` | `10s` | Maximum wait when the server shuts down |
+| `SESSION_TTL` | `168h` | Session lifetime |
+| `SESSION_IDLE_TIMEOUT` | `0` | Closes a session without activity for that long (for example `30m`, at least `15m`). `0` turns it off |
+| `COOKIE_SECURE` | `true` in production | The cookie only travels over HTTPS |
+| `CORS_ALLOWED_ORIGINS` | | Frontend origins if it is on another domain |
+| `TRUST_PROXY` | `false` | Read the real IP from `X-Forwarded-For` (with a proxy in front). It is only trusted if the connection comes from localhost or a private network |
+| `TRUSTED_PROXIES` | | With `TRUST_PROXY=true`, the exact IPs or CIDR ranges of the proxy (for example `127.0.0.1`), instead of every private network. With a CDN in front, like Cloudflare, its ranges too (see "Before production") |
+| `FRONTEND_URL` | `http://localhost:5173` | Base of the links in the emails |
+| `REQUIRE_EMAIL_VERIFICATION` | `false` | Require a verified email to use the protected routes |
+| `MAIL_DRIVER` | `log` | `log` (writes the emails to the log) or `smtp` |
+| `MAIL_FROM` | `no-reply@localhost` | Sender |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | — / `587` | SMTP server details |
+| `APP_NAME` | `My App` | Name shown by the 2FA authenticator app |
+| `DEFAULT_LOCALE` | `en` | Language of the user-facing text when the request does not ask for an available one (see [docs/i18n.md](docs/i18n.md)) |
+| `ENCRYPTION_KEY` | (required) | Key to encrypt the 2FA secret. Generate it with `make key` (see [docs/encryption.md](docs/encryption.md)) |
+| `ENCRYPTION_PREVIOUS_KEYS` | | Previous keys, only during a rotation |
+| `JOBS_MAX_WORKERS` | `10` | Background jobs that run at once (emails have their own queue of 4) |
+| `GOMEMLIMIT` | (no limit) | Go's own variable, not the template's. With it, the garbage collector frees memory before reaching that value. In production, around 70% of the server's RAM is a good choice (with 1 GB, `700MiB`) |
 
-Los valores con espacios van entre comillas: `APP_NAME="Mi App"`.
+Values with spaces go in quotes: `APP_NAME="My App"`.
 
-### Antes de producción
+### Before production
 
-Lo que hay que revisar en la configuración, sea cual sea el servidor. Si `COOKIE_SECURE` o `MAIL_DRIVER` quedan mal en producción, o si `FRONTEND_URL` o `MAIL_FROM` siguen apuntando a `localhost`, la API lo avisa en el log al arrancar.
+What to check in the configuration, whatever the server. If `COOKIE_SECURE` or `MAIL_DRIVER` are wrong in production, or if `FRONTEND_URL` or `MAIL_FROM` still point to `localhost`, the API warns about it in the log on startup.
 
-- **`APP_ENV=production`:** logs en JSON y cookies `Secure` con el prefijo `__Host-`.
-- **HTTPS delante de la API:** la API habla HTTP, y el TLS lo termina el proxy o el balanceador. Sin HTTPS, las cookies `Secure` no viajan y nadie puede iniciar sesión.
-- **`TRUST_PROXY=true` solo si hay un proxy delante, y con el puerto de la API cerrado a internet.**
-  - Con el proxy en el mismo servidor, que la API escuche solo ahí: `HTTP_ADDR=127.0.0.1:8080`, y de paso `TRUSTED_PROXIES=127.0.0.1`.
-  - Si tu proveedor tiene una red privada compartida entre clientes, indicá siempre la IP exacta del proxy con `TRUSTED_PROXIES`.
-  - Con un CDN delante del proxy, sumá a `TRUSTED_PROXIES` los rangos del CDN (por ejemplo, [los de Cloudflare](https://www.cloudflare.com/ips/)) además del proxy. El proxy tiene que agregar su IP al `X-Forwarded-For` que manda el CDN, no reemplazarlo. Si no, todos los usuarios que pasan por el mismo nodo del CDN comparten los límites de intentos.
-- **`MAIL_DRIVER=smtp`** con un proveedor real, y **`FRONTEND_URL`** con el dominio del frontend (los enlaces de los correos apuntan ahí). Con el frontend en otro dominio, también `CORS_ALLOWED_ORIGINS`.
-- **`ENCRYPTION_KEY` guardada como secreto y respaldada aparte de la base:** si se pierde, los usuarios tienen que volver a configurar el 2FA (ver [docs/encryption.md](docs/encryption.md)).
-- **`GOMEMLIMIT`** cerca del 70 % de la RAM del servidor.
-- **Conexión directa a PostgreSQL**, o PgBouncer en modo `session`. El tiempo real y River escuchan con `LISTEN`, que no funciona con PgBouncer en modo `transaction`.
+- **`APP_ENV=production`:** JSON logs and `Secure` cookies with the `__Host-` prefix.
+- **HTTPS in front of the API:** the API speaks HTTP, and the proxy or load balancer terminates TLS. Without HTTPS, `Secure` cookies do not travel and nobody can log in.
+- **`TRUST_PROXY=true` only if there is a proxy in front, and with the API port closed to the internet.**
+  - With the proxy on the same server, make the API listen only there: `HTTP_ADDR=127.0.0.1:8080`, and also `TRUSTED_PROXIES=127.0.0.1`.
+  - If your provider has a private network shared between customers, always set the exact IP of the proxy with `TRUSTED_PROXIES`.
+  - With a CDN in front of the proxy, add the CDN ranges (for example, [Cloudflare's](https://www.cloudflare.com/ips/)) to `TRUSTED_PROXIES` besides the proxy. The proxy must append its IP to the `X-Forwarded-For` the CDN sends, not replace it. Otherwise, every user going through the same CDN node shares the attempt limits.
+- **`MAIL_DRIVER=smtp`** with a real provider, and **`FRONTEND_URL`** with the frontend's domain (the links in the emails point there). With the frontend on another domain, `CORS_ALLOWED_ORIGINS` too.
+- **`ENCRYPTION_KEY` stored as a secret and backed up apart from the database:** if it is lost, users have to set up 2FA again (see [docs/encryption.md](docs/encryption.md)).
+- **`GOMEMLIMIT`** around 70% of the server's RAM.
+- **A direct connection to PostgreSQL**, or PgBouncer in `session` mode. Real time and River listen with `LISTEN`, which does not work with PgBouncer in `transaction` mode.
 
-## Comandos
+## Commands
 
-Ejecutá `make` para ver la lista completa. Los principales:
+Run `make` to see the full list. The main ones:
 
-| Comando | Para qué |
+| Command | What for |
 |---|---|
-| `make run` | Levanta la API |
-| `make check` | gofmt, sqlc al día, go vet, staticcheck, tests y govulncheck. Correlo antes de cada commit |
-| `make sqlc` | Regenera el código de la base después de cambiar migraciones o consultas |
-| `make migrate-new name=create_x` | Crea una migración |
-| `make create-admin email=…` | Crea un administrador |
-| `make key` | Genera una clave para `ENCRYPTION_KEY` |
-| `make rotate-keys` | Termina una rotación de `ENCRYPTION_KEY` (ver [docs/encryption.md](docs/encryption.md)) |
-| `make river-migration version=N` | SQL de una migración nueva de River, al actualizarlo (ver [docs/jobs.md](docs/jobs.md)) |
-| `make build` | Binario estático en `bin/api` |
+| `make run` | Starts the API |
+| `make check` | gofmt, sqlc up to date, go vet, staticcheck, tests and govulncheck. Run it before each commit |
+| `make sqlc` | Regenerates the database code after changing migrations or queries |
+| `make migrate-new name=create_x` | Creates a migration |
+| `make create-admin email=…` | Creates an administrator |
+| `make key` | Generates a key for `ENCRYPTION_KEY` |
+| `make rotate-keys` | Finishes a rotation of `ENCRYPTION_KEY` (see [docs/encryption.md](docs/encryption.md)) |
+| `make river-migration version=N` | SQL of a new River migration, when updating it (see [docs/jobs.md](docs/jobs.md)) |
+| `make build` | Static binary in `bin/api` |
 
-## Estructura
+## Structure
 
 ```
-cmd/api/             arranque de la aplicación y comando create-admin
-internal/config/     variables de entorno
-internal/httpx/      JSON, errores, paginación, middlewares, CORS y límite de peticiones por IP
-internal/server/     servidor, rutas y protección CSRF
-internal/auth/       usuarios, sesiones, roles, perfil, recuperación y verificación (y sus plantillas de correo)
-internal/ratelimit/  límites de intentos por cuenta o usuario, en PostgreSQL
-internal/i18n/       textos al usuario por idioma (inglés y es-MX)
-internal/mail/       envío de correos (log y SMTP) y plantillas por idioma
-internal/jobs/       trabajos en segundo plano (River): workers, periódicos y la cola de correos
-internal/realtime/   tiempo real con SSE: streams, canales y temas
-internal/notifications/ notificaciones guardadas y enviadas en vivo
-internal/totp/       códigos TOTP del 2FA (RFC 6238)
-internal/secretbox/  cifrado (AES-256-GCM) y HMAC con un llavero de claves rotables
-internal/db/         conexión, migraciones, errores de PostgreSQL y consultas SQL
-internal/store/      código generado por sqlc (no editar)
-internal/validate/   reglas de validación compartidas
-internal/notes/      ejemplo: datos de cada usuario
-internal/categories/ ejemplo: catálogo, lectura pública y escritura de admin
-internal/products/   ejemplo: relaciones, filtros y búsqueda
-internal/testutil/   ayudas para los tests
-migrations/          migraciones SQL
-docs/                guías y decisiones
+cmd/api/             application startup and the create-admin, generate-key and rotate-keys commands
+internal/config/     environment variables
+internal/httpx/      JSON, errors, pagination, middlewares, CORS and per-IP request limits
+internal/server/     server, routes and CSRF protection
+internal/auth/       users, sessions, roles, profile, password reset and verification (and their email templates)
+internal/ratelimit/  attempt limits per account or user, in PostgreSQL
+internal/i18n/       user-facing text by language (English and es-MX)
+internal/mail/       email sending (log and SMTP) and templates by language
+internal/jobs/       background jobs (River): workers, periodic jobs and the email queue
+internal/realtime/   real time with SSE: streams, channels and topics
+internal/notifications/ notifications stored and sent live
+internal/totp/       TOTP codes for 2FA (RFC 6238)
+internal/secretbox/  encryption (AES-256-GCM) and HMAC with a keyring of rotatable keys
+internal/db/         connection, migrations, PostgreSQL errors and SQL queries
+internal/store/      code generated by sqlc (do not edit)
+internal/validate/   shared validation rules
+internal/notes/      example: each user's data
+internal/categories/ example: catalog, public reads and admin writes
+internal/products/   example: relationships, filters and search
+internal/testutil/   test helpers
+migrations/          SQL migrations
+docs/                guides and decisions
 ```
 
-## Usar como base de un proyecto nuevo
+## Starting a new project
 
-**Con `gonew`** (si el repositorio está publicado):
+**With `gonew`** (if the repository is published):
 
 ```bash
 go install golang.org/x/tools/cmd/gonew@latest
-gonew github.com/NoeOnDev/go-api-base github.com/tu-usuario/mi-proyecto
+gonew github.com/NoeOnDev/go-api-base github.com/your-user/my-project
 ```
 
-`gonew` copia la plantilla y cambia el nombre del módulo y todos los imports.
+`gonew` copies the template and changes the module name and every import.
 
-**Copiando la carpeta** (si el repositorio es privado o no está publicado):
+**Copying the folder** (if the repository is private or not published):
 
 ```bash
-cp -r go-api-base mi-proyecto && cd mi-proyecto && rm -rf .git .env bin
-go mod edit -module github.com/tu-usuario/mi-proyecto
-grep -rl 'github.com/NoeOnDev/go-api-base' --include='*.go' --include='go.mod' . | xargs sed -i 's#github.com/NoeOnDev/go-api-base#github.com/tu-usuario/mi-proyecto#g'
+cp -r go-api-base my-project && cd my-project && rm -rf .git .env bin
+go mod edit -module github.com/your-user/my-project
+grep -rl 'github.com/NoeOnDev/go-api-base' --include='*.go' --include='go.mod' . | xargs sed -i 's#github.com/NoeOnDev/go-api-base#github.com/your-user/my-project#g'
 git init
 ```
 
-Después:
-- **Conservá `TEMPLATE_VERSION`:** dice de qué versión de la plantilla salió el proyecto. Cuando lleves al proyecto los cambios del [CHANGELOG](CHANGELOG.md) de versiones más nuevas, actualizalo a la última que aplicaste. Así siempre sabés desde dónde leer.
-- Conservá la autenticación.
-- Quedate con los ejemplos que se parezcan a tu proyecto y borrá el resto (su paquete, sus consultas, sus migraciones y su registro en `internal/server/routes.go`).
-- Si no necesitás alguna función de auth (registro abierto, 2FA, cambio de email…), [docs/auth.md](docs/auth.md#quitar-funciones) dice qué borrar.
-- Si no necesitás la cola de trabajos o el tiempo real, [docs/jobs.md](docs/jobs.md#quitar-la-cola) y [docs/realtime.md](docs/realtime.md#quitar-el-tiempo-real) explican cómo quitarlos.
-- Agregá tus recursos siguiendo [docs/adding-a-resource.md](docs/adding-a-resource.md).
+Then:
+- **Keep `TEMPLATE_VERSION`:** it says which version of the template the project came from. When you bring the changes of newer versions from the [CHANGELOG](CHANGELOG.md) to the project, update it to the last one you applied. That way you always know where to start reading.
+- Keep the authentication.
+- Keep the examples that look like your project and delete the rest (their package, queries, migrations and registration in `internal/server/routes.go`).
+- If you don't need some auth feature (open registration, 2FA, email change…), [docs/auth.md](docs/auth.md#removing-features) says what to delete.
+- If you don't need the job queue or real time, [docs/jobs.md](docs/jobs.md#removing-the-queue) and [docs/realtime.md](docs/realtime.md#removing-real-time) explain how to remove them.
+- Add your resources following [docs/adding-a-resource.md](docs/adding-a-resource.md).
 
-## Documentación
+## Documentation
 
-- [Autenticación](docs/auth.md): cómo funciona, cómo usarla desde React y cómo quitar las funciones que no uses.
-- [Cifrado y `ENCRYPTION_KEY`](docs/encryption.md): qué protege, cómo guardarla y cómo rotarla.
-- [Idiomas (i18n)](docs/i18n.md): textos al usuario en inglés y español de México, cómo agregar un idioma y la lista de códigos de error.
-- [Trabajos en segundo plano](docs/jobs.md): crear trabajos, encolar en una transacción, periódicos, reintentos y cómo quitar la cola.
-- [Tiempo real](docs/realtime.md): eventos con SSE desde React, temas con permiso, streams para agentes de IA, varias instancias y cómo quitarlo.
-- [Cómo agregar un recurso](docs/adding-a-resource.md)
-- [Decisiones de diseño](docs/decisions.md): por qué está hecho así, cómo funciona con varias instancias y qué no incluye.
-- [AGENTS.md](AGENTS.md): convenciones para agentes de código (Claude Code, Codex, Copilot), con un índice de dónde está cada tema.
+- [Authentication](docs/auth.md): how it works, how to use it from React and how to remove the features you don't use.
+- [Encryption and `ENCRYPTION_KEY`](docs/encryption.md): what it protects, how to store it and how to rotate it.
+- [Languages (i18n)](docs/i18n.md): user-facing text in English and Mexican Spanish, how to add a language and the list of error codes.
+- [Background jobs](docs/jobs.md): creating jobs, queuing in a transaction, periodic jobs, retries and how to remove the queue.
+- [Real time](docs/realtime.md): SSE events from React, topics with permissions, streams for AI agents, multiple instances and how to remove it.
+- [Adding a resource](docs/adding-a-resource.md)
+- [Design decisions](docs/decisions.md): why it is built this way, how it works with multiple instances and what it does not include.
+- [AGENTS.md](AGENTS.md): conventions for coding agents (Claude Code, Codex, Copilot), with an index of where each topic is.

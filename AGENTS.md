@@ -1,245 +1,252 @@
 # AGENTS.md
 
-Instrucciones para agentes de código (Claude Code, Codex, Copilot) que trabajen en este proyecto.
+Instructions for coding agents (Claude Code, Codex, Copilot) working on this project.
 
-## Qué es
+## What it is
 
-> **Este repositorio es una plantilla**, no una dependencia: `gonew` copia el código y los proyectos creados no quedan
-> conectados a ella. Por eso acá se puede reorganizar libremente (incluidas las migraciones, que son el esquema inicial).
-> Cada cambio de la plantilla se anota en `CHANGELOG.md`, con el SQL para llevar los cambios de esquema a un proyecto
-> ya desplegado.
+> **This repository is a template**, not a dependency: `gonew` copies the code and the projects created from it are not
+> connected to it. That is why it can be reorganized freely here (including the migrations, which are the initial schema).
+> Every change to the template goes in `CHANGELOG.md`, with the SQL to bring schema changes to a project that is
+> already deployed.
 >
-> **Migraciones en un proyecto creado con la plantilla:** hasta el primer despliegue, un campo nuevo o eliminado se
-> cambia **en la migración original** (y se recrea la base local). Después del primer despliegue, siempre con una
-> migración nueva.
+> **Migrations in a project created from the template:** until the first deploy, a new or removed field is changed
+> **in the original migration** (and the local database is recreated). After the first deploy, always with a new
+> migration.
 
-`go-api-base` es una plantilla de API REST en Go, completa y lista para producción, para proyectos personales, de
-clientes y de empresa. Corre como un solo binario con PostgreSQL, con una instancia o con varias (ver "Varias instancias"
-en `docs/decisions.md`).
-Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migraciones (goose), consultas tipadas (sqlc),
-la cola de trabajos (River) y paquetes del equipo de Go (`golang.org/x/crypto`, `x/time`, `x/term`).
+`go-api-base` is a complete, production-ready REST API template in Go, for personal, client and company projects.
+It runs as a single binary with PostgreSQL, with one instance or several (see "Multiple instances" in
+`docs/decisions.md`).
+It favors the standard library and adds only the essentials: PostgreSQL (pgx), migrations (goose), typed queries (sqlc),
+the job queue (River) and packages from the Go team (`golang.org/x/crypto`, `x/time`, `x/term`, `x/text`).
 
-Trae autenticación completa (sesiones con cookie, roles `user`/`admin`, perfil, cambio y recuperación de contraseña,
-verificación de email opcional, 2FA con TOTP, sesiones por dispositivo, cambio de email y borrado de cuenta; ver `docs/auth.md`), envío de correos, trabajos en segundo plano con River
-(`docs/jobs.md`), tiempo real con SSE y notificaciones (`docs/realtime.md`), y tres **recursos de ejemplo** que sirven de modelo:
+It comes with complete authentication (cookie sessions, `user`/`admin` roles, profile, password change and reset,
+optional email verification, 2FA with TOTP, sessions per device, email change and account deletion; see `docs/auth.md`),
+email sending, background jobs with River (`docs/jobs.md`), real time with SSE and notifications (`docs/realtime.md`),
+user-facing text in several languages (`docs/i18n.md`), and three **example resources** that serve as models:
 
-| Recurso | Qué muestra |
+| Resource | What it shows |
 |---|---|
-| `internal/notes` | CRUD protegido con **pertenencia**: cada usuario ve solo lo suyo |
-| `internal/categories` | Lectura pública, escritura solo admin, valor único (409), no borrar si está en uso (409) |
-| `internal/products` | Relación con otra tabla (JOIN), filtros y búsqueda, FK inexistente (422), datos visibles según el rol |
+| `internal/notes` | Protected CRUD with **ownership**: each user sees only their own |
+| `internal/categories` | Public reads, admin-only writes, unique value (409), no deleting while in use (409) |
+| `internal/products` | Relationship with another table (JOIN), filters and search, missing FK (422), data visible by role |
 
-## Dónde buscar
+## Where to look
 
-La documentación está en español, en `docs/` y en el `README.md`, y responde casi todo lo que suele preguntar un
-proyecto. **Antes de decir que algo falta, no existe o no está documentado, buscalo:** en esta tabla, con
-`grep -rni '<tema>' docs/ README.md` y en los comentarios del código. Si existe, citá el archivo y la sección. Los títulos
-de cada guía se listan con `grep -n '^#' docs/*.md`.
+The documentation is in `docs/` and the `README.md`, and it answers almost everything a project usually asks.
+**Before saying that something is missing, does not exist or is not documented, look for it:** in this table, with
+`grep -rni '<topic>' docs/ README.md` and in the code comments. If it exists, cite the file and the section. The
+headings of each guide are listed with `grep -n '^#' docs/*.md`.
 
-| Tema | Dónde |
+| Topic | Where |
 |---|---|
-| Agregar un recurso, paso a paso | [docs/adding-a-resource.md](docs/adding-a-resource.md) |
-| Sesiones con cookie, endpoints de auth y roles | [docs/auth.md](docs/auth.md#cómo-funcionan-las-sesiones), [roles](docs/auth.md#roles) |
-| Proteger una ruta nueva (sesión, admin, ruta pública) | [docs/auth.md](docs/auth.md#proteger-rutas-nuevas) |
-| 2FA, recuperar la contraseña, verificar y cambiar el email, sesiones por dispositivo, borrar la cuenta | Una sección cada uno en [docs/auth.md](docs/auth.md#2fa-verificación-en-dos-pasos) |
-| Correos: variables, plantillas, reintentos y Mailpit | [docs/auth.md](docs/auth.md#correos) |
-| Límites de intentos: valores y dónde se cambian | [docs/auth.md](docs/auth.md#seguridad-incluida) |
-| Límites de intentos: por qué en memoria o en PostgreSQL | [docs/decisions.md](docs/decisions.md#límites-de-intentos) |
-| Frontend en React, en el mismo dominio o en otro | [docs/auth.md](docs/auth.md#desde-el-frontend-react), [docs/realtime.md](docs/realtime.md#desde-el-frontend-react) |
-| Trabajos en segundo plano y periódicos | [docs/jobs.md](docs/jobs.md) |
-| Tiempo real: publicar eventos y temas con permiso | [docs/realtime.md](docs/realtime.md#publicar-eventos) |
-| Transmitir la respuesta de un agente de IA | [docs/realtime.md](docs/realtime.md#transmitir-la-respuesta-de-un-agente-de-ia) |
-| Varias instancias de la API | [docs/decisions.md](docs/decisions.md#varias-instancias) |
-| Cifrado, `ENCRYPTION_KEY` y su rotación | [docs/encryption.md](docs/encryption.md) |
-| Idiomas: textos al usuario, catálogos, agregar un idioma o un mensaje, y la tabla de códigos de error | [docs/i18n.md](docs/i18n.md) |
-| Variables de entorno | [README.md](README.md#configuración) |
-| Qué revisar antes de producción | [README.md](README.md#antes-de-producción) |
-| Empezar un proyecto con la plantilla | [README.md](README.md#usar-como-base-de-un-proyecto-nuevo) |
-| **Quitar** funciones de auth que no se usen (registro abierto, 2FA, cambio de email…) | [docs/auth.md](docs/auth.md#quitar-funciones) |
-| **Quitar** la cola de trabajos | [docs/jobs.md](docs/jobs.md#quitar-la-cola) |
-| **Quitar** el tiempo real o solo las notificaciones | [docs/realtime.md](docs/realtime.md#quitar-el-tiempo-real) |
-| Por qué está hecho así (cada decisión de diseño) | [docs/decisions.md](docs/decisions.md) |
-| Lo que la plantilla no incluye a propósito: mirarlo antes de proponer una función nueva | [docs/decisions.md](docs/decisions.md#qué-no-incluye), [docs/auth.md](docs/auth.md#qué-no-incluye) |
-| Qué cambió en cada versión, y el SQL para llevarlo a un proyecto ya desplegado | [CHANGELOG.md](CHANGELOG.md) |
+| Adding a resource, step by step | [docs/adding-a-resource.md](docs/adding-a-resource.md) |
+| Cookie sessions, auth endpoints and roles | [docs/auth.md](docs/auth.md#how-sessions-work), [roles](docs/auth.md#roles) |
+| Protecting a new route (session, admin, public route) | [docs/auth.md](docs/auth.md#protecting-new-routes) |
+| 2FA, password reset, verifying and changing the email, sessions per device, deleting the account | One section each in [docs/auth.md](docs/auth.md#2fa-two-factor-authentication) |
+| Emails: variables, templates, retries and Mailpit | [docs/auth.md](docs/auth.md#emails) |
+| Attempt limits: values and where to change them | [docs/auth.md](docs/auth.md#built-in-security) |
+| Attempt limits: why in memory or in PostgreSQL | [docs/decisions.md](docs/decisions.md#attempt-limits) |
+| React frontend, on the same domain or another one | [docs/auth.md](docs/auth.md#from-the-frontend-react), [docs/realtime.md](docs/realtime.md#from-the-frontend-react) |
+| Background and periodic jobs | [docs/jobs.md](docs/jobs.md) |
+| Real time: publishing events and topics with permissions | [docs/realtime.md](docs/realtime.md#publishing-events) |
+| Streaming an AI agent's response | [docs/realtime.md](docs/realtime.md#streaming-an-ai-agents-response) |
+| Multiple instances of the API | [docs/decisions.md](docs/decisions.md#multiple-instances) |
+| Encryption, `ENCRYPTION_KEY` and its rotation | [docs/encryption.md](docs/encryption.md) |
+| Languages: user-facing text, catalogs, adding a language or a message, and the table of error codes | [docs/i18n.md](docs/i18n.md) |
+| Environment variables | [README.md](README.md#configuration) |
+| What to check before production | [README.md](README.md#before-production) |
+| Starting a project from the template | [README.md](README.md#starting-a-new-project) |
+| **Removing** unused auth features (open registration, 2FA, email change…) | [docs/auth.md](docs/auth.md#removing-features) |
+| **Removing** the job queue | [docs/jobs.md](docs/jobs.md#removing-the-queue) |
+| **Removing** real time or only the notifications | [docs/realtime.md](docs/realtime.md#removing-real-time) |
+| Why it is built this way (each design decision) | [docs/decisions.md](docs/decisions.md) |
+| What the template leaves out on purpose: check it before proposing a new feature | [docs/decisions.md](docs/decisions.md#what-it-does-not-include), [docs/auth.md](docs/auth.md#what-it-does-not-include) |
+| What changed in each version, and the SQL to bring it to a project already deployed | [CHANGELOG.md](CHANGELOG.md) |
 
-**Al cambiar el comportamiento, actualizá la documentación en el mismo commit:** la guía que lo describe, las recetas
-de "Quitar…" si cambian rutas, archivos o tablas, esta tabla si agregás una guía o una sección que valga la pena
-encontrar, y `CHANGELOG.md`. `make check` comprueba que los enlaces de la documentación y las menciones a `docs/*.md`
-apunten a archivos y secciones que existen (`docs/links_test.go`).
+**When you change behavior, update the documentation in the same commit:** the guide that describes it, the
+"Removing…" recipes if routes, files or tables change, this table if you add a guide or a section worth finding, and
+`CHANGELOG.md`. `make check` checks that the documentation links and the mentions of `docs/*.md` point to files and
+sections that exist (`docs/links_test.go`).
 
-## Comandos
+## Commands
 
-| Comando | Para qué |
+| Command | What for |
 |---|---|
-| `make run` | Levanta la API (aplica las migraciones al arrancar) |
-| `make check` | **Correr siempre antes de commitear**: gofmt, sqlc diff, go vet, staticcheck, go test y govulncheck |
-| `make test` | Tests (`go test -p 1`; los de base de datos usan `TEST_DATABASE_URL`, sin ella se saltean) |
-| `make sqlc` | Regenerar `internal/store` después de cambiar migraciones o consultas |
-| `make migrate-new name=create_x` | Crear una migración nueva |
-| `make migrate-up` / `migrate-down` / `migrate-status` | Manejar migraciones en desarrollo |
-| `make create-admin email=… name=…` | Crear un administrador (contraseña por `ADMIN_PASSWORD` o por la terminal) |
-| `make key` / `make rotate-keys` | Generar una `ENCRYPTION_KEY` / terminar una rotación (ver `docs/encryption.md`) |
-| `make river-migration version=N` | SQL de una migración nueva de River, al actualizarlo (ver `docs/jobs.md`) |
-| `make build` | Binario estático en `bin/api` |
+| `make run` | Starts the API (applies the migrations on startup) |
+| `make check` | **Always run it before committing**: gofmt, sqlc diff, go vet, staticcheck, go test and govulncheck |
+| `make test` | Tests (`go test -p 1`; the database ones use `TEST_DATABASE_URL`, and are skipped without it) |
+| `make sqlc` | Regenerate `internal/store` after changing migrations or queries |
+| `make migrate-new name=create_x` | Create a new migration |
+| `make migrate-up` / `migrate-down` / `migrate-status` | Manage migrations in development |
+| `make create-admin email=… name=…` | Create an administrator (password from `ADMIN_PASSWORD` or the terminal) |
+| `make key` / `make rotate-keys` | Generate an `ENCRYPTION_KEY` / finish a rotation (see `docs/encryption.md`) |
+| `make river-migration version=N` | SQL of a new River migration, when updating it (see `docs/jobs.md`) |
+| `make build` | Static binary in `bin/api` |
 
-`make` carga `.env` automáticamente. Las herramientas (sqlc, goose, staticcheck, govulncheck) se ejecutan con `go run paquete@versión`,
-con las versiones fijas al principio del `Makefile`; no hace falta instalarlas. **No crear subcarpetas con su propio `go.mod`**:
-`gonew` no las copia.
+`make` loads `.env` automatically. The tools (sqlc, goose, staticcheck, govulncheck) run with `go run package@version`,
+with the versions pinned at the top of the `Makefile`; there is no need to install them. **Do not create subfolders with
+their own `go.mod`**: `gonew` does not copy them.
 
-## Estructura
+## Structure
 
 ```
-cmd/api/              arranque (main.go) y subcomandos create-admin (admin.go), generate-key y rotate-keys (keys.go)
-internal/config/      configuración desde variables de entorno
-internal/httpx/       JSON, errores, paginación, middlewares, CORS, límite de peticiones por IP, IP del cliente
-internal/server/      http.Server con timeouts, rutas, CSRF y orden de middlewares (routes.go)
-internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/RequireAdmin y un archivo por función
-                      (perfil, recuperación, verificación, 2FA…; ver "Quitar funciones" en docs/auth.md). Lo común a
-                      varias, en account.go, session.go y tokens.go; plantillas de correo en emails/<idioma>/*.txt
-internal/ratelimit/   límites de intentos por cuenta o usuario, guardados en PostgreSQL (valen para todas las instancias)
-internal/i18n/        textos al usuario por idioma: catálogos locales/*.json (en, es-MX), Accept-Language, traductor
-internal/mail/        envío de correos: LogSender, SMTPSender, Recorder (tests) y plantillas por idioma (Templates)
-internal/jobs/        trabajos en segundo plano con River: cliente, workers (workers.go), periódicos, MailSender
-internal/realtime/    tiempo real con SSE: Stream, Broker (canales y temas), GET /events y LISTEN/NOTIFY entre instancias
-internal/notifications/ notificaciones guardadas y enviadas en vivo; auth las usa para los avisos de seguridad
-internal/totp/        códigos TOTP del 2FA (RFC 6238), solo librería estándar
-internal/secretbox/   llavero: cifrado AES-256-GCM y HMAC con la clave actual y las anteriores (rotación)
-internal/db/          pool de pgx, migraciones, errores de PostgreSQL y consultas SQL (queries/*.sql)
-internal/store/       GENERADO por sqlc: no editar a mano
-internal/validate/    reglas de validación compartidas (obligatorio, longitud, slug, no negativo)
-internal/<recurso>/   un paquete por recurso: handlers.go, validation.go, routes.go, handlers_test.go
-internal/testutil/    ayudas para tests de integración (NewDB, Login, NewAPI, Do, Decode)
-migrations/           migraciones SQL de goose, embebidas en el binario
-docs/                 guías y decisiones de diseño (ver "Dónde buscar"); links_test.go revisa sus enlaces
+cmd/api/              startup (main.go) and the create-admin (admin.go), generate-key and rotate-keys (keys.go) subcommands
+internal/config/      configuration from environment variables
+internal/httpx/       JSON, errors, pagination, middlewares, CORS, per-IP request limits, client IP
+internal/server/      http.Server with timeouts, routes, CSRF and middleware order (routes.go)
+internal/auth/        users, passwords (argon2id), sessions, RequireUser/RequireAdmin and one file per feature
+                      (profile, password reset, verification, 2FA…; see "Removing features" in docs/auth.md). What
+                      several share, in account.go, session.go and tokens.go; email templates in emails/<language>/*.txt
+internal/ratelimit/   attempt limits per account or user, stored in PostgreSQL (shared by every instance)
+internal/i18n/        user-facing text by language: catalogs locales/*.json (en, es-MX), Accept-Language, translator
+internal/mail/        email sending: LogSender, SMTPSender, Recorder (tests) and templates by language (Templates)
+internal/jobs/        background jobs with River: client, workers (workers.go), periodic jobs, MailSender
+internal/realtime/    real time with SSE: Stream, Broker (channels and topics), GET /events and LISTEN/NOTIFY between instances
+internal/notifications/ notifications stored and sent live; auth uses them for the security notices
+internal/totp/        TOTP codes for 2FA (RFC 6238), standard library only
+internal/secretbox/   keyring: AES-256-GCM encryption and HMAC with the current key and the previous ones (rotation)
+internal/db/          pgx pool, migrations, PostgreSQL errors and SQL queries (queries/*.sql)
+internal/store/       GENERATED by sqlc: do not edit by hand
+internal/validate/    shared validation rules (required, length, slug, non-negative)
+internal/<resource>/  one package per resource: handlers.go, validation.go, routes.go, handlers_test.go
+internal/testutil/    helpers for integration tests (NewDB, Login, NewAPI, Do, Decode)
+migrations/           goose SQL migrations, embedded in the binary
+docs/                 guides and design decisions (see "Where to look"); links_test.go checks their links
 ```
 
-## Convenciones
+## Conventions
 
-**Generales**
-- Go idiomático y simple. Preferir la librería estándar; **no agregar dependencias sin consultarlo**.
-- Todo lo interno en inglés: nombres de código, comentarios, errores internos, logs, tests, datos de ejemplo y salida de
-  los comandos.
-- **Ningún texto al usuario final en el código:** errores, validación, mensajes de éxito, correos y notificaciones salen de
-  los catálogos de `internal/i18n` (inglés por defecto y es-MX con tú), en el idioma de la petición. Ver `docs/i18n.md`.
-- Errores envueltos con contexto: `fmt.Errorf("create note: %w", err)`. No usar `panic` para errores normales.
-- Pasar `r.Context()` a todo lo que hable con la base.
+**General**
+- Idiomatic, simple Go. Prefer the standard library; **do not add dependencies without asking**.
+- Everything internal in English: code names, comments, internal errors, logs, tests, example data, command output and
+  documentation.
+- **No user-facing text in the code:** errors, validation, success messages, emails and notifications come from the
+  catalogs of `internal/i18n` (English by default and es-MX with "tú"), in the request's language. See `docs/i18n.md`.
+- Errors wrapped with context: `fmt.Errorf("create note: %w", err)`. Do not use `panic` for normal errors.
+- Pass `r.Context()` to everything that talks to the database.
 
 **HTTP**
-- Los handlers tienen la firma `func(w, r) error` y se registran con `httpx.Handle`. Ante un error, solo `return err`.
-- Leer JSON con `httpx.Decode` y responder con `httpx.Write`. Nunca escribir JSON a mano.
-- Errores para el cliente, con un **código específico** que es también la clave de su mensaje (`errors.<código>` en los
-  catálogos): `httpx.BadRequest("malformed_json")`, `NotFound("order_not_found")`, `Unauthorized(…)`, `Forbidden(…)`,
-  `Conflict("invoice_already_paid", "campo")` y `Validation(httpx.Fields{"title": i18n.M("validation.required")})`.
-  Un código nuevo va en todos los catálogos y en la tabla de `docs/i18n.md` (`make check` lo exige).
-  Cualquier otro error se responde como 500 sin exponer detalles.
-- Las reglas de `internal/validate` devuelven `i18n.Message` (vacío si el valor es válido: `!msg.IsZero()`).
-- Paginación con `httpx.ParsePage` y respuesta `httpx.List[T]` (`{data, meta}`). IDs de la ruta con `httpx.PathID(r, "id")`.
-- Cada recurso define su propio struct de respuesta; no devolver directamente los structs de `internal/store`.
-- Logs con `httpx.LoggerFrom(r.Context())` (ya incluye `request_id` y, con sesión, `user_id`). Para sumar un dato a todas las
-  líneas de la petición, incluida la final, usar `httpx.AddLogAttrs(ctx, "clave", valor)`. No registrar contraseñas ni tokens.
-  Una ruta que se consulta muy seguido (un health check, métricas) se envuelve con `httpx.Quiet`: su línea va en `debug`, salvo los 5xx.
+- Handlers have the signature `func(w, r) error` and are registered with `httpx.Handle`. On an error, just `return err`.
+- Read JSON with `httpx.Decode` and respond with `httpx.Write`. Never write JSON by hand.
+- Client errors, with a **specific code** that is also the key of its message (`errors.<code>` in the catalogs):
+  `httpx.BadRequest("malformed_json")`, `NotFound("order_not_found")`, `Unauthorized(…)`, `Forbidden(…)`,
+  `Conflict("invoice_already_paid", "field")` and `Validation(httpx.Fields{"title": i18n.M("validation.required")})`.
+  A new code goes in every catalog and in the table of `docs/i18n.md` (`make check` requires it).
+  Any other error is answered as a 500 without exposing details.
+- The rules of `internal/validate` return `i18n.Message` (empty if the value is valid: `!msg.IsZero()`).
+- Pagination with `httpx.ParsePage` and the `httpx.List[T]` response (`{data, meta}`). Route IDs with `httpx.PathID(r, "id")`.
+- Each resource defines its own response struct; do not return the `internal/store` structs directly.
+- Logs with `httpx.LoggerFrom(r.Context())` (it already includes `request_id` and, with a session, `user_id`). To add a
+  value to every line of the request, including the final one, use `httpx.AddLogAttrs(ctx, "key", value)`. Do not log
+  passwords or tokens. A route that is called very often (a health check, metrics) is wrapped with `httpx.Quiet`: its
+  line goes at `debug`, except for 5xx.
 
-**Autenticación y permisos**
-- Proteger rutas en `routes.go` del recurso: `authn.RequireUser(...)` (cualquier usuario), `authn.RequireAdmin(...)`
-  o `authn.OptionalUser(...)` (ruta pública que muestra más a ciertos usuarios; en el handler, `auth.UserFrom`).
-- En un handler protegido, el usuario es `auth.MustUser(r.Context())`.
-- **Datos de cada usuario:** la tabla referencia `users (id)` con `ON DELETE CASCADE` (o `SET NULL` si deben quedar sin
-  dueño); con `RESTRICT`, borrar la cuenta (`DELETE /auth/me`) falla.
-- **Pertenencia:** si los datos son de cada usuario, la tabla lleva `user_id` y **todas** las consultas filtran por él
-  (`WHERE id = $1 AND user_id = $2`). Un recurso ajeno responde 404, no 403. Ver `internal/notes`.
-- No tocar la protección CSRF ni CORS de `internal/server/routes.go` sin consultarlo.
-- `RequireUser` también exige el email verificado si `REQUIRE_EMAIL_VERIFICATION=true` (403 `email_not_verified`).
+**Authentication and permissions**
+- Protect routes in the resource's `routes.go`: `authn.RequireUser(...)` (any user), `authn.RequireAdmin(...)`
+  or `authn.OptionalUser(...)` (a public route that shows more to some users; in the handler, `auth.UserFrom`).
+- In a protected handler, the user is `auth.MustUser(r.Context())`.
+- **Each user's data:** the table references `users (id)` with `ON DELETE CASCADE` (or `SET NULL` if it must stay
+  without an owner); with `RESTRICT`, deleting the account (`DELETE /auth/me`) fails.
+- **Ownership:** if the data belongs to each user, the table has `user_id` and **every** query filters by it
+  (`WHERE id = $1 AND user_id = $2`). Someone else's resource responds 404, not 403. See `internal/notes`.
+- Do not touch the CSRF or CORS protection of `internal/server/routes.go` without asking.
+- `RequireUser` also requires a verified email if `REQUIRE_EMAIL_VERIFICATION=true` (403 `email_not_verified`).
 
-**Límites de intentos y varias instancias** (ver "Límites de intentos" y "Varias instancias" en `docs/decisions.md`)
-- Por IP, en memoria: `httpx.NewRateLimiter(every, burst).MiddlewareByIP(proxies)`. Cada instancia cuenta por separado.
-- Por cuenta o por usuario, en PostgreSQL: `ratelimit.New(queries, "nombre", every, burst)`, con `Allow(ctx, clave)` o
-  `Middleware(clave)`. Vale para todas las instancias: lo que frena la fuerza bruta contra una cuenta va siempre acá.
-- Nada que tenga que valer para todas las instancias (un contador, una caché, un "ya se hizo") se guarda en memoria:
-  va en PostgreSQL.
+**Attempt limits and multiple instances** (see "Attempt limits" and "Multiple instances" in `docs/decisions.md`)
+- Per IP, in memory: `httpx.NewRateLimiter(every, burst).MiddlewareByIP(proxies)`. Each instance counts separately.
+- Per account or per user, in PostgreSQL: `ratelimit.New(queries, "name", every, burst)`, with `Allow(ctx, key)` or
+  `Middleware(key)`. It applies to every instance: what stops brute force against an account always goes here.
+- Nothing that must apply to every instance (a counter, a cache, an "already done") is kept in memory: it goes in
+  PostgreSQL.
 
-**Datos sensibles**
-- Todo dato secreto que haya que guardar y después leer (como el secreto del 2FA o un token de una API externa) se
-  cifra con `secretbox.Box.Encrypt(dato, aad)`. `aad` ata el dato a su fila, por ejemplo `"users.totp_secret:<id>"`
-  (ver `totpAAD` en `internal/auth/two_factor.go`); `Decrypt` necesita el mismo. Lo que solo se compara (como los
-  códigos de recuperación) se guarda con `Box.MAC` sobre el valor y el id de su dueño, se verifica con `Box.MACs`
-  (todas las claves) y se guarda también `Box.KeyID()`.
-- Si agregás un dato cifrado nuevo, sumalo a `auth.RotateKeys` (o a su equivalente) para que la rotación lo incluya.
-- Nunca guardar secretos en texto plano ni registrarlos en el log.
-- Las contraseñas se hashean solo con `auth.HashPassword(ctx, …)` y se comparan con `auth.VerifyPassword(ctx, …)`:
-  limitan cuántos hashes de argon2 corren a la vez. No llamar a `argon2` directamente.
-- Las respuestas con datos personales o secretos llevan `Cache-Control: no-store`: envolver la ruta con `httpx.NoStore`
-  (todo `/auth` ya lo tiene).
+**Sensitive data**
+- Every secret that must be stored and read later (like the 2FA secret or an external API token) is encrypted with
+  `secretbox.Box.Encrypt(value, aad)`. `aad` binds the value to its row, for example `"users.totp_secret:<id>"`
+  (see `totpAAD` in `internal/auth/two_factor.go`); `Decrypt` needs the same one. What is only compared (like the
+  recovery codes) is stored with `Box.MAC` over the value and its owner's id, verified with `Box.MACs` (every key),
+  and `Box.KeyID()` is stored too.
+- If you add a new encrypted value, add it to `auth.RotateKeys` (or its equivalent) so the rotation includes it.
+- Never store secrets in plain text or write them to the log.
+- Passwords are hashed only with `auth.HashPassword(ctx, …)` and compared with `auth.VerifyPassword(ctx, …)`: they
+  limit how many argon2 hashes run at once. Do not call `argon2` directly.
+- Responses with personal data or secrets carry `Cache-Control: no-store`: wrap the route with `httpx.NoStore`
+  (all of `/auth` already has it).
 
-**Correos**
-- Enviarlos con un `mail.Sender` (en `auth`, con `s.sendEmail` y una plantilla de `internal/auth/emails`). Nunca bloquear la respuesta
-  esperando el envío: en producción el sender es un `jobs.MailSender`, que los encola con reintentos.
-- Los enlaces de los correos apuntan al frontend (`FRONTEND_URL`). Los tokens que viajan por correo son de un solo uso, vencen
-  y se guardan hasheados (ver `internal/auth/tokens.go`).
+**Emails**
+- Send them with a `mail.Sender` (in `auth`, with `s.sendEmail` and a template from `internal/auth/emails`). Never block
+  the response waiting for the sending: in production the sender is a `jobs.MailSender`, which queues them with retries.
+- The links in the emails point to the frontend (`FRONTEND_URL`). Tokens that travel by email are single-use, expire
+  and are stored hashed (see `internal/auth/tokens.go`).
 
-**Trabajos en segundo plano** (ver `docs/jobs.md`)
-- Cada trabajo es un struct de argumentos con `Kind()` y un worker con `river.WorkerDefaults`. Registrar el worker en
-  `registerWorkers` y los periódicos en `periodicJobs` (`internal/jobs/workers.go`). No cambiar un `Kind` ya desplegado.
-- Si el trabajo depende de datos que se guardan en la misma petición, encolarlo con `InsertTx` dentro de la transacción.
-- Los argumentos se guardan sin cifrar: preferir ids, y cifrar con `secretbox` cualquier secreto o dato personal (como `SendEmailArgs`).
-- Un worker puede ejecutarse dos veces (reintentos, rescate de trabajos cortados): tiene que tolerarlo.
-- `internal/store` trae tipos de las tablas de River (`RiverJob`…): no usarlos; a River se le habla con su cliente.
+**Background jobs** (see `docs/jobs.md`)
+- Each job is an arguments struct with `Kind()` and a worker with `river.WorkerDefaults`. Register the worker in
+  `registerWorkers` and periodic jobs in `periodicJobs` (`internal/jobs/workers.go`). Never change a deployed `Kind`.
+- If the job depends on data stored in the same request, queue it with `InsertTx` inside the transaction.
+- The arguments are stored unencrypted: prefer ids, and encrypt any secret or personal data with `secretbox` (like
+  `SendEmailArgs`).
+- A worker can run twice (retries, rescue of interrupted jobs): it must tolerate that.
+- `internal/store` has types for River's tables (`RiverJob`…): do not use them; talk to River through its client.
 
-**Tiempo real** (ver `docs/realtime.md`)
-- Publicar con `broker.PublishToUser` (datos del usuario) o `broker.Publish` en un tema (datos compartidos), **después**
-  de guardar (y del `Commit`). Para una notificación que quede guardada, `notifications.Service.Notify`.
-- Lo publicado llega a las conexiones de todas las instancias (`LISTEN/NOTIFY`, en `internal/realtime/instances.go`), sin
-  que quien publica haga nada distinto. Un evento de más de 8 KB viaja por la tabla `realtime_messages`.
-- Cada tipo de tema nuevo necesita `broker.Authorize("tipo", …)` con el control de permiso; sin eso, se rechaza.
-  Al quitarle a alguien el acceso, llamar a `broker.DisconnectUser` para que deje de escuchar en el acto.
-- Para transmitir una respuesta larga (un agente de IA), `realtime.Open` y `stream.Send`. Después de `Open` los errores
-  van como evento, no como JSON.
+**Real time** (see `docs/realtime.md`)
+- Publish with `broker.PublishToUser` (the user's data) or `broker.Publish` on a topic (shared data), **after**
+  saving (and after the `Commit`). For a notification that is stored, `notifications.Service.Notify`.
+- What is published reaches the connections of every instance (`LISTEN/NOTIFY`, in `internal/realtime/instances.go`),
+  without the publisher doing anything different. An event larger than 8 KB travels through the `realtime_messages` table.
+- Each new topic kind needs `broker.Authorize("kind", …)` with the permission check; without it, it is rejected.
+  When you take away someone's access, call `broker.DisconnectUser` so they stop listening at once.
+- To stream a long response (an AI agent), `realtime.Open` and `stream.Send`. After `Open`, errors go as an event,
+  not as JSON.
 
-**Base de datos**
-- Todo el SQL vive en `internal/db/queries/*.sql`. Después de cambiarlo, correr `make sqlc`.
-- **Nunca editar `internal/store`**: se regenera.
-- **Antes del primer despliegue**, cambiar las migraciones originales en lugar de sumar `ALTER TABLE` (y recrear la base local).
-  **Después**, nunca modificar una migración ya aplicada: crear una nueva con `make migrate-new`.
-- Cada migración debe tener su sección `-- +goose Down`.
-- Una fila inexistente llega como `pgx.ErrNoRows` (`:one`) o 0 filas afectadas (`:execrows`): responder `httpx.NotFound`.
-- Varias escrituras que van juntas, en una transacción con `pgx.BeginFunc` y `q.WithTx(tx)` (ver `docs/adding-a-resource.md`).
-  Nada lento adentro (argon2, llamadas externas); los avisos (eventos, `SessionWatcher`) después del commit. Si dos
-  peticiones simultáneas pueden pisarse, bloquear la fila con `SELECT … FOR UPDATE` (como `LockUser`).
-- Valor único repetido: `db.IsUniqueViolation(err)` → `httpx.Conflict`. FK inexistente o en uso:
-  `db.IsForeignKeyViolation(err)` → `httpx.Validation` (al crear/editar) o `httpx.Conflict` (al borrar).
-- Filtros opcionales en sqlc: `sqlc.narg('x')::tipo IS NULL OR columna = sqlc.narg('x')`. Escapar `%` y `_` en búsquedas `ILIKE`.
-  `ILIKE '%…%'` no usa índices: si la tabla crece, `pg_trgm` (ver `docs/adding-a-resource.md`).
-- Dinero en centavos (`bigint`), nunca `float`.
+**Database**
+- All SQL lives in `internal/db/queries/*.sql`. After changing it, run `make sqlc`.
+- **Never edit `internal/store`**: it is regenerated.
+- **Before the first deploy**, change the original migrations instead of adding `ALTER TABLE` (and recreate the local
+  database). **After it**, never modify a migration that was already applied: create a new one with `make migrate-new`.
+- Every migration must have its `-- +goose Down` section.
+- A missing row arrives as `pgx.ErrNoRows` (`:one`) or 0 affected rows (`:execrows`): respond `httpx.NotFound`.
+- Several writes that belong together go in a transaction with `pgx.BeginFunc` and `q.WithTx(tx)` (see
+  `docs/adding-a-resource.md`). Nothing slow inside (argon2, external calls); the notices (events, `SessionWatcher`)
+  after the commit. If two simultaneous requests can step on each other, lock the row with `SELECT … FOR UPDATE`
+  (like `LockUser`).
+- Repeated unique value: `db.IsUniqueViolation(err)` → `httpx.Conflict`. Missing FK or one in use:
+  `db.IsForeignKeyViolation(err)` → `httpx.Validation` (when creating/editing) or `httpx.Conflict` (when deleting).
+- Optional filters in sqlc: `sqlc.narg('x')::type IS NULL OR column = sqlc.narg('x')`. Escape `%` and `_` in `ILIKE`
+  searches. `ILIKE '%…%'` does not use indexes: if the table grows, `pg_trgm` (see `docs/adding-a-resource.md`).
+- Money in cents (`bigint`), never `float`.
 
 **Tests**
-- Tests de integración con `testutil.NewDB(t)` (vacía todas las tablas) y `testutil.Login(t, pool, email, rol)` para la sesión.
-  Usan solo `TEST_DATABASE_URL`, que debe terminar en `_test` y ser distinta de `DATABASE_URL`. **No quitar esa protección.**
-- Peticiones con `testutil.NewAPI`, `testutil.Do` y `testutil.Decode`, como en `internal/products/handlers_test.go`.
-  Para leer los correos enviados: `testutil.WithMailer(&mail.Recorder{})` y `testutil.TokenFromEmail`. Para cambiar la
-  configuración: `testutil.WithConfig(func(c *config.Config){ … })`. Para pedir otro idioma: `testutil.DoWithLanguage`
-  (sin él, las respuestas van en inglés). Para el 2FA: `testutil.EnableTwoFactor(t, api, cookie, testutil.Password)` y `TwoFactor.Code`.
-- Las rutas de auth tienen límites por IP (ver `internal/server/routes.go`; el más bajo es de 10 seguidos) y las acciones
-  de cuenta, de 5 por usuario. Con `testutil.Do` todas las peticiones salen de la misma IP; para más, o para simular
-  varias IPs, usar `testutil.DoFromIP`.
-- Si la API del test cambia la configuración de la cookie (`WithConfig` con `CookieSecure`), pasarle las mismas
-  opciones a `testutil.Login` para que la cookie coincida.
-- Eventos en tiempo real: `testutil.NewServer` (un servidor HTTP real) y `testutil.OpenEvents`, que devuelve un lector con
-  `Next`, `NextComment` y `Nothing`. Para publicar desde el test, `testutil.WithBroker`. Ver `internal/notes/events_test.go`.
-- Workers: `rivertest.NewWorker` y `rivertest.RequireInserted`. Ver `internal/jobs/email_test.go`.
-- El envío real por SMTP (`TestSMTPSender`) solo corre con `SMTP_TEST_ADDR`, por ejemplo `SMTP_TEST_ADDR=localhost:1025`
-  con Mailpit (los correos se ven en `http://localhost:8025`). Sin ella se saltea; en CI no corre.
-- Los tests que usan la base no llevan `t.Parallel()`, y los paquetes corren en serie (`-p 1`, ya incluido en `make test`).
-- Cubrir siempre: el caso feliz, validación (422), no encontrado (404), sin sesión (401) y, si aplica, sin permiso (403) o pertenencia.
+- Integration tests with `testutil.NewDB(t)` (empties every table) and `testutil.Login(t, pool, email, role)` for the
+  session. They only use `TEST_DATABASE_URL`, which must end in `_test` and differ from `DATABASE_URL`. **Do not remove
+  that protection.**
+- Requests with `testutil.NewAPI`, `testutil.Do` and `testutil.Decode`, as in `internal/products/handlers_test.go`.
+  To read the sent emails: `testutil.WithMailer(&mail.Recorder{})` and `testutil.TokenFromEmail`. To change the
+  configuration: `testutil.WithConfig(func(c *config.Config){ … })`. To ask for another language:
+  `testutil.DoWithLanguage` (without it, the responses are in English). For 2FA:
+  `testutil.EnableTwoFactor(t, api, cookie, testutil.Password)` and `TwoFactor.Code`.
+- The auth routes have per-IP limits (see `internal/server/routes.go`; the lowest is 10 in a row) and the account
+  actions, 5 per user. With `testutil.Do` every request comes from the same IP; for more, or to simulate several IPs,
+  use `testutil.DoFromIP`.
+- If the test's API changes the cookie configuration (`WithConfig` with `CookieSecure`), pass the same options to
+  `testutil.Login` so the cookie matches.
+- Real-time events: `testutil.NewServer` (a real HTTP server) and `testutil.OpenEvents`, which returns a reader with
+  `Next`, `NextComment` and `Nothing`. To publish from the test, `testutil.WithBroker`. See `internal/notes/events_test.go`.
+- Workers: `rivertest.NewWorker` and `rivertest.RequireInserted`. See `internal/jobs/email_test.go`.
+- Real sending over SMTP (`TestSMTPSender`) only runs with `SMTP_TEST_ADDR`, for example `SMTP_TEST_ADDR=localhost:1025`
+  with Mailpit (the emails show up at `http://localhost:8025`). Without it, it is skipped; it does not run in CI.
+- Tests that use the database do not use `t.Parallel()`, and the packages run in series (`-p 1`, already in `make test`).
+- Always cover: the happy path, validation (422), not found (404), no session (401) and, if it applies, no permission
+  (403) or ownership.
 
-## Agregar un recurso
+## Adding a resource
 
-Seguir `docs/adding-a-resource.md`: migración → consultas → `make sqlc` → paquete del recurso
-(handlers, validación, rutas, tests) → registrar en `internal/server/routes.go` → `make check`.
-Usar `internal/notes` como modelo si los datos son de cada usuario, o `internal/categories`/`products` si son compartidos.
+Follow `docs/adding-a-resource.md`: migration → queries → `make sqlc` → resource package
+(handlers, validation, routes, tests) → register in `internal/server/routes.go` → `make check`.
+Use `internal/notes` as the model if the data belongs to each user, or `internal/categories`/`products` if it is shared.
 
-## Notas para el MCP de gopls
+## Notes for the gopls MCP
 
-Iniciar la sesión en la raíz del proyecto (donde está `go.mod`), para que `go_workspace` detecte el módulo.
-Las instrucciones siguientes son las oficiales de gopls (`gopls mcp -instructions`).
+Start the session at the project root (where `go.mod` is), so `go_workspace` detects the module.
+The instructions below are the official gopls ones (`gopls mcp -instructions`).
 
 ---
 

@@ -29,7 +29,7 @@ type Limits struct {
 // Register adds the authentication routes to the mux.
 //
 // To remove a feature a project does not need, delete its routes here (and its file:
-// password_reset.go, profile.go…). "Quitar funciones" in docs/auth.md says what else changes.
+// password_reset.go, profile.go…). "Removing features" in docs/auth.md says what else changes.
 func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	// No /auth response is cached: some carry secrets (the two-factor one, the recovery codes) and
 	// the rest, account data. NoStore goes outside the limits so the 429s carry it too.

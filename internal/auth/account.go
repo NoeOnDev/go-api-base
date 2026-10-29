@@ -11,7 +11,7 @@ import (
 
 // Helpers shared by several account features (profile, sessions, 2FA, email change, account
 // deletion). They live here and not in the file of one feature so that removing one feature (see
-// "Quitar funciones" in docs/auth.md) does not break the others.
+// "Removing features" in docs/auth.md) does not break the others.
 
 // passwordInput is the body of the actions that only ask for the password to confirm.
 type passwordInput struct {

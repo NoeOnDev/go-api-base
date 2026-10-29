@@ -1,44 +1,44 @@
-# Trabajos en segundo plano
+# Background jobs
 
-La plantilla usa [River](https://riverqueue.com), una cola de trabajos guardada en **PostgreSQL**: no hace falta Redis. Es el equivalente a las colas de Laravel (`queue:work`, `schedule:run`):
+The template uses [River](https://riverqueue.com), a job queue stored in **PostgreSQL**: no Redis needed. It is the equivalent of Laravel's queues (`queue:work`, `schedule:run`):
 
-- **Los trabajos sobreviven a un reinicio.** Si la API se cae o se reinicia, los pendientes siguen en la base.
-- **Se reintentan si fallan**, con una espera cada vez más larga.
-- **Se pueden programar** para más tarde, o repetir cada cierto tiempo.
-- **Se pueden encolar dentro de una transacción**, junto con los datos: se guardan los dos o ninguno.
+- **Jobs survive a restart.** If the API crashes or restarts, the pending ones are still in the database.
+- **They are retried if they fail**, with a longer wait each time.
+- **They can be scheduled** for later, or repeated every so often.
+- **They can be queued inside a transaction**, together with the data: both are stored or neither.
 
-**Los workers corren dentro del mismo proceso que la API.** En Laravel hace falta otro proceso (`queue:work`), porque cada petición de PHP vive y muere sola; en Go, la API ya es un proceso que vive siempre. Así sigue siendo un solo binario y un solo servicio que desplegar.
+**The workers run inside the same process as the API.** Laravel needs another process (`queue:work`), because each PHP request lives and dies on its own; in Go, the API is already a process that is always running. That way it is still a single binary and a single service to deploy.
 
-## Lo que ya usa la cola
+## What already uses the queue
 
-| Trabajo | Cola | Qué hace |
+| Job | Queue | What it does |
 |---|---|---|
-| `send_email` | `email` | Envía los correos. Hasta 5 intentos, con el contenido cifrado (ver abajo) |
-| `cleanup` | `default` | Cada hora borra las sesiones y los tokens vencidos, las notificaciones leídas hace más de 90 días, las claves de los límites de intentos que ya se recargaron y los mensajes grandes del tiempo real |
+| `send_email` | `email` | Sends the emails. Up to 5 attempts, with the content encrypted (see below) |
+| `cleanup` | `default` | Every hour it deletes the expired sessions and tokens, the notifications read more than 90 days ago, the keys of the attempt limits that already refilled and the large real-time messages |
 
-Hay dos colas, cada una con su propio límite de workers, así un trabajo lento en una no frena a la otra:
+There are two queues, each one with its own worker limit, so a slow job in one does not hold back the other:
 
-- **`default`:** `JOBS_MAX_WORKERS` trabajos a la vez (10 por defecto).
-- **`email`:** 4 a la vez, porque cada envío abre una conexión SMTP y los proveedores rechazan muchas simultáneas.
+- **`default`:** `JOBS_MAX_WORKERS` jobs at once (10 by default).
+- **`email`:** 4 at once, because each sending opens an SMTP connection and providers reject many simultaneous ones.
 
-Los workers usan el mismo pool de conexiones que la API, que tiene 10 si `DATABASE_URL` no indica otro tamaño (pgx usaría solo 4). Si subís `JOBS_MAX_WORKERS`, conviene subir también el pool (`?pool_max_conns=20`).
+The workers use the same connection pool as the API, which has 10 if `DATABASE_URL` does not set another size (pgx would use only 4). If you raise `JOBS_MAX_WORKERS`, raise the pool too (`?pool_max_conns=20`).
 
-## Crear un trabajo
+## Creating a job
 
-Un trabajo tiene dos partes: los **argumentos**, que se guardan en la base como JSON, y el **worker**, que lo ejecuta.
+A job has two parts: the **arguments**, stored in the database as JSON, and the **worker**, which runs it.
 
 ```go
 // internal/jobs/report.go
 package jobs
 
-// ReportArgs es el trabajo de generar el reporte mensual de un usuario.
+// ReportArgs is the job of generating a user's monthly report.
 type ReportArgs struct {
 	UserID int64 `json:"user_id"`
 	Month  string `json:"month"` // "2026-10"
 }
 
-// Kind es el nombre del trabajo en la base. No lo cambies después de desplegar:
-// los trabajos pendientes con el nombre viejo no encontrarían su worker.
+// Kind is the job's name in the database. Do not change it after deploying:
+// the pending jobs with the old name would not find their worker.
 func (ReportArgs) Kind() string { return "monthly_report" }
 
 type reportWorker struct {
@@ -47,12 +47,12 @@ type reportWorker struct {
 }
 
 func (w *reportWorker) Work(ctx context.Context, job *river.Job[ReportArgs]) error {
-	// Devolver un error reintenta el trabajo más tarde.
+	// Returning an error retries the job later.
 	return generateReport(ctx, w.q, job.Args.UserID, job.Args.Month)
 }
 ```
 
-Después, registralo en `registerWorkers` (`internal/jobs/workers.go`), igual que las rutas en `server/routes.go`:
+Then register it in `registerWorkers` (`internal/jobs/workers.go`), like the routes in `server/routes.go`:
 
 ```go
 if err := river.AddWorkerSafely(workers, &reportWorker{q: deps.Queries}); err != nil {
@@ -60,19 +60,19 @@ if err := river.AddWorkerSafely(workers, &reportWorker{q: deps.Queries}); err !=
 }
 ```
 
-Si el worker necesita algo más (el broker de tiempo real, un cliente HTTP), sumalo a `jobs.Deps` y pasalo desde `cmd/api/main.go`.
+If the worker needs something else (the real-time broker, an HTTP client), add it to `jobs.Deps` and pass it from `cmd/api/main.go`.
 
-## Encolar
+## Queuing
 
-Desde un handler, con el cliente de `server.Deps.Jobs` (pasáselo al recurso al registrarlo en `routes.go`):
+From a handler, with the client of `server.Deps.Jobs` (pass it to the resource when registering it in `routes.go`):
 
 ```go
 if _, err := h.jobs.Insert(r.Context(), jobs.ReportArgs{UserID: user.ID, Month: "2026-10"}, nil); err != nil {
-	return fmt.Errorf("encolar reporte: %w", err)
+	return fmt.Errorf("queue report: %w", err)
 }
 ```
 
-**Dentro de una transacción**, para que el trabajo exista solo si los datos se guardaron:
+**Inside a transaction**, so the job exists only if the data was stored:
 
 ```go
 tx, err := h.db.Begin(r.Context())
@@ -85,44 +85,44 @@ order, err := h.q.WithTx(tx).CreateOrder(r.Context(), params)
 if err != nil {
 	return err
 }
-// Si algo falla después y se hace Rollback, el trabajo tampoco queda encolado.
+// If something fails afterwards and there is a Rollback, the job is not queued either.
 if _, err := h.jobs.InsertTx(r.Context(), tx, jobs.OrderConfirmationArgs{OrderID: order.ID}, nil); err != nil {
 	return err
 }
 return tx.Commit(r.Context())
 ```
 
-El trabajo no se ejecuta hasta que se confirma la transacción, así que el worker siempre encuentra el pedido.
+The job does not run until the transaction commits, so the worker always finds the order.
 
-## Opciones de cada trabajo
+## Job options
 
-Se definen con un método `InsertOpts` en los argumentos (aplica siempre), o al encolar (solo esa vez):
+They are set with an `InsertOpts` method on the arguments (always applies), or when queuing (only that time):
 
 ```go
 func (ReportArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{
 		Queue:       river.QueueDefault,
-		MaxAttempts: 10,                     // por defecto, 25
-		ScheduledAt: time.Now().Add(time.Hour), // ejecutarlo más tarde
-		// Uno solo por usuario y mes, aunque se encole dos veces:
+		MaxAttempts: 10,                        // 25 by default
+		ScheduledAt: time.Now().Add(time.Hour), // run it later
+		// Only one per user and month, even if it is queued twice:
 		UniqueOpts: river.UniqueOpts{ByArgs: true},
 	}
 }
 ```
 
-Dentro del worker:
+Inside the worker:
 
-- **`return err`:** se reintenta más tarde. River espera cada vez más entre intentos: segundos al principio, horas al final.
-- **`return river.JobCancel(err)`:** no se reintenta, porque no serviría de nada (por ejemplo, el usuario ya no existe).
-- **`return river.JobSnooze(30 * time.Second)`:** se vuelve a intentar en 30 segundos, sin contar como fallo (por ejemplo, una API externa pide esperar).
+- **`return err`:** it is retried later. River waits longer between attempts each time: seconds at first, hours at the end.
+- **`return river.JobCancel(err)`:** it is not retried, because it would be useless (for example, the user no longer exists).
+- **`return river.JobSnooze(30 * time.Second)`:** it is tried again in 30 seconds, without counting as a failure (for example, an external API asks to wait).
 
-## Datos sensibles en los argumentos
+## Sensitive data in the arguments
 
-Los argumentos se guardan en la tabla `river_job` sin cifrar, y River conserva los trabajos terminados 24 horas. **Si llevan un secreto o un dato personal, cifrá lo sensible** con `secretbox`, como hace `SendEmailArgs` con el correo entero: un correo de recuperación lleva un enlace con token, y sin cifrar, quien lea la tabla podría usarlo. Mejor todavía es guardar solo un id y buscar el resto en el worker.
+The arguments are stored in the `river_job` table unencrypted, and River keeps finished jobs for 24 hours. **If they carry a secret or personal data, encrypt the sensitive part** with `secretbox`, as `SendEmailArgs` does with the whole email: a password reset email carries a link with a token, and unencrypted, whoever reads the table could use it. Even better is to store only an id and look up the rest in the worker.
 
-## Trabajos periódicos
+## Periodic jobs
 
-El equivalente al scheduler de Laravel. Se agregan en `periodicJobs` (`internal/jobs/workers.go`):
+The equivalent of Laravel's scheduler. They are added in `periodicJobs` (`internal/jobs/workers.go`):
 
 ```go
 river.NewPeriodicJob(
@@ -132,70 +132,70 @@ river.NewPeriodicJob(
 ),
 ```
 
-- Con varias instancias, solo los encola una, la que River elige como líder.
-- `RunOnStart` lo encola también al arrancar. Para no repetirlo si la API se reinicia seguido, hacelo único por período (`UniqueOpts.ByPeriod`), como `CleanupArgs`.
-- Para horarios fijos (todos los días a las 3:00), River acepta un horario tipo cron: ver su [documentación](https://riverqueue.com/docs/periodic-jobs).
+- With several instances, only one queues them: the one River elects as leader.
+- `RunOnStart` also queues it on startup. To avoid repeating it if the API restarts often, make it unique per period (`UniqueOpts.ByPeriod`), like `CleanupArgs`.
+- For fixed times (every day at 3:00), River accepts a cron-like schedule: see its [documentation](https://riverqueue.com/docs/periodic-jobs).
 
-## Al apagar
+## On shutdown
 
-La API deja de recibir peticiones y, al mismo tiempo, los workers tienen hasta `SHUTDOWN_TIMEOUT` para terminar lo que están haciendo. Que se detengan a la vez es seguro: si una petición que todavía está terminando encola un trabajo, queda en la base y se ejecuta al arrancar.
+The API stops taking requests and, at the same time, the workers have up to `SHUTDOWN_TIMEOUT` to finish what they are doing. Stopping both at once is safe: if a request that is still finishing queues a job, it stays in the database and runs on the next start.
 
-- **Los trabajos pendientes, o que estaban esperando un reintento,** siguen en la base y se retoman al arrancar.
-- **Uno que quedó cortado a mitad de camino** tampoco se pierde: River lo reintenta cuando lleva una hora "en curso". Por eso un worker tiene que poder ejecutarse dos veces sin romper nada (por ejemplo, comprobando si el reporte ya existe).
+- **Pending jobs, or those waiting for a retry,** stay in the database and are picked up on startup.
+- **One cut halfway** is not lost either: River retries it when it has been "running" for an hour. That is why a worker must be able to run twice without breaking anything (for example, by checking whether the report already exists).
 
-## Ver la cola
+## Inspecting the queue
 
 ```sql
--- Lo pendiente, lo que se está reintentando y lo que falló del todo
-SELECT id, kind, state, attempt, max_attempts, scheduled_at, errors[array_length(errors, 1)] AS ultimo_error
+-- What is pending, what is being retried and what failed for good
+SELECT id, kind, state, attempt, max_attempts, scheduled_at, errors[array_length(errors, 1)] AS last_error
 FROM river_job
 WHERE state NOT IN ('completed', 'cancelled')
 ORDER BY id DESC;
 ```
 
-River tiene una interfaz web, [River UI](https://riverqueue.com/docs/river-ui), parecida a Horizon. No viene en la plantilla porque suma otra dependencia y necesita su propia autenticación.
+River has a web interface, [River UI](https://riverqueue.com/docs/river-ui), similar to Horizon. It is not in the template because it adds another dependency and needs its own authentication.
 
 ## Tests
 
-Un worker se prueba con `rivertest`, sin levantar la cola (ver `internal/jobs/email_test.go`):
+A worker is tested with `rivertest`, without starting the queue (see `internal/jobs/email_test.go`):
 
 ```go
 worker := rivertest.NewWorker(t, riverpgxv5.New(pool), &river.Config{}, &reportWorker{q: store.New(pool)})
 res, err := worker.Work(t.Context(), t, tx, ReportArgs{UserID: 1, Month: "2026-10"}, nil)
 ```
 
-Para comprobar que un handler encoló un trabajo, armá el cliente con `jobs.New` (sin `Start`) y usá `rivertest.RequireInserted`.
+To check that a handler queued a job, build the client with `jobs.New` (without `Start`) and use `rivertest.RequireInserted`.
 
-## Actualizar River
+## Updating River
 
-1. Actualizá `github.com/riverqueue/river` en `go.mod` y `RIVER_VERSION` en el `Makefile`, a la misma versión.
-2. Revisá su [CHANGELOG](https://github.com/riverqueue/river/blob/master/CHANGELOG.md). Si la versión trae una migración nueva, creá una migración de goose con su SQL:
+1. Update `github.com/riverqueue/river` in `go.mod` and `RIVER_VERSION` in the `Makefile`, to the same version.
+2. Check its [CHANGELOG](https://github.com/riverqueue/river/blob/master/CHANGELOG.md). If the version brings a new migration, create a goose migration with its SQL:
 
    ```bash
    make migrate-new name=river_vN
    make river-migration version=N
    ```
 
-   El segundo comando imprime las secciones Up y Down, listas para pegar en la migración nueva.
+   The second command prints the Up and Down sections, ready to paste into the new migration.
 
-## Separar los workers en otro proceso
+## Running the workers in another process
 
-Si un proyecto tiene trabajos pesados que no deben competir con la API por la CPU, se pueden correr aparte:
+If a project has heavy jobs that must not compete with the API for the CPU, they can run separately:
 
-1. Un subcomando `worker` en `cmd/api` que arme el cliente con `jobs.New`, llame a `Start` y espere la señal de apagado, sin servidor HTTP.
-2. En la API, armar el cliente sin `Queues` y sin llamar a `Start`: solo encola.
+1. A `worker` subcommand in `cmd/api` that builds the client with `jobs.New`, calls `Start` and waits for the shutdown signal, without an HTTP server.
+2. In the API, build the client without `Queues` and without calling `Start`: it only queues.
 
-No viene armado, porque un solo proceso alcanza para la mayoría de los proyectos y es más simple.
+It is not built in, because a single process is enough for most projects and it is simpler.
 
-## Quitar la cola
+## Removing the queue
 
-Si un proyecto no la necesita:
+If a project does not need it:
 
-1. **Primero, la limpieza de cada hora**, que hoy es un trabajo de la cola. Pasá el cuerpo de `cleanupWorker.Work` (`internal/jobs/cleanup.go`), con sus constantes, a una función `cleanup(ctx, q, idle, logger) error` en `cmd/api/cleanup.go`. Al lado, escribí `cleanupEvery`, que la llama al arrancar y después cada hora con un `time.Ticker`, hasta que `ctx` se cancela. En `run`, lanzala con `go cleanupEvery(ctx, store.New(pool), cfg.SessionIdleTimeout, logger)`. Con varias instancias, cada una limpia por su cuenta, y no importa: son borrados que no chocan. Los tests de `cleanup_test.go` usan River: adaptalos para llamar a `cleanup` directo, o borralos.
-2. Borrá `internal/jobs` y la migración `00008_create_river.sql`. En el `Makefile`, quitá `RIVER_VERSION`, `RIVER_CLI` y el objetivo `river-migration` (y su fila en `AGENTS.md` y en el README).
-3. En `cmd/api/main.go`, quitá el cliente de la cola y usá el `mail.Sender` directo (`sender`) como `Mailer`: los correos se envían dentro de la petición, sin reintentos. `shutdown` queda solo con el servidor HTTP: quitale el parámetro de los trabajos y la interfaz `stopper`. Borrá `main_test.go`, que prueba el apagado de los trabajos.
-4. En `internal/server/routes.go`, quitá el campo `Jobs` de `Deps`. En `cmd/api/keys.go`, quitá la parte de los correos encolados (`jobs.QueuedEmailKeys` y `AddQueuedEmails`).
-5. En `internal/config`, quitá `JobsMaxWorkers`, sus casos en `config_test.go` y `positiveInt`, que queda sin uso. Quitá también `JOBS_MAX_WORKERS` de `.env.example` y del README.
-6. `make sqlc` (el esquema de River también genera tipos en `internal/store`), `go mod tidy` y `make check`.
+1. **First, the hourly cleanup**, which today is a queue job. Move the body of `cleanupWorker.Work` (`internal/jobs/cleanup.go`), with its constants, to a `cleanup(ctx, q, idle, logger) error` function in `cmd/api/cleanup.go`. Next to it, write `cleanupEvery`, which calls it on startup and then every hour with a `time.Ticker`, until `ctx` is cancelled. In `run`, start it with `go cleanupEvery(ctx, store.New(pool), cfg.SessionIdleTimeout, logger)`. With several instances, each one cleans up on its own, and that is fine: they are deletions that do not clash. The tests of `cleanup_test.go` use River: adapt them to call `cleanup` directly, or delete them.
+2. Delete `internal/jobs` and the `00008_create_river.sql` migration. In the `Makefile`, remove `RIVER_VERSION`, `RIVER_CLI` and the `river-migration` target (and its row in `AGENTS.md` and the README).
+3. In `cmd/api/main.go`, remove the queue client and use the `mail.Sender` directly (`sender`) as `Mailer`: the emails are sent inside the request, without retries. `shutdown` is left only with the HTTP server: remove its jobs parameter and the `stopper` interface. Delete `main_test.go`, which tests the shutdown of the jobs.
+4. In `internal/server/routes.go`, remove the `Jobs` field of `Deps`. In `cmd/api/keys.go`, remove the part about queued emails (`jobs.QueuedEmailKeys` and `AddQueuedEmails`).
+5. In `internal/config`, remove `JobsMaxWorkers`, its cases in `config_test.go` and `positiveInt`, which is left unused. Also remove `JOBS_MAX_WORKERS` from `.env.example` and the README.
+6. `make sqlc` (River's schema also generates types in `internal/store`), `go mod tidy` and `make check`.
 
-Esta receta se probó en una copia del proyecto, con una base de pruebas creada solo con las migraciones que quedan.
+This recipe was tested on a copy of the project, with a test database created only with the remaining migrations.

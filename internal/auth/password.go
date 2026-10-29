@@ -14,9 +14,9 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// Parámetros de argon2id recomendados por OWASP para un servidor con pocos recursos:
-// 19 MiB de memoria, 2 iteraciones y 1 hilo. Hashear una contraseña tarda unas decenas
-// de milisegundos: imperceptible para el usuario, pero muy caro para un ataque de fuerza bruta.
+// argon2id parameters recommended by OWASP for a server with few resources: 19 MiB of memory,
+// 2 iterations and 1 thread. Hashing a password takes a few dozen milliseconds: unnoticeable for
+// the user, but very expensive for a brute force attack.
 type argonParams struct {
 	memory  uint32 // en KiB
 	time    uint32
@@ -27,16 +27,16 @@ type argonParams struct {
 
 var defaultParams = argonParams{memory: 19 * 1024, time: 2, threads: 1, saltLen: 16, keyLen: 32}
 
-var errInvalidHash = errors.New("hash de contraseña con formato inválido")
+var errInvalidHash = errors.New("invalid password hash format")
 
-// hashSlots limita cuántos hashes de argon2 se calculan a la vez: uno por núcleo. Cada hash
-// reserva 19 MiB, así que sin tope 200 logins simultáneos llevan el proceso a varios GiB y,
-// en un VPS chico, el sistema lo mata por falta de memoria. Con el tope, los logins de más
-// esperan su turno: el total es el mismo, porque la CPU ya no daba para más a la vez.
+// hashSlots limits how many argon2 hashes are computed at once: one per core. Each hash takes
+// 19 MiB, so without a cap 200 simultaneous logins take the process to several GiB and, on a
+// small VPS, the system kills it for lack of memory. With the cap, the extra logins wait their
+// turn: the total is the same, because the CPU could not do more at once anyway.
 var hashSlots = make(chan struct{}, max(1, runtime.GOMAXPROCS(0)))
 
-// argon2Key calcula la clave de argon2id cuando hay un lugar libre. Si el contexto se
-// cancela mientras espera (por ejemplo, el cliente cortó la conexión), no calcula nada.
+// argon2Key computes the argon2id key when a slot is free. If the context is cancelled while it
+// waits (for example, the client closed the connection), it computes nothing.
 func argon2Key(ctx context.Context, password, salt []byte, p argonParams, keyLen uint32) ([]byte, error) {
 	select {
 	case hashSlots <- struct{}{}:
@@ -47,18 +47,18 @@ func argon2Key(ctx context.Context, password, salt []byte, p argonParams, keyLen
 	return argon2.IDKey(password, salt, p.time, p.memory, p.threads, keyLen), nil
 }
 
-// HashPassword devuelve el hash de la contraseña en formato PHC:
+// HashPassword returns the hash of the password in PHC format:
 //
-//	$argon2id$v=19$m=19456,t=2,p=1$<sal>$<hash>
+//	$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>
 //
-// Los parámetros viajan dentro del hash, así que se pueden subir en el futuro
-// sin romper las contraseñas ya guardadas: cada una se vuelve a hashear con los
-// nuevos la próxima vez que su usuario entra (ver needsRehash).
+// The parameters travel inside the hash, so they can be raised in the future without breaking
+// the stored passwords: each one is hashed again with the new ones the next time its user signs
+// in (see needsRehash).
 func HashPassword(ctx context.Context, password string) (string, error) {
 	p := defaultParams
 	salt := make([]byte, p.saltLen)
 	if _, err := rand.Read(salt); err != nil {
-		return "", fmt.Errorf("generar sal: %w", err)
+		return "", fmt.Errorf("generate the salt: %w", err)
 	}
 
 	key, err := argon2Key(ctx, []byte(password), salt, p, p.keyLen)
@@ -73,7 +73,7 @@ func HashPassword(ctx context.Context, password string) (string, error) {
 	), nil
 }
 
-// VerifyPassword compara una contraseña con su hash en tiempo constante.
+// VerifyPassword compares a password with its hash in constant time.
 func VerifyPassword(ctx context.Context, password, encoded string) (bool, error) {
 	p, salt, key, err := decodeHash(encoded)
 	if err != nil {
@@ -87,9 +87,9 @@ func VerifyPassword(ctx context.Context, password, encoded string) (bool, error)
 	return subtle.ConstantTimeCompare(key, other) == 1, nil
 }
 
-// needsRehash indica si el hash se calculó con otros parámetros que los actuales (por ejemplo,
-// antes de subirlos) y conviene volver a calcularlo. Un hash inválido devuelve false: con él,
-// VerifyPassword ya falló.
+// needsRehash reports whether the hash was computed with parameters other than the current ones
+// (for example, before raising them) and should be computed again. An invalid hash returns
+// false: with it, VerifyPassword already failed.
 func needsRehash(encoded string) bool {
 	p, salt, key, err := decodeHash(encoded)
 	if err != nil {
@@ -129,13 +129,13 @@ func decodeHash(encoded string) (argonParams, []byte, []byte, error) {
 	return p, salt, key, nil
 }
 
-// dummyHash es el hash contra el que se compara cuando el email no existe en el login.
-// Así el login tarda lo mismo exista o no el usuario, y no se puede averiguar qué emails
-// están registrados midiendo el tiempo de respuesta.
+// dummyHash is the hash compared against when the email does not exist in the login. That way
+// the login takes as long whether the user exists or not, and nobody can find out which emails
+// are registered by timing the response.
 var dummyHash = sync.OnceValue(func() string {
-	h, err := HashPassword(context.Background(), "contraseña-ficticia-para-igualar-tiempos")
+	h, err := HashPassword(context.Background(), "dummy-password-to-even-out-timing")
 	if err != nil {
-		panic(err) // solo falla si el sistema no puede generar números aleatorios
+		panic(err) // it only fails if the system cannot generate random numbers
 	}
 	return h
 })

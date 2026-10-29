@@ -13,22 +13,22 @@ import (
 )
 
 func TestHashAndVerifyPassword(t *testing.T) {
-	hash, err := HashPassword(t.Context(), "una contraseña segura")
+	hash, err := HashPassword(t.Context(), "a strong password")
 	if err != nil {
 		t.Fatalf("HashPassword: %v", err)
 	}
 	if !strings.HasPrefix(hash, "$argon2id$v=19$m=19456,t=2,p=1$") {
-		t.Errorf("formato inesperado: %s", hash)
+		t.Errorf("unexpected format: %s", hash)
 	}
 
-	ok, err := VerifyPassword(t.Context(), "una contraseña segura", hash)
+	ok, err := VerifyPassword(t.Context(), "a strong password", hash)
 	if err != nil || !ok {
-		t.Errorf("la contraseña correcta no verificó: ok=%v err=%v", ok, err)
+		t.Errorf("the right password did not verify: ok=%v err=%v", ok, err)
 	}
 
-	ok, err = VerifyPassword(t.Context(), "otra contraseña", hash)
+	ok, err = VerifyPassword(t.Context(), "another password", hash)
 	if err != nil || ok {
-		t.Errorf("una contraseña incorrecta verificó: ok=%v err=%v", ok, err)
+		t.Errorf("a wrong password verified: ok=%v err=%v", ok, err)
 	}
 }
 
@@ -36,47 +36,47 @@ func TestHashPasswordUsesRandomSalt(t *testing.T) {
 	a, _ := HashPassword(t.Context(), "misma")
 	b, _ := HashPassword(t.Context(), "misma")
 	if a == b {
-		t.Error("dos hashes de la misma contraseña no deberían ser iguales")
+		t.Error("two hashes of the same password should not be equal")
 	}
 }
 
 func TestVerifyPasswordInvalidHash(t *testing.T) {
 	for _, hash := range []string{"", "texto", "$argon2i$v=19$m=1,t=1,p=1$a$b", "$argon2id$v=18$m=1,t=1,p=1$YQ$Yg"} {
 		if _, err := VerifyPassword(t.Context(), "x", hash); err == nil {
-			t.Errorf("se esperaba error para %q", hash)
+			t.Errorf("want an error for %q", hash)
 		}
 	}
 }
 
 func TestPasswordHashingIsBounded(t *testing.T) {
-	hash, err := HashPassword(t.Context(), "una contraseña segura")
+	hash, err := HashPassword(t.Context(), "a strong password")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Se ocupan todos los lugares, como si hubiera un hash por núcleo en curso.
+	// Every slot is taken, as if one hash per core were running.
 	for range cap(hashSlots) {
 		hashSlots <- struct{}{}
 	}
 
-	// El siguiente espera su turno, y si el cliente se va (el contexto vence) no calcula nada.
+	// The next one waits its turn, and if the client leaves (the context expires) it computes nothing.
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	if _, err := VerifyPassword(ctx, "una contraseña segura", hash); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("se esperaba context.DeadlineExceeded con todos los lugares ocupados, se obtuvo %v", err)
+	if _, err := VerifyPassword(ctx, "a strong password", hash); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want context.DeadlineExceeded with every slot taken, got %v", err)
 	}
 
-	// Al liberarse un lugar, vuelve a funcionar.
+	// Once a slot is free, it works again.
 	for range cap(hashSlots) {
 		<-hashSlots
 	}
-	if ok, err := VerifyPassword(t.Context(), "una contraseña segura", hash); err != nil || !ok {
+	if ok, err := VerifyPassword(t.Context(), "a strong password", hash); err != nil || !ok {
 		t.Errorf("VerifyPassword = %v, %v", ok, err)
 	}
 }
 
-// hashWithParams arma un hash en formato PHC con otros parámetros, como los que quedarían
-// guardados si se suben los de defaultParams.
+// hashWithParams builds a PHC-format hash with other parameters, like the ones that would stay
+// stored after raising defaultParams.
 func hashWithParams(t *testing.T, password string, p argonParams) string {
 	t.Helper()
 	salt := make([]byte, p.saltLen)
@@ -86,23 +86,23 @@ func hashWithParams(t *testing.T, password string, p argonParams) string {
 }
 
 func TestNeedsRehash(t *testing.T) {
-	current, err := HashPassword(t.Context(), "una contraseña segura")
+	current, err := HashPassword(t.Context(), "a strong password")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if needsRehash(current) {
-		t.Error("un hash con los parámetros actuales no necesita rehash")
+		t.Error("a hash with the current parameters does not need a rehash")
 	}
 
-	old := hashWithParams(t, "una contraseña segura", argonParams{memory: 8 * 1024, time: 1, threads: 1, saltLen: 16, keyLen: 32})
+	old := hashWithParams(t, "a strong password", argonParams{memory: 8 * 1024, time: 1, threads: 1, saltLen: 16, keyLen: 32})
 	if !needsRehash(old) {
-		t.Error("un hash con parámetros viejos necesita rehash")
+		t.Error("a hash with old parameters needs a rehash")
 	}
-	if ok, err := VerifyPassword(t.Context(), "una contraseña segura", old); err != nil || !ok {
-		t.Errorf("el hash viejo debería seguir verificando: %v, %v", ok, err)
+	if ok, err := VerifyPassword(t.Context(), "a strong password", old); err != nil || !ok {
+		t.Errorf("the old hash should still verify: %v, %v", ok, err)
 	}
 
 	if needsRehash("texto") {
-		t.Error("un hash inválido no se rehashea: VerifyPassword ya falló")
+		t.Error("an invalid hash is not rehashed: VerifyPassword already failed")
 	}
 }

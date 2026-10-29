@@ -16,12 +16,12 @@ func cookieNamed(t *testing.T, w *httptest.ResponseRecorder, name string) *http.
 			return c
 		}
 	}
-	t.Fatalf("falta la cookie %s; llegaron: %v", name, w.Result().Cookies())
+	t.Fatalf("missing the cookie %s; got: %v", name, w.Result().Cookies())
 	return nil
 }
 
-// En producción (COOKIE_SECURE=true) las cookies llevan el prefijo __Host-, que el navegador
-// solo acepta si son Secure, tienen Path=/ y no tienen Domain.
+// In production (COOKIE_SECURE=true) cookies have the __Host- prefix, which the browser only
+// accepts if they are Secure, have Path=/ and have no Domain.
 func TestSecureCookiesUseHostPrefix(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool, testutil.WithConfig(func(c *config.Config) { c.CookieSecure = true }))
@@ -32,16 +32,16 @@ func TestSecureCookiesUseHostPrefix(t *testing.T) {
 	}
 	session := cookieNamed(t, w, "__Host-session")
 	if !session.Secure || !session.HttpOnly || session.Path != "/" || session.Domain != "" || session.SameSite != http.SameSiteLaxMode {
-		t.Errorf("la cookie no cumple las reglas de __Host-: %+v", session)
+		t.Errorf("the cookie breaks the __Host- rules: %+v", session)
 	}
 
 	if w := testutil.Do(t, api, session, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("/auth/me con la cookie: status = %d", w.Code)
+		t.Errorf("/auth/me with the cookie: status = %d", w.Code)
 	}
-	// Una cookie con el nombre sin prefijo (por ejemplo, creada por un subdominio) no sirve.
+	// A cookie with the name without the prefix (for example, created by a subdomain) does not work.
 	plain := &http.Cookie{Name: "session", Value: session.Value}
 	if w := testutil.Do(t, api, plain, http.MethodGet, "/auth/me", ""); w.Code != http.StatusUnauthorized {
-		t.Errorf("/auth/me con la cookie sin prefijo: status = %d", w.Code)
+		t.Errorf("/auth/me with the cookie without the prefix: status = %d", w.Code)
 	}
 
 }
@@ -51,10 +51,10 @@ func TestLoginHelperWithSecureCookies(t *testing.T) {
 	secure := testutil.WithConfig(func(c *config.Config) { c.CookieSecure = true })
 	api := testutil.NewAPI(pool, secure)
 
-	// Con las mismas opciones que la API, la cookie de testutil.Login coincide.
+	// With the same options as the API, the testutil.Login cookie matches.
 	_, cookie := testutil.Login(t, pool, "alice@example.com", "user", secure)
 	if cookie.Name != "__Host-session" {
-		t.Errorf("cookie = %q, se esperaba __Host-session", cookie.Name)
+		t.Errorf("cookie = %q, want __Host-session", cookie.Name)
 	}
 	if w := testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
 		t.Errorf("/auth/me: status = %d", w.Code)

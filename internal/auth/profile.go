@@ -15,13 +15,13 @@ import (
 
 type profileInput struct {
 	Name string `json:"name"`
-	// Locale es opcional: si no viene, el idioma no cambia.
+	// Locale is optional: if it is missing, the language does not change.
 	Locale *string `json:"locale"`
 }
 
-// updateProfile responde PUT /auth/me: cambia el nombre del usuario y, si viene, su idioma
-// (uno de los disponibles; ver docs/i18n.md). El email no se cambia acá: cambiarlo exige
-// verificar la nueva dirección.
+// updateProfile answers PUT /auth/me: it changes the user's name and, if given, their language
+// (one of the available ones; see docs/i18n.md). The email is not changed here: changing it
+// requires verifying the new address.
 func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) error {
 	var in profileInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -34,7 +34,7 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) error {
 	}
 	if in.Locale != nil {
 		if locale, ok := s.catalog.Lookup(*in.Locale); ok {
-			in.Locale = &locale // escrito como el catálogo ("es-mx" es "es-MX")
+			in.Locale = &locale // written as in the catalog ("es-mx" is "es-MX")
 		} else {
 			fields["locale"] = i18n.M("validation.unsupported_locale", "locales", strings.Join(s.catalog.Locales(), ", "))
 		}
@@ -49,7 +49,7 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) error {
 		Locale: in.Locale,
 	})
 	if err != nil {
-		return fmt.Errorf("actualizar perfil: %w", err)
+		return fmt.Errorf("update the profile: %w", err)
 	}
 
 	httpx.Write(w, http.StatusOK, toUser(u))
@@ -61,9 +61,9 @@ type changePasswordInput struct {
 	Password        string `json:"password"`
 }
 
-// changePassword responde PUT /auth/password. Pide la contraseña actual (para que alguien
-// que encuentre la sesión abierta no pueda cambiarla) y cierra todas las demás sesiones
-// del usuario, por si alguien había entrado con la contraseña anterior. La sesión actual sigue activa.
+// changePassword answers PUT /auth/password. It asks for the current password (so someone who
+// finds the session open cannot change it) and closes every other session of the user, in case
+// someone had signed in with the previous password. The current session stays active.
 func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) error {
 	var in changePasswordInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -86,14 +86,14 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// El hash (argon2, lento) se calcula antes de abrir la transacción, para no tener una
-	// conexión de la base ocupada mientras espera su turno.
+	// The hash (argon2, slow) is computed before opening the transaction, so a database connection
+	// is not held while it waits for its turn.
 	hash, err := HashPassword(r.Context(), in.Password)
 	if err != nil {
-		return fmt.Errorf("hashear contraseña: %w", err)
+		return fmt.Errorf("hash the password: %w", err)
 	}
 
-	// La contraseña nueva y el cierre de las demás sesiones van juntos: o pasan los dos, o ninguno.
+	// The new password and closing the other sessions go together: either both happen, or neither.
 	var keep string
 	err = pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)

@@ -10,14 +10,14 @@ import (
 
 type ctxKey struct{}
 
-// sessionIDKey guarda en el contexto el id de la sesión de la petición (ver currentSessionID).
+// sessionIDKey stores in the context the ID of the request's session (see currentSessionID).
 type sessionIDKey struct{}
 
-// RequireUser deja pasar solo peticiones con una sesión válida (si no, responde 401)
-// y guarda el usuario en el contexto. Los handlers lo obtienen con UserFrom o MustUser.
+// RequireUser lets through only requests with a valid session (otherwise it answers 401) and
+// stores the user in the context. Handlers get it with UserFrom or MustUser.
 //
-// Con REQUIRE_EMAIL_VERIFICATION activa, además exige el email verificado: si no lo está,
-// responde 403 con el código "email_not_verified", para que el frontend muestre el aviso.
+// With REQUIRE_EMAIL_VERIFICATION on, it also requires a verified email: if it is not, it
+// answers 403 with the code "email_not_verified", so the frontend shows the notice.
 func (s *Service) RequireUser(next http.Handler) http.Handler {
 	if !s.opts.RequireVerifiedEmail {
 		return s.requireSession(next)
@@ -33,9 +33,9 @@ func (s *Service) RequireUser(next http.Handler) http.Handler {
 
 var errEmailNotVerified = &httpx.Error{Status: http.StatusForbidden, Code: "email_not_verified"}
 
-// requireSession exige una sesión válida, pero no el email verificado. Lo usan las rutas
-// de la propia cuenta (ver el perfil, cerrar sesión, reenviar la verificación), que tienen
-// que funcionar aunque el usuario todavía no haya confirmado su email.
+// requireSession requires a valid session, but not a verified email. The routes of the
+// account itself use it (see the profile, sign out, resend the verification), which must work
+// even if the user has not confirmed their email yet.
 func (s *Service) requireSession(next http.Handler) http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		sess, err := s.sessionFromRequest(r)
@@ -47,7 +47,7 @@ func (s *Service) requireSession(next http.Handler) http.Handler {
 		}
 		s.touch(r, sess)
 
-		// Desde acá, cada línea de log de la petición (incluida la final) incluye el usuario.
+		// From here on, every log line of the request (including the final one) includes the user.
 		httpx.AddLogAttrs(r.Context(), "user_id", sess.user.ID)
 
 		ctx := context.WithValue(WithUser(r.Context(), sess.user), sessionIDKey{}, sess.id)
@@ -56,9 +56,9 @@ func (s *Service) requireSession(next http.Handler) http.Handler {
 	})
 }
 
-// OptionalUser identifica al usuario si la petición trae una sesión válida, pero no la exige:
-// sin sesión (o con una vencida) la petición sigue como anónima. Sirve para rutas públicas que
-// muestran más datos a ciertos usuarios; en el handler se consulta con UserFrom.
+// OptionalUser identifies the user if the request has a valid session, but does not require it:
+// without a session (or with an expired one) the request goes on as anonymous. It is for public
+// routes that show more data to some users; in the handler, it is read with UserFrom.
 func (s *Service) OptionalUser(next http.Handler) http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		sess, err := s.sessionFromRequest(r)
@@ -78,7 +78,8 @@ func (s *Service) OptionalUser(next http.Handler) http.Handler {
 	})
 }
 
-// RequireAdmin deja pasar solo a usuarios con rol admin: 401 sin sesión, 403 con otro rol.
+// RequireAdmin lets through only users with the admin role: 401 without a session, 403 with
+// another role.
 func (s *Service) RequireAdmin(next http.Handler) http.Handler {
 	return s.RequireUser(httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		if !MustUser(r.Context()).IsAdmin() {
@@ -89,25 +90,25 @@ func (s *Service) RequireAdmin(next http.Handler) http.Handler {
 	}))
 }
 
-// WithUser devuelve un contexto con el usuario autenticado. Lo usan los middlewares; también
-// sirve para probar un handler protegido sin pasar por el login.
+// WithUser returns a context with the authenticated user. The middlewares use it; it also helps
+// to test a protected handler without going through the login.
 func WithUser(ctx context.Context, u User) context.Context {
 	return context.WithValue(ctx, ctxKey{}, u)
 }
 
-// UserFrom devuelve el usuario autenticado de la petición, si lo hay.
+// UserFrom returns the authenticated user of the request, if there is one.
 func UserFrom(ctx context.Context) (User, bool) {
 	u, ok := ctx.Value(ctxKey{}).(User)
 	return u, ok
 }
 
-// MustUser devuelve el usuario autenticado. Usalo solo en handlers protegidos con
-// RequireUser o RequireAdmin: si no hay usuario es un error de programación y entra en pánico
-// (el middleware Recover responde 500 y lo registra).
+// MustUser returns the authenticated user. Use it only in handlers protected with RequireUser
+// or RequireAdmin: without a user it is a programming error and it panics (the Recover
+// middleware answers 500 and logs it).
 func MustUser(ctx context.Context) User {
 	u, ok := UserFrom(ctx)
 	if !ok {
-		panic("auth.MustUser: la ruta no está protegida con RequireUser")
+		panic("auth.MustUser: the route is not protected with RequireUser")
 	}
 	return u
 }

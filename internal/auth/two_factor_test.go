@@ -36,7 +36,7 @@ func TestEnableTwoFactor(t *testing.T) {
 	user, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	other := newSession(t, pool, user.ID)
 
-	// Setup devuelve el secreto y la URL del QR, con el nombre de la app y el email.
+	// Setup returns the secret and the QR URL, with the app name and the email.
 	setup := testutil.Decode[setupResponse](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
 	u, err := url.Parse(setup.OTPAuthURL)
 	if err != nil || u.Scheme != "otpauth" || u.Query().Get("secret") != setup.Secret || u.Query().Get("issuer") != "Test App" ||
@@ -44,71 +44,71 @@ func TestEnableTwoFactor(t *testing.T) {
 		t.Fatalf("otpauth_url inesperada: %s", setup.OTPAuthURL)
 	}
 
-	// En la base el secreto queda cifrado, no en base32.
+	// In the database the secret is encrypted, not in base32.
 	var stored string
 	if err := pool.QueryRow(t.Context(), "SELECT totp_secret FROM users WHERE id = $1", user.ID).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	if stored == setup.Secret || strings.Contains(stored, setup.Secret) {
-		t.Error("el secreto está guardado sin cifrar")
+		t.Error("the secret is stored unencrypted")
 	}
 
-	// Mientras no se confirma, el 2FA no está activo.
+	// Until it is confirmed, two-factor authentication is not on.
 	me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK)
 	if me.TwoFactorEnabled {
-		t.Fatal("el 2FA no debería estar activo antes de confirmarlo")
+		t.Fatal("two-factor authentication should not be on before it is confirmed")
 	}
 
-	// Pide la contraseña: con una sesión robada, alguien activaría el 2FA con su propia app y,
-	// al cerrarse las demás sesiones, dejaría al dueño afuera. Ojo: la ruta tiene límite por
-	// usuario (5 seguidos); este test hace 4 peticiones a ella.
+	// It asks for the password: with a stolen session, someone would enable two-factor
+	// authentication with their own app and, as the other sessions close, lock the owner out.
+	// Careful: the route has a per-user limit (5 in a row); this test makes 4 requests to it.
 	code, _ := totp.Code(setup.Secret, time.Now())
 	for name, tt := range map[string]struct{ body, field string }{
-		"sin contraseña":        {codeBody(code), "password"},
-		"contraseña incorrecta": {enableBody(code, "incorrecta"), "password"},
-		"código incorrecto":     {enableBody("000000", "test-password"), "code"},
+		"without a password": {codeBody(code), "password"},
+		"wrong password":     {enableBody(code, "incorrecta"), "password"},
+		"wrong code":         {enableBody("000000", "test-password"), "code"},
 	} {
 		resp := testutil.Decode[testutil.APIError](t,
 			testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", tt.body), http.StatusUnprocessableEntity)
 		if resp.Error.Fields[tt.field] == "" {
-			t.Errorf("%s: se esperaba error en %s: %+v", name, tt.field, resp.Error)
+			t.Errorf("%s: want an error on %s: %+v", name, tt.field, resp.Error)
 		}
 	}
 	me = testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK)
 	if me.TwoFactorEnabled {
-		t.Fatal("el 2FA no debería activarse sin la contraseña y el código correctos")
+		t.Fatal("two-factor authentication should not turn on without the right password and code")
 	}
 
 	codes := testutil.Decode[recoveryCodes](t,
 		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody(code, "test-password")), http.StatusOK)
 
 	if len(codes.RecoveryCodes) != 10 {
-		t.Fatalf("se esperaban 10 códigos de recuperación: %v", codes.RecoveryCodes)
+		t.Fatalf("want 10 recovery codes: %v", codes.RecoveryCodes)
 	}
 	for _, c := range codes.RecoveryCodes {
 		if len(c) != 11 || c[5] != '-' {
-			t.Errorf("código con formato inesperado: %q", c)
+			t.Errorf("code with an unexpected format: %q", c)
 		}
 	}
 
-	// Los códigos no se guardan en texto plano.
+	// The codes are not stored in plain text.
 	var plain int
 	if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM user_recovery_codes WHERE code_hash = convert_to($1, 'UTF8')",
 		codes.RecoveryCodes[0]).Scan(&plain); err != nil || plain != 0 {
-		t.Errorf("código de recuperación en texto plano: %d (%v)", plain, err)
+		t.Errorf("recovery code in plain text: %d (%v)", plain, err)
 	}
 
 	me = testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK)
 	if !me.TwoFactorEnabled {
-		t.Error("el 2FA debería estar activo")
+		t.Error("two-factor authentication should be on")
 	}
 
-	// Activar el 2FA cierra las demás sesiones.
+	// Enabling two-factor authentication closes the other sessions.
 	if w := testutil.Do(t, api, other, http.MethodGet, "/auth/me", ""); w.Code != http.StatusUnauthorized {
-		t.Errorf("la otra sesión sigue activa: status = %d", w.Code)
+		t.Errorf("the other session is still active: status = %d", w.Code)
 	}
 
-	// Ya activo, setup y enable responden 409.
+	// Once on, setup and enable answer 409.
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusConflict)
 }
 
@@ -132,7 +132,7 @@ func TestDisableTwoFactor(t *testing.T) {
 	resp := testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"wrong-password"}`), http.StatusUnprocessableEntity)
 	if resp.Error.Fields["password"] == "" {
-		t.Errorf("se esperaba error en password: %+v", resp.Error)
+		t.Errorf("want an error on password: %+v", resp.Error)
 	}
 
 	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"test-password"}`); w.Code != http.StatusNoContent {
@@ -141,11 +141,11 @@ func TestDisableTwoFactor(t *testing.T) {
 
 	me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK)
 	if me.TwoFactorEnabled {
-		t.Error("el 2FA debería estar desactivado")
+		t.Error("two-factor authentication should be off")
 	}
 	var codes int
 	if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM user_recovery_codes").Scan(&codes); err != nil || codes != 0 {
-		t.Errorf("quedaron %d códigos de recuperación (%v)", codes, err)
+		t.Errorf("%d recovery codes left (%v)", codes, err)
 	}
 }
 
@@ -154,7 +154,7 @@ func TestRegenerateRecoveryCodes(t *testing.T) {
 	api := testutil.NewAPI(pool)
 	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
-	// Sin 2FA no hay códigos que regenerar.
+	// Without two-factor authentication there are no codes to regenerate.
 	testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/recovery-codes", `{"password":"test-password"}`), http.StatusConflict)
 
@@ -163,16 +163,17 @@ func TestRegenerateRecoveryCodes(t *testing.T) {
 		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/recovery-codes", `{"password":"test-password"}`), http.StatusOK)
 
 	if len(second.RecoveryCodes) != 10 || second.RecoveryCodes[0] == first.RecoveryCodes[0] {
-		t.Errorf("códigos nuevos inesperados: %v", second.RecoveryCodes)
+		t.Errorf("unexpected new codes: %v", second.RecoveryCodes)
 	}
 	var count int
 	if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM user_recovery_codes").Scan(&count); err != nil || count != 10 {
-		t.Errorf("deberían quedar solo los 10 códigos nuevos, hay %d (%v)", count, err)
+		t.Errorf("only the 10 new codes should be left, there are %d (%v)", count, err)
 	}
 }
 
-// EnableTOTP solo activa el secreto que se verificó: si mientras tanto otra petición pidió un QR
-// nuevo (setup), no activa ese, que el usuario nunca escaneó y cuyo secreto recibió quien lo pidió.
+// EnableTOTP only enables the secret that was verified: if meanwhile another request asked for a
+// new QR code (setup), it does not enable that one, which the user never scanned and whose secret
+// went to whoever asked for it.
 func TestEnableTOTPRequiresVerifiedSecret(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
@@ -180,30 +181,30 @@ func TestEnableTOTPRequiresVerifiedSecret(t *testing.T) {
 	testutil.Decode[setupResponse](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
 
 	q := store.New(pool)
-	verified, err := q.GetUserByID(t.Context(), user.ID) // el secreto con el que enable verificó el código
+	verified, err := q.GetUserByID(t.Context(), user.ID) // the secret enable verified the code with
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Antes de activarlo, otra petición pide un QR nuevo.
+	// Before enabling it, another request asks for a new QR code.
 	testutil.Decode[setupResponse](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
 
 	step := int64(1)
 	rows, err := q.EnableTOTP(t.Context(), store.EnableTOTPParams{ID: user.ID, TOTPSecret: verified.TOTPSecret, TOTPLastStep: &step})
 	if err != nil || rows != 0 {
-		t.Fatalf("EnableTOTP con un secreto reemplazado: filas = %d, error = %v; se esperaba 0", rows, err)
+		t.Fatalf("EnableTOTP with a replaced secret: rows = %d, error = %v; want 0", rows, err)
 	}
 	if me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK); me.TwoFactorEnabled {
-		t.Error("el 2FA no debería haber quedado activo")
+		t.Error("two-factor authentication should not have turned on")
 	}
 }
 
-// Si un paso de activar el 2FA falla, sigue inactivo: sin códigos de recuperación y con las demás
-// sesiones abiertas. El mismo código sirve al reintentar, porque su paso no quedó guardado.
+// If a step of enabling two-factor authentication fails, it stays off: without recovery codes
+// and with the other sessions open. The same code works on retry, because its step was not saved.
 func TestEnableTwoFactorIsAtomic(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
 	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
-	other := newSession(t, pool, u.ID) // otra sesión, que se cerraría
+	other := newSession(t, pool, u.ID) // another session, which would be closed
 
 	setup := testutil.Decode[struct {
 		Secret string `json:"secret"`
@@ -216,35 +217,35 @@ func TestEnableTwoFactorIsAtomic(t *testing.T) {
 	exec := func(sql string) error { _, err := pool.Exec(context.Background(), sql); return err }
 	failSessionDeletes(t, exec)
 
-	// Falla el cierre de las demás sesiones, el último paso: se deshace todo.
+	// Closing the other sessions fails, the last step: everything is undone.
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody(code, testutil.Password)), http.StatusInternalServerError)
 
 	if me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK); me.TwoFactorEnabled {
-		t.Error("el 2FA no debería haber quedado activo")
+		t.Error("two-factor authentication should not have turned on")
 	}
 	if n := countRows(t, pool, "user_recovery_codes", u.ID); n != 0 {
-		t.Errorf("quedaron %d códigos de recuperación, se esperaba ninguno", n)
+		t.Errorf("%d recovery codes left, want none", n)
 	}
 	if w := testutil.Do(t, api, other, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("la otra sesión debería seguir abierta: status = %d", w.Code)
+		t.Errorf("the other session should stay open: status = %d", w.Code)
 	}
 
-	// Sin la falla, el mismo código funciona.
+	// Without the failure, the same code works.
 	if err := exec("DROP TRIGGER test_fail_session_delete ON sessions"); err != nil {
 		t.Fatal(err)
 	}
 	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody(code, testutil.Password)); w.Code != http.StatusOK {
-		t.Fatalf("el reintento debería activar el 2FA: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("the retry should enable two-factor authentication: status = %d; body: %s", w.Code, w.Body)
 	}
 }
 
-// Lo mismo al desactivarlo: sigue activo, con sus códigos y las demás sesiones.
+// The same when disabling it: it stays on, with its codes and the other sessions.
 func TestDisableTwoFactorIsAtomic(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
 	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
-	other := newSession(t, pool, u.ID) // después de activarlo, que cierra las demás
+	other := newSession(t, pool, u.ID) // after enabling it, which closes the others
 
 	exec := func(sql string) error { _, err := pool.Exec(context.Background(), sql); return err }
 	failSessionDeletes(t, exec)
@@ -253,12 +254,12 @@ func TestDisableTwoFactorIsAtomic(t *testing.T) {
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", body), http.StatusInternalServerError)
 
 	if me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK); !me.TwoFactorEnabled {
-		t.Error("el 2FA debería seguir activo")
+		t.Error("two-factor authentication should stay on")
 	}
 	if n := countRows(t, pool, "user_recovery_codes", u.ID); n == 0 {
-		t.Error("se borraron los códigos de recuperación")
+		t.Error("the recovery codes were deleted")
 	}
 	if w := testutil.Do(t, api, other, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("la otra sesión debería seguir abierta: status = %d", w.Code)
+		t.Errorf("the other session should stay open: status = %d", w.Code)
 	}
 }

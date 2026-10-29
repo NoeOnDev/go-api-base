@@ -12,8 +12,8 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-// Estos tests simulan un atacante que tiene la contraseña y reparte sus intentos entre
-// muchas IPs: cada petición sale de una IP distinta, así que el límite por IP no lo frena.
+// These tests simulate an attacker who has the password and spreads their attempts across many
+// IPs: each request comes from a different IP, so the per-IP limit does not stop them.
 
 func loginFromIP(t *testing.T, api http.Handler, ip string) *http.Cookie {
 	t.Helper()
@@ -24,7 +24,7 @@ func loginFromIP(t *testing.T, api http.Handler, ip string) *http.Cookie {
 			return c
 		}
 	}
-	t.Fatal("falta la cookie del desafío")
+	t.Fatal("missing the challenge cookie")
 	return nil
 }
 
@@ -45,10 +45,10 @@ func TestChallengeLocksAfterMaxAttempts(t *testing.T) {
 
 	pending := loginFromIP(t, api, addr.next())
 
-	// Un cuerpo mal armado no gasta intentos.
+	// A malformed body does not spend attempts.
 	testutil.Decode[testutil.APIError](t, challengeFromIP(t, api, addr.next(), pending, `{}`), http.StatusUnprocessableEntity)
 
-	// Los primeros 4 códigos incorrectos dejan reintentar (uno es de recuperación: cuentan igual).
+	// The first 4 wrong codes allow retrying (one is a recovery code: they count the same).
 	for i := range 4 {
 		body := codeBody("000000")
 		if i == 0 {
@@ -57,34 +57,34 @@ func TestChallengeLocksAfterMaxAttempts(t *testing.T) {
 		testutil.Decode[testutil.APIError](t, challengeFromIP(t, api, addr.next(), pending, body), http.StatusUnprocessableEntity)
 	}
 
-	// El quinto corta el desafío.
+	// The fifth one ends the challenge.
 	lastIP := addr.next()
 	w := challengeFromIP(t, api, lastIP, pending, codeBody("000000"))
 	resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnauthorized)
 	if resp.Error.Code != "two_factor_locked" {
-		t.Errorf("se esperaba two_factor_locked: %+v", resp.Error)
+		t.Errorf("want two_factor_locked: %+v", resp.Error)
 	}
 	for _, c := range w.Result().Cookies() {
 		if c.Name == auth.ChallengeCookieName && c.MaxAge >= 0 {
-			t.Error("la cookie del desafío no se borró")
+			t.Error("the challenge cookie was not deleted")
 		}
 	}
 
-	// El usuario recibe el aviso, con la IP del último intento.
+	// The user gets the notice, with the IP of the last attempt.
 	msg, ok := mails.Last("alice@example.com")
 	if !ok || msg.Subject != lockedSubject || !strings.Contains(msg.Body, lastIP) || !strings.Contains(msg.Body, "https://app.test") {
-		t.Errorf("aviso inesperado (%v): %+v", ok, msg)
+		t.Errorf("unexpected notice (%v): %+v", ok, msg)
 	}
 
-	// Ese desafío ya no sirve, ni siquiera con el código correcto…
+	// That challenge no longer works, not even with the right code…
 	resp = testutil.Decode[testutil.APIError](t, challengeFromIP(t, api, addr.next(), pending, codeBody(tf.Code(t))), http.StatusUnauthorized)
 	if resp.Error.Code == "two_factor_locked" {
-		t.Errorf("un desafío borrado debería responder como vencido: %+v", resp.Error)
+		t.Errorf("a deleted challenge should answer as expired: %+v", resp.Error)
 	}
 
-	// …pero volviendo a poner la contraseña, el código correcto funciona.
+	// …but entering the password again, the right code works.
 	if w := challengeFromIP(t, api, addr.next(), loginFromIP(t, api, addr.next()), codeBody(tf.Code(t))); w.Code != http.StatusOK {
-		t.Errorf("login nuevo: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Errorf("new login: status = %d; body: %s", w.Code, w.Body)
 	}
 }
 
@@ -96,7 +96,7 @@ func TestChallengeUserLimitAcrossIPs(t *testing.T) {
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
-	// Dos desafíos agotados: 10 códigos incorrectos, cada uno desde una IP distinta.
+	// Two used-up challenges: 10 wrong codes, each one from a different IP.
 	for range 2 {
 		pending := loginFromIP(t, api, addr.next())
 		for range 5 {
@@ -104,14 +104,14 @@ func TestChallengeUserLimitAcrossIPs(t *testing.T) {
 		}
 	}
 
-	// Con un desafío nuevo y otra IP, el siguiente intento se rechaza, aunque traiga el código correcto.
+	// With a new challenge and another IP, the next attempt is rejected, even with the right code.
 	w := challengeFromIP(t, api, addr.next(), loginFromIP(t, api, addr.next()), codeBody(tf.Code(t)))
 	resp := testutil.Decode[testutil.APIError](t, w, http.StatusTooManyRequests)
 	if resp.Error.Code != "too_many_requests" || w.Header().Get("Retry-After") != "360" {
 		t.Errorf("respuesta inesperada: %+v, Retry-After %q", resp.Error, w.Header().Get("Retry-After"))
 	}
 
-	// Un aviso por cada desafío agotado.
+	// One notice per used-up challenge.
 	sent := 0
 	for _, m := range mails.Messages() {
 		if m.Subject == lockedSubject {
@@ -119,7 +119,7 @@ func TestChallengeUserLimitAcrossIPs(t *testing.T) {
 		}
 	}
 	if sent != 2 {
-		t.Errorf("se enviaron %d avisos, se esperaban 2", sent)
+		t.Errorf("%d notices were sent, want 2", sent)
 	}
 }
 
@@ -131,7 +131,7 @@ func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
-	// Alguien con la contraseña agota el límite del 2FA de Alice y deja un desafío pendiente.
+	// Someone with the password uses up Alice's two-factor limit and leaves a pending challenge.
 	for range 2 {
 		pending := loginFromIP(t, api, addr.next())
 		for range 5 {
@@ -140,17 +140,17 @@ func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
 	}
 	attacker := loginFromIP(t, api, addr.next())
 
-	// Alice recupera su contraseña.
+	// Alice resets her password.
 	testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
 	msg, _ := mails.Last("alice@example.com")
 	if w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/password/reset", resetBody(testutil.TokenFromEmail(t, msg), newPassword)); w.Code != http.StatusNoContent {
 		t.Fatalf("reset: status = %d", w.Code)
 	}
 
-	// El desafío que se obtuvo con la contraseña vieja ya no sirve…
+	// The challenge obtained with the old password no longer works…
 	testutil.Decode[testutil.APIError](t, challengeFromIP(t, api, addr.next(), attacker, codeBody(tf.Code(t))), http.StatusUnauthorized)
 
-	// …y Alice entra con la contraseña nueva sin esperar a que se recargue el límite.
+	// …and Alice signs in with the new password without waiting for the limit to refill.
 	w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/login",
 		fmt.Sprintf(`{"email":"alice@example.com","password":%q}`, newPassword))
 	testutil.Decode[map[string]bool](t, w, http.StatusAccepted)
@@ -161,7 +161,7 @@ func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
 		}
 	}
 	if w := challengeFromIP(t, api, addr.next(), mine, codeBody(tf.Code(t))); w.Code != http.StatusOK {
-		t.Errorf("login de Alice después del reset: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Errorf("Alice's login after the reset: status = %d; body: %s", w.Code, w.Body)
 	}
 }
 
@@ -172,13 +172,13 @@ func TestPasswordChangeEndsPendingChallenges(t *testing.T) {
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
-	// Alguien con la contraseña pasó el primer paso del login…
+	// Someone with the password got through the first step of the login…
 	attacker := loginFromIP(t, api, addr.next())
 
-	// …y Alice, que tiene su sesión abierta, cambia la contraseña.
+	// …and Alice, who has her session open, changes the password.
 	body := fmt.Sprintf(`{"current_password":"test-password","password":%q}`, newPassword)
 	if w := testutil.DoFromIP(t, api, addr.next(), session, http.MethodPut, "/auth/password", body); w.Code != http.StatusNoContent {
-		t.Fatalf("cambio de contraseña: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("password change: status = %d; body: %s", w.Code, w.Body)
 	}
 
 	testutil.Decode[testutil.APIError](t, challengeFromIP(t, api, addr.next(), attacker, codeBody(tf.Code(t))), http.StatusUnauthorized)

@@ -18,17 +18,18 @@ type forgotPasswordInput struct {
 	Email string `json:"email"`
 }
 
-// forgotMessage es la respuesta a POST /auth/password/forgot, exista o no el email.
+// forgotMessage is the answer to POST /auth/password/forgot, whether the email exists or not.
 func forgotMessage(r *http.Request) map[string]string {
 	return map[string]string{"message": i18n.FromContext(r.Context()).T("messages.password_reset_sent")}
 }
 
-// forgotPassword responde POST /auth/password/forgot. Si el email existe, envía un enlace de un
-// solo uso para elegir una contraseña nueva. Responde siempre lo mismo (202), exista o no,
-// para no revelar qué emails están registrados; el correo se envía en segundo plano.
+// forgotPassword answers POST /auth/password/forgot. If the email exists, it sends a single-use
+// link to choose a new password. It always answers the same (202), whether the email exists or
+// not, so it does not reveal which emails are registered; the email is sent in the background.
 //
-// Si ya se le enviaron varios enlaces al usuario (ver allowEmail), no envía otro ni invalida
-// el anterior, pero responde lo mismo: así nadie puede llenarle la bandeja ni anularle el enlace.
+// If several links were already sent to the user (see allowEmail), it neither sends another one
+// nor invalidates the previous one, but answers the same: that way nobody can flood their inbox
+// or cancel their link.
 func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 	var in forgotPasswordInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -45,14 +46,14 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("buscar usuario: %w", err)
+		return fmt.Errorf("find user: %w", err)
 	}
 	allowed, err := s.allowEmail(r.Context(), purposePasswordReset, u.ID)
 	if err != nil {
 		return err
 	}
 	if !allowed {
-		httpx.LoggerFrom(r.Context()).Warn("recuperación no enviada: límite de correos del usuario", "user_id", u.ID)
+		httpx.LoggerFrom(r.Context()).Warn("reset not sent: the user's email limit", "user_id", u.ID)
 		httpx.Write(w, http.StatusAccepted, forgotMessage(r))
 		return nil
 	}
@@ -79,35 +80,35 @@ type resetPasswordInput struct {
 	Password string `json:"password"`
 }
 
-// resetPassword responde POST /auth/password/reset con el token del enlace y la contraseña nueva.
-// Cierra todas las sesiones del usuario (por si alguien más había entrado) y marca el email
-// como verificado, porque el usuario demostró que recibe correos en esa dirección.
+// resetPassword answers POST /auth/password/reset with the token of the link and the new
+// password. It closes every session of the user (in case someone else had signed in) and marks
+// the email as verified, because the user proved they receive emails at that address.
 //
-// También reinicia sus límites de intentos del login y del 2FA: si alguien los había agotado,
-// el dueño no tiene que esperar para entrar con la contraseña nueva.
+// It also resets their login and two-factor attempt limits: if someone had used them up, the
+// owner does not have to wait to sign in with the new password.
 func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	var in resetPasswordInput
 	if err := httpx.Decode(w, r, &in); err != nil {
 		return err
 	}
 
-	// Primero se valida la contraseña: si no cumple las reglas, el token sigue sirviendo.
+	// The password is validated first: if it breaks the rules, the token still works.
 	if msg := validatePassword(in.Password); !msg.IsZero() {
 		return httpx.Validation(httpx.Fields{"password": msg})
 	}
 
-	// Antes de calcular el hash (argon2, caro) se comprueba que el enlace sirva, sin gastarlo.
-	// El hash se calcula fuera de la transacción, para no tener una conexión de la base
-	// ocupada mientras espera su turno.
+	// Before computing the hash (argon2, expensive) it checks that the link works, without using it
+	// up. The hash is computed outside the transaction, so a database connection is not held while
+	// it waits for its turn.
 	if err := s.checkToken(r.Context(), in.Token, purposePasswordReset); err != nil {
 		return err
 	}
 	hash, err := HashPassword(r.Context(), in.Password)
 	if err != nil {
-		return fmt.Errorf("hashear contraseña: %w", err)
+		return fmt.Errorf("hash the password: %w", err)
 	}
 
-	// Todo o nada: si un paso falla, el enlace sigue sirviendo y nada cambió.
+	// All or nothing: if a step fails, the link still works and nothing changed.
 	var userID int64
 	err = pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
@@ -119,10 +120,10 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		if err := q.MarkEmailVerified(r.Context(), id); err != nil {
-			return fmt.Errorf("marcar email verificado: %w", err)
+			return fmt.Errorf("mark the email verified: %w", err)
 		}
 		if err := q.DeleteUserSessions(r.Context(), id); err != nil {
-			return fmt.Errorf("cerrar sesiones: %w", err)
+			return fmt.Errorf("close the sessions: %w", err)
 		}
 		userID = id
 		return nil
@@ -133,7 +134,7 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	s.sessionsEnded(r.Context(), userID, "")
 	u, err := s.q.GetUserByID(r.Context(), userID)
 	if err != nil {
-		return fmt.Errorf("buscar usuario %d: %w", userID, err)
+		return fmt.Errorf("find user %d: %w", userID, err)
 	}
 	s.resetLimit(r.Context(), s.loginLimiter, loginLimitKey(u.Email))
 	s.resetLimit(r.Context(), s.twoFactorLimiter, twoFactorLimitKey(userID))
@@ -143,21 +144,21 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// checkToken comprueba que el token sea válido, sin gastarlo. Sirve para no hacer trabajo caro
-// (como calcular un hash de argon2) con un enlace inventado o vencido; después hay que
-// consumirlo con consumeToken, que lo vuelve a comprobar.
+// checkToken checks that the token is valid, without using it up. It avoids expensive work (like
+// computing an argon2 hash) with a made-up or expired link; then it has to be consumed with
+// consumeToken, which checks it again.
 func (s *Service) checkToken(ctx context.Context, token, purpose string) error {
 	if token == "" {
 		return errInvalidToken
 	}
-	// Los tokens que se envían por correo no gastan intentos (attempts queda en 0): con un
-	// máximo de 1, solo se exige que sigan sin usar.
+	// Tokens sent by email do not spend attempts (attempts stays at 0): with a maximum of 1, it only
+	// requires that they are still unused.
 	_, err := s.q.GetUserTokenUser(ctx, store.GetUserTokenUserParams{TokenHash: hashToken(token), Purpose: purpose, MaxAttempts: 1})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errInvalidToken
 	}
 	if err != nil {
-		return fmt.Errorf("buscar token: %w", err)
+		return fmt.Errorf("find token: %w", err)
 	}
 	return nil
 }

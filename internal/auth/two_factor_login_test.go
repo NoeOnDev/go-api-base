@@ -13,28 +13,28 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-// Ojo: el login, enable y el desafío comparten el límite de 5 intentos por IP,
-// así que cada test hace como mucho 5 peticiones a esas rutas.
+// Careful: the login, enable and the challenge share the limit of 5 attempts per IP, so each
+// test makes at most 5 requests to those routes.
 
-// loginWithTwoFactor hace el primer paso del login y devuelve la cookie del desafío.
+// loginWithTwoFactor does the first step of the login and returns the challenge cookie.
 func loginWithTwoFactor(t *testing.T, api http.Handler) *http.Cookie {
 	t.Helper()
 	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBody)
 	resp := testutil.Decode[map[string]bool](t, w, http.StatusAccepted)
 	if !resp["two_factor_required"] {
-		t.Fatalf("se esperaba two_factor_required: %v", resp)
+		t.Fatalf("want two_factor_required: %v", resp)
 	}
 	var challenge *http.Cookie
 	for _, c := range w.Result().Cookies() {
 		switch c.Name {
 		case auth.CookieName:
-			t.Fatal("no debería crear la sesión antes del segundo paso")
+			t.Fatal("it should not create the session before the second step")
 		case auth.ChallengeCookieName:
 			challenge = c
 		}
 	}
 	if challenge == nil || !challenge.HttpOnly {
-		t.Fatalf("falta la cookie HttpOnly del desafío: %+v", challenge)
+		t.Fatalf("missing the HttpOnly challenge cookie: %+v", challenge)
 	}
 	return challenge
 }
@@ -52,33 +52,33 @@ func TestLoginRequiresSecondFactor(t *testing.T) {
 
 	pending := loginWithTwoFactor(t, api)
 
-	// Un código incorrecto deja reintentar (hasta agotar los intentos del desafío).
+	// A wrong code allows retrying (until the attempts of the challenge are used up).
 	resp := testutil.Decode[testutil.APIError](t, challenge(t, api, pending, codeBody("000000")), http.StatusUnprocessableEntity)
 	if resp.Error.Fields["code"] == "" {
-		t.Errorf("se esperaba error en code: %+v", resp.Error)
+		t.Errorf("want an error on code: %+v", resp.Error)
 	}
 
 	w := challenge(t, api, pending, codeBody(tf.Code(t)))
 	u := testutil.Decode[auth.User](t, w, http.StatusOK)
 	if u.Email != "alice@example.com" || !u.TwoFactorEnabled {
-		t.Errorf("usuario inesperado: %+v", u)
+		t.Errorf("unexpected user: %+v", u)
 	}
 
-	// Ahora sí hay sesión, y la cookie del desafío se borra.
+	// Now there is a session, and the challenge cookie is deleted.
 	var newSession *http.Cookie
 	for _, c := range w.Result().Cookies() {
 		if c.Name == auth.CookieName {
 			newSession = c
 		}
 		if c.Name == auth.ChallengeCookieName && c.MaxAge >= 0 {
-			t.Error("la cookie del desafío no se borró")
+			t.Error("the challenge cookie was not deleted")
 		}
 	}
 	if newSession == nil {
-		t.Fatal("no se creó la sesión")
+		t.Fatal("the session was not created")
 	}
 	if w := testutil.Do(t, api, newSession, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("la sesión nueva no funciona: status = %d", w.Code)
+		t.Errorf("the new session does not work: status = %d", w.Code)
 	}
 }
 
@@ -93,7 +93,7 @@ func TestTOTPCodeCannotBeReused(t *testing.T) {
 		t.Fatalf("primer uso: status = %d", w.Code)
 	}
 
-	// El mismo código, todavía dentro de su ventana de tiempo, ya no sirve.
+	// The same code, still within its time window, no longer works.
 	testutil.Decode[testutil.APIError](t, challenge(t, api, loginWithTwoFactor(t, api), codeBody(code)), http.StatusUnprocessableEntity)
 }
 
@@ -103,18 +103,18 @@ func TestRecoveryCodeLogin(t *testing.T) {
 	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 
-	// Se acepta como lo escriba el usuario: en mayúsculas y sin guion.
+	// It is accepted however the user types it: in uppercase and without the hyphen.
 	typed := strings.ToUpper(strings.ReplaceAll(tf.RecoveryCodes[0], "-", ""))
 	body := fmt.Sprintf(`{"recovery_code":%q}`, typed)
 
 	if w := challenge(t, api, loginWithTwoFactor(t, api), body); w.Code != http.StatusOK {
-		t.Fatalf("código de recuperación: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("recovery code: status = %d; body: %s", w.Code, w.Body)
 	}
 
-	// Cada código sirve una sola vez.
+	// Each code works only once.
 	resp := testutil.Decode[testutil.APIError](t, challenge(t, api, loginWithTwoFactor(t, api), body), http.StatusUnprocessableEntity)
 	if resp.Error.Fields["recovery_code"] == "" {
-		t.Errorf("se esperaba error en recovery_code: %+v", resp.Error)
+		t.Errorf("want an error on recovery_code: %+v", resp.Error)
 	}
 }
 
@@ -124,16 +124,16 @@ func TestTwoFactorChallengeErrors(t *testing.T) {
 	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 
-	// Sin la cookie del desafío (no pasó por el login).
+	// Without the challenge cookie (it did not go through the login).
 	testutil.Decode[testutil.APIError](t, challenge(t, api, nil, codeBody(tf.Code(t))), http.StatusUnauthorized)
 
 	pending := loginWithTwoFactor(t, api)
 
-	// Hay que enviar uno de los dos códigos, no ambos.
+	// One of the two codes has to be sent, not both.
 	both := fmt.Sprintf(`{"code":%q,"recovery_code":%q}`, tf.Code(t), tf.RecoveryCodes[0])
 	testutil.Decode[testutil.APIError](t, challenge(t, api, pending, both), http.StatusUnprocessableEntity)
 
-	// Desafío vencido.
+	// Expired challenge.
 	if _, err := pool.Exec(t.Context(), "UPDATE user_tokens SET expires_at = now() - interval '1 minute'"); err != nil {
 		t.Fatal(err)
 	}
@@ -154,28 +154,28 @@ func TestPasswordResetDoesNotBypassTwoFactor(t *testing.T) {
 		t.Fatalf("reset: status = %d", w.Code)
 	}
 
-	// Después de recuperar la contraseña, el login sigue pidiendo el segundo factor.
+	// After a password reset, the login still asks for the second factor.
 	loginWithTwoFactor(t, api)
 }
 
-// El segundo paso del 2FA tiene su propio límite: no gasta los intentos del login. Con el límite
-// compartido de antes (5 por IP), este test se cortaba en el tercer login.
+// The second step of the login has its own limit: it does not spend the login's attempts. With
+// the shared limit of before (5 per IP), this test stopped at the third login.
 func TestTwoFactorChallengeHasItsOwnLimit(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
 	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	testutil.EnableTwoFactor(t, api, session, testutil.Password)
 
-	// 10 logins con su segundo paso (con un código incorrecto), todos desde la misma IP.
+	// 10 logins with their second step (with a wrong code), all from the same IP.
 	for i := range 10 {
-		pending := loginWithTwoFactor(t, api) // falla el test si el login no responde 202
+		pending := loginWithTwoFactor(t, api) // it fails the test if the login does not answer 202
 		if w := challenge(t, api, pending, codeBody("000000")); w.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("intento %d del 2FA: status = %d, se esperaba 422", i+1, w.Code)
+			t.Fatalf("two-factor attempt %d: status = %d, want 422", i+1, w.Code)
 		}
 	}
 }
 
-// En producción (COOKIE_SECURE=true) la cookie del desafío también lleva el prefijo __Host-.
+// In production (COOKIE_SECURE=true) the challenge cookie also has the __Host- prefix.
 func TestChallengeCookieUsesHostPrefix(t *testing.T) {
 	pool := testutil.NewDB(t)
 	secure := testutil.WithConfig(func(c *config.Config) { c.CookieSecure = true })
@@ -189,11 +189,11 @@ func TestChallengeCookieUsesHostPrefix(t *testing.T) {
 	}
 	pending := cookieNamed(t, w, "__Host-two_factor_challenge")
 	if !pending.Secure || !pending.HttpOnly || pending.Path != "/" || pending.Domain != "" {
-		t.Errorf("la cookie del desafío no cumple las reglas de __Host-: %+v", pending)
+		t.Errorf("the challenge cookie breaks the __Host- rules: %+v", pending)
 	}
 	w = challenge(t, api, pending, codeBody(tf.Code(t)))
 	if w.Code != http.StatusOK {
-		t.Fatalf("desafío: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("challenge: status = %d; body: %s", w.Code, w.Body)
 	}
 	cookieNamed(t, w, "__Host-session")
 }

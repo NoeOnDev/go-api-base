@@ -9,7 +9,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
-// sendVerificationEmail envía el enlace para confirmar el email. Invalida los enlaces anteriores.
+// sendVerificationEmail sends the link to confirm the email. It invalidates the previous links.
 func (s *Service) sendVerificationEmail(ctx context.Context, u User) error {
 	token, err := s.issueToken(ctx, u.ID, purposeEmailVerification, emailVerificationTTL, nil)
 	if err != nil {
@@ -26,8 +26,8 @@ type verifyEmailInput struct {
 	Token string `json:"token"`
 }
 
-// verifyEmail responde POST /auth/email/verify con el token del enlace. Es pública: el token
-// alcanza para identificar al usuario, así funciona aunque abra el enlace en otro dispositivo.
+// verifyEmail answers POST /auth/email/verify with the token of the link. It is public: the
+// token is enough to identify the user, so it works even if the link is opened on another device.
 func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) error {
 	var in verifyEmailInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -39,16 +39,16 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if err := s.q.MarkEmailVerified(r.Context(), userID); err != nil {
-		return fmt.Errorf("marcar email verificado: %w", err)
+		return fmt.Errorf("mark the email verified: %w", err)
 	}
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil
 }
 
-// resendVerification responde POST /auth/email/resend: envía otro enlace al usuario de la sesión.
-// Si el email ya está verificado no envía nada y responde 204. Después de varios envíos
-// (ver allowEmail) responde 429: el que pide es el propio usuario, así que no hay nada que ocultar.
+// resendVerification answers POST /auth/email/resend: it sends another link to the user of the
+// session. If the email is already verified it sends nothing and answers 204. After several
+// sends (see allowEmail) it answers 429: the one asking is the user, so there is nothing to hide.
 func (s *Service) resendVerification(w http.ResponseWriter, r *http.Request) error {
 	u := MustUser(r.Context())
 	if u.EmailVerified() {

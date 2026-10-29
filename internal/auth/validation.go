@@ -9,7 +9,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
-// Límites de longitud, en caracteres.
+// Length limits, in characters.
 const (
 	maxNameLen     = 100
 	maxEmailLen    = 254
@@ -17,13 +17,13 @@ const (
 	maxPasswordLen = 128
 )
 
-// RegisterInput son los datos para crear un usuario.
+// RegisterInput is the data to create a user.
 type RegisterInput struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
-	// Locale es el idioma del usuario (ver User.Locale). No llega en el cuerpo: el registro lo
-	// toma de Accept-Language, y nil deja el idioma por defecto.
+	// Locale is the user's language (see User.Locale). It does not come in the body: registration
+	// takes it from Accept-Language, and nil leaves the default language.
 	Locale *string `json:"-"`
 }
 
@@ -56,8 +56,8 @@ func (in RegisterInput) validate() error {
 	return nil
 }
 
-// loginInput son los datos del login. Solo se comprueba que vengan: la validez real
-// la decide la comparación con la base.
+// loginInput is the login data. It only checks that it is there: the database comparison
+// decides whether it is valid.
 type loginInput struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -69,8 +69,8 @@ func (in loginInput) validate() error {
 	case strings.TrimSpace(in.Email) == "":
 		fields["email"] = i18n.M("validation.required")
 	case len(in.Email) > maxEmailLen:
-		// El email es la clave del límite por cuenta: sin tope, cada intento podría ocupar
-		// hasta el tamaño máximo del cuerpo (1 MB) en memoria.
+		// The email is the key of the per-account limit: without a cap, each attempt could take up to
+		// the maximum body size (1 MB) in memory.
 		fields["email"] = i18n.M("validation.too_long", "max", maxEmailLen)
 	}
 	if in.Password == "" {
@@ -82,8 +82,7 @@ func (in loginInput) validate() error {
 	return nil
 }
 
-// validatePassword aplica las reglas de una contraseña nueva. No se recorta:
-// los espacios también cuentan.
+// validatePassword applies the rules of a new password. It is not trimmed: spaces count too.
 func validatePassword(password string) i18n.Message {
 	switch n := utf8.RuneCountInString(password); {
 	case n < minPasswordLen:
@@ -101,7 +100,7 @@ func validateEmail(email string) i18n.Message {
 	if len(email) > maxEmailLen {
 		return i18n.M("validation.too_long", "max", maxEmailLen)
 	}
-	// net/mail acepta formas como "Alice <alice@x.com>"; se exige solo la dirección.
+	// net/mail accepts forms like "Alice <alice@x.com>"; only the address is accepted.
 	addr, err := mail.ParseAddress(email)
 	if err != nil || addr.Address != email || !strings.Contains(email[strings.LastIndex(email, "@"):], ".") {
 		return i18n.M("validation.invalid_email")

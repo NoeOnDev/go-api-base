@@ -24,44 +24,44 @@ const registerBody = `{"name":"Alice","email":"Alice@Example.com","password":"a-
 func TestRegisterLoginLogout(t *testing.T) {
 	api, _ := newAPI(t)
 
-	// Registro: crea el usuario con rol user, email en minúsculas, e inicia la sesión.
+	// Registration: it creates the user with role user and a lowercase email, and starts the session.
 	w := do(t, api, http.MethodPost, "/auth/register", registerBody, nil)
 	u := decode[auth.User](t, w, http.StatusCreated)
 	if u.Email != "alice@example.com" || u.Role != auth.RoleUser || u.ID == 0 {
-		t.Fatalf("usuario inesperado: %+v", u)
+		t.Fatalf("unexpected user: %+v", u)
 	}
 	if strings.Contains(w.Body.String(), "password") {
-		t.Error("la respuesta expone datos de la contraseña")
+		t.Error("the response exposes password data")
 	}
 
 	c := sessionCookie(t, w)
 	if !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.Path != "/" {
-		t.Errorf("cookie con atributos inseguros: %+v", c)
+		t.Errorf("cookie with insecure attributes: %+v", c)
 	}
 
-	// La sesión identifica al usuario.
+	// The session identifies the user.
 	me := decode[auth.User](t, do(t, api, http.MethodGet, "/auth/me", "", c), http.StatusOK)
 	if me.ID != u.ID {
-		t.Errorf("me = %+v, se esperaba el usuario %d", me, u.ID)
+		t.Errorf("me = %+v, want the user %d", me, u.ID)
 	}
 
-	// Logout: borra la cookie en el navegador y la sesión en la base.
+	// Logout: it deletes the cookie in the browser and the session in the database.
 	w = do(t, api, http.MethodPost, "/auth/logout", "", c)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("logout status = %d", w.Code)
 	}
 	if cleared := sessionCookie(t, w); cleared.MaxAge >= 0 {
-		t.Errorf("la cookie no se borró: %+v", cleared)
+		t.Errorf("the cookie was not deleted: %+v", cleared)
 	}
 	if w := do(t, api, http.MethodGet, "/auth/me", "", c); w.Code != http.StatusUnauthorized {
-		t.Errorf("la sesión sigue activa después del logout: status = %d", w.Code)
+		t.Errorf("the session is still active after the logout: status = %d", w.Code)
 	}
 
-	// Login con el email en otra combinación de mayúsculas.
+	// Login with the email in a different letter case.
 	w = do(t, api, http.MethodPost, "/auth/login", `{"email":"ALICE@example.com","password":"a-long-password"}`, nil)
 	decode[auth.User](t, w, http.StatusOK)
 	if w := do(t, api, http.MethodGet, "/auth/me", "", sessionCookie(t, w)); w.Code != http.StatusOK {
-		t.Errorf("me después del login: status = %d", w.Code)
+		t.Errorf("me after the login: status = %d", w.Code)
 	}
 }
 
@@ -71,18 +71,18 @@ func TestRegisterValidation(t *testing.T) {
 	tests := []struct {
 		name, body, field string
 	}{
-		{"sin nombre", `{"name":" ","email":"a@b.com","password":"12345678"}`, "name"},
-		{"email inválido", `{"name":"Alice","email":"no-es-email","password":"12345678"}`, "email"},
-		{"email con nombre", `{"name":"Alice","email":"Alice <a@b.com>","password":"12345678"}`, "email"},
-		{"email sin dominio", `{"name":"Alice","email":"a@localhost","password":"12345678"}`, "email"},
-		{"contraseña corta", `{"name":"Alice","email":"a@b.com","password":"1234567"}`, "password"},
+		{"without a name", `{"name":" ","email":"a@b.com","password":"12345678"}`, "name"},
+		{"invalid email", `{"name":"Alice","email":"no-es-email","password":"12345678"}`, "email"},
+		{"email with a name", `{"name":"Alice","email":"Alice <a@b.com>","password":"12345678"}`, "email"},
+		{"email without a domain", `{"name":"Alice","email":"a@localhost","password":"12345678"}`, "email"},
+		{"short password", `{"name":"Alice","email":"a@b.com","password":"1234567"}`, "password"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resp := decode[apiError](t, do(t, api, http.MethodPost, "/auth/register", tt.body, nil), http.StatusUnprocessableEntity)
 			if resp.Error.Fields[tt.field] == "" {
-				t.Errorf("se esperaba error en %q: %+v", tt.field, resp.Error)
+				t.Errorf("want an error on %q: %+v", tt.field, resp.Error)
 			}
 		})
 	}
@@ -96,7 +96,7 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 	dup := `{"name":"Another Alice","email":"alice@EXAMPLE.com","password":"another-long-password"}`
 	resp := decode[apiError](t, do(t, api, http.MethodPost, "/auth/register", dup, nil), http.StatusConflict)
 	if resp.Error.Code != "email_taken" || resp.Error.Fields["email"] == "" {
-		t.Errorf("error inesperado: %+v", resp.Error)
+		t.Errorf("unexpected error: %+v", resp.Error)
 	}
 }
 
@@ -104,19 +104,19 @@ func TestLoginFailures(t *testing.T) {
 	api, _ := newAPI(t)
 	decode[auth.User](t, do(t, api, http.MethodPost, "/auth/register", registerBody, nil), http.StatusCreated)
 
-	// Contraseña incorrecta y email inexistente responden exactamente igual.
+	// A wrong password and a missing email answer exactly the same.
 	wrongPass := do(t, api, http.MethodPost, "/auth/login", `{"email":"alice@example.com","password":"wrong-password"}`, nil)
 	unknown := do(t, api, http.MethodPost, "/auth/login", `{"email":"nobody@example.com","password":"wrong-password"}`, nil)
 	if wrongPass.Code != http.StatusUnauthorized || unknown.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d y %d, se esperaba 401", wrongPass.Code, unknown.Code)
+		t.Fatalf("status = %d and %d, want 401", wrongPass.Code, unknown.Code)
 	}
 	if wrongPass.Body.String() != unknown.Body.String() {
-		t.Errorf("las respuestas difieren y revelan si el email existe:\n%s\n%s", wrongPass.Body, unknown.Body)
+		t.Errorf("the responses differ and reveal whether the email exists:\n%s\n%s", wrongPass.Body, unknown.Body)
 	}
 
 	resp := decode[apiError](t, do(t, api, http.MethodPost, "/auth/login", `{}`, nil), http.StatusUnprocessableEntity)
 	if resp.Error.Fields["email"] == "" || resp.Error.Fields["password"] == "" {
-		t.Errorf("error inesperado: %+v", resp.Error)
+		t.Errorf("unexpected error: %+v", resp.Error)
 	}
 }
 
@@ -124,8 +124,8 @@ func TestRequireUserRejectsInvalidSessions(t *testing.T) {
 	api, _ := newAPI(t)
 
 	for name, c := range map[string]*http.Cookie{
-		"sin cookie":      nil,
-		"token inventado": {Name: auth.CookieName, Value: "token-inventado"},
+		"without a cookie": nil,
+		"token inventado":  {Name: auth.CookieName, Value: "token-inventado"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			resp := decode[apiError](t, do(t, api, http.MethodGet, "/auth/me", "", c), http.StatusUnauthorized)
@@ -149,7 +149,7 @@ func TestSessionTokenIsStoredHashed(t *testing.T) {
 		t.Fatal(err)
 	}
 	if plain != 0 || hashed != 1 {
-		t.Errorf("token en texto plano: %d filas, hasheado: %d filas", plain, hashed)
+		t.Errorf("token in plain text: %d rows, hashed: %d rows", plain, hashed)
 	}
 }
 
@@ -165,11 +165,11 @@ func TestRequireAdmin(t *testing.T) {
 	loginAs := func(email, role string) *http.Cookie {
 		u, err := service.CreateUser(t.Context(), auth.RegisterInput{Name: "x", Email: email, Password: "a-long-password"}, role)
 		if err != nil {
-			t.Fatalf("crear usuario: %v", err)
+			t.Fatalf("create user: %v", err)
 		}
 		w := httptest.NewRecorder()
 		if err := service.StartSession(w, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/login", nil), u.ID); err != nil {
-			t.Fatalf("iniciar sesión: %v", err)
+			t.Fatalf("start the session: %v", err)
 		}
 		return sessionCookie(t, w)
 	}
@@ -179,15 +179,15 @@ func TestRequireAdmin(t *testing.T) {
 		cookie *http.Cookie
 		want   int
 	}{
-		{"sin sesión", nil, http.StatusUnauthorized},
-		{"usuario común", loginAs("user@example.com", auth.RoleUser), http.StatusForbidden},
+		{"without a session", nil, http.StatusUnauthorized},
+		{"regular user", loginAs("user@example.com", auth.RoleUser), http.StatusForbidden},
 		{"administrador", loginAs("admin@example.com", auth.RoleAdmin), http.StatusOK},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if w := do(t, mux, http.MethodGet, "/admin", "", tt.cookie); w.Code != tt.want {
-				t.Errorf("status = %d, se esperaba %d", w.Code, tt.want)
+				t.Errorf("status = %d, want %d", w.Code, tt.want)
 			}
 		})
 	}
@@ -197,23 +197,23 @@ func TestLogoutAlwaysClearsCookie(t *testing.T) {
 	api, _ := newAPI(t)
 
 	for name, c := range map[string]*http.Cookie{
-		"sin cookie":     nil,
-		"sesión vencida": {Name: auth.CookieName, Value: "token-que-ya-no-existe"},
+		"without a cookie": nil,
+		"expired session":  {Name: auth.CookieName, Value: "token-that-no-longer-exists"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := do(t, api, http.MethodPost, "/auth/logout", "", c)
 			if w.Code != http.StatusNoContent {
-				t.Fatalf("status = %d, se esperaba 204", w.Code)
+				t.Fatalf("status = %d, want 204", w.Code)
 			}
 			if cleared := sessionCookie(t, w); cleared.MaxAge >= 0 {
-				t.Errorf("la cookie no se borró: %+v", cleared)
+				t.Errorf("the cookie was not deleted: %+v", cleared)
 			}
 		})
 	}
 }
 
-// Una contraseña guardada con parámetros viejos de argon2 (por ejemplo, antes de subirlos) se
-// vuelve a hashear con los actuales al entrar, y sigue sirviendo.
+// A password stored with old argon2 parameters (for example, before raising them) is hashed
+// again with the current ones on sign in, and keeps working.
 func TestLoginRehashesOldPassword(t *testing.T) {
 	api, pool := newAPI(t)
 	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
@@ -227,33 +227,33 @@ func TestLoginRehashesOldPassword(t *testing.T) {
 	}
 
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBody); w.Code != http.StatusOK {
-		t.Fatalf("login con el hash viejo: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("login with the old hash: status = %d; body: %s", w.Code, w.Body)
 	}
 	var stored string
 	if err := pool.QueryRow(t.Context(), "SELECT password_hash FROM users WHERE id = $1", u.ID).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stored, "$m=19456,t=2,p=1$") {
-		t.Errorf("el hash no se actualizó a los parámetros actuales: %s", stored)
+		t.Errorf("the hash was not updated to the current parameters: %s", stored)
 	}
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBody); w.Code != http.StatusOK {
-		t.Errorf("login con el hash nuevo: status = %d", w.Code)
+		t.Errorf("login with the new hash: status = %d", w.Code)
 	}
 }
 
-// La base exige el email en minúsculas: UNIQUE solo evita duplicados si nadie guarda
-// "Alice@Example.com" junto a "alice@example.com", por ejemplo con un INSERT a mano.
+// The database requires a lowercase email: UNIQUE only prevents duplicates if nobody stores
+// "Alice@Example.com" next to "alice@example.com", for example with a hand-written INSERT.
 func TestEmailIsLowercaseInDatabase(t *testing.T) {
 	_, pool := newAPI(t)
 	_, err := pool.Exec(t.Context(), "INSERT INTO users (name, email, password_hash) VALUES ('Alice', 'Alice@Example.com', 'x')")
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "users_email_lowercase" {
-		t.Fatalf("se esperaba la violación de users_email_lowercase, llegó %v", err)
+		t.Fatalf("want the users_email_lowercase violation, got %v", err)
 	}
 }
 
-// Si el correo de verificación no se puede encolar, la cuenta igual quedó creada: se responde
-// 201, y el usuario puede pedir otro enlace.
+// If the verification email cannot be queued, the account was still created: it answers 201,
+// and the user can ask for another link.
 func TestRegisterSucceedsWhenVerificationEmailFails(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool, testutil.WithMailer(failingMailer{}), testutil.WithConfig(requireVerification))
@@ -261,11 +261,11 @@ func TestRegisterSucceedsWhenVerificationEmailFails(t *testing.T) {
 	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/register", registerBody)
 	u := testutil.Decode[auth.User](t, w, http.StatusCreated)
 	if u.EmailVerified() {
-		t.Error("el email no debería estar verificado")
+		t.Error("the email should not be verified")
 	}
-	sessionCookie(t, w) // y quedó la sesión
+	sessionCookie(t, w) // and the session stayed
 }
 
 type failingMailer struct{}
 
-func (failingMailer) Send(context.Context, mail.Message) error { return errors.New("cola caída") }
+func (failingMailer) Send(context.Context, mail.Message) error { return errors.New("queue down") }

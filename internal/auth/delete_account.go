@@ -12,13 +12,13 @@ import (
 
 var errLastAdmin = httpx.Conflict("last_admin", "")
 
-// deleteAccount responde DELETE /auth/me con {password}: borra la cuenta del usuario y todos sus
-// datos (sesiones, tokens, notas, notificaciones…, por ON DELETE CASCADE). Pide la contraseña,
-// como cualquier acción que no se puede deshacer.
+// deleteAccount answers DELETE /auth/me with {password}: it deletes the user's account and all
+// its data (sessions, tokens, notes, notifications…, through ON DELETE CASCADE). It asks for the
+// password, like any action that cannot be undone.
 //
-// No deja borrar al único admin, para que nadie deje la API sin administrador por error.
-// Si una tabla de un proyecto referencia al usuario sin CASCADE (con RESTRICT), el borrado
-// falla y responde 409: cada tabla de datos del usuario debería usar CASCADE o SET NULL.
+// It does not let the only admin be deleted, so nobody leaves the API without an administrator
+// by mistake. If a project table references the user without CASCADE (with RESTRICT), the
+// deletion fails and answers 409: every table with user data should use CASCADE or SET NULL.
 func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 	var in passwordInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -32,11 +32,11 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 	err := pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 		if user.IsAdmin() {
-			// Bloquea las filas de los admins: dos admins que se borran a la vez no pueden
-			// dejar la API sin ninguno.
+			// Lock the admin rows: two admins deleting themselves at the same time cannot leave the API
+			// without any.
 			admins, err := q.LockAdmins(r.Context())
 			if err != nil {
-				return fmt.Errorf("buscar admins: %w", err)
+				return fmt.Errorf("find admins: %w", err)
 			}
 			if len(admins) <= 1 {
 				return errLastAdmin
@@ -46,7 +46,7 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 			if _, ok := db.IsForeignKeyViolation(err); ok {
 				return httpx.Conflict("account_has_data", "")
 			}
-			return fmt.Errorf("borrar usuario %d: %w", user.ID, err)
+			return fmt.Errorf("delete user %d: %w", user.ID, err)
 		}
 		return nil
 	})
@@ -54,15 +54,15 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Sus sesiones ya no existen: se cortan sus streams y se borra la cookie.
+	// Their sessions no longer exist: their streams are cut and the cookie is deleted.
 	s.sessionsEnded(r.Context(), user.ID, "")
 	s.clearSessionCookie(w)
 
-	// El último correo, por si no fue el dueño. Si no sale, la cuenta igual quedó borrada.
+	// The last email, in case it was not the owner. If it is not sent, the account is still deleted.
 	if err := s.sendEmail(r.Context(), user.Email, user.Locale, "account_deleted.txt", emailData{Name: user.Name}); err != nil {
-		httpx.LoggerFrom(r.Context()).Error("no se pudo enviar el correo de cuenta eliminada", "user_id", user.ID, "error", err)
+		httpx.LoggerFrom(r.Context()).Error("could not send the account deleted email", "user_id", user.ID, "error", err)
 	}
-	httpx.LoggerFrom(r.Context()).Info("cuenta eliminada", "user_id", user.ID)
+	httpx.LoggerFrom(r.Context()).Info("account deleted", "user_id", user.ID)
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil

@@ -11,8 +11,8 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-// Cada intento sale de una IP distinta: el límite por IP no interviene, como en un ataque
-// repartido entre muchas IPs contra una misma cuenta.
+// Each attempt comes from a different IP: the per-IP limit does not step in, as in an attack
+// spread across many IPs against the same account.
 
 func loginBodyFor(email, password string) string {
 	return fmt.Sprintf(`{"email":%q,"password":%q}`, email, password)
@@ -25,15 +25,16 @@ func TestLoginAccountLimit(t *testing.T) {
 	testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	addr := &ips{}
 
-	// Igual con un email registrado y con uno que no existe: no revela cuál es cuál.
+	// The same with a registered email and with one that does not exist: it does not reveal which is
+	// which.
 	for _, email := range []string{"alice@example.com", "nobody@example.com"} {
 		for i := range 10 {
-			w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/login", loginBodyFor(email, "contraseña-incorrecta"))
+			w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/login", loginBodyFor(email, "wrong-password"))
 			if w.Code != http.StatusUnauthorized {
-				t.Fatalf("%s, intento %d: status = %d", email, i+1, w.Code)
+				t.Fatalf("%s, attempt %d: status = %d", email, i+1, w.Code)
 			}
 		}
-		// El undécimo se rechaza sin evaluar la contraseña, aunque sea la correcta.
+		// The eleventh one is rejected without checking the password, even if it is the right one.
 		w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/login", loginBodyFor(" "+email, "test-password"))
 		resp := testutil.Decode[testutil.APIError](t, w, http.StatusTooManyRequests)
 		if resp.Error.Code != "too_many_requests" || w.Header().Get("Retry-After") != "60" {
@@ -41,14 +42,14 @@ func TestLoginAccountLimit(t *testing.T) {
 		}
 	}
 
-	// Alice recupera su contraseña, y eso le reinicia el límite.
+	// Alice resets her password, and that resets the limit.
 	testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
 	msg, _ := mails.Last("alice@example.com")
 	if w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/password/reset", resetBody(testutil.TokenFromEmail(t, msg), newPassword)); w.Code != http.StatusNoContent {
 		t.Fatalf("reset: status = %d", w.Code)
 	}
 	if w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/login", loginBodyFor("alice@example.com", newPassword)); w.Code != http.StatusOK {
-		t.Errorf("login después del reset: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Errorf("login after the reset: status = %d; body: %s", w.Code, w.Body)
 	}
 }
 
@@ -60,6 +61,6 @@ func TestLoginRejectsLongEmail(t *testing.T) {
 	resp := testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBodyFor(long, "test-password")), http.StatusUnprocessableEntity)
 	if resp.Error.Fields["email"] == "" {
-		t.Errorf("se esperaba error en email: %+v", resp.Error)
+		t.Errorf("want an error on email: %+v", resp.Error)
 	}
 }

@@ -23,26 +23,26 @@ func TestForgotPasswordDoesNotRevealEmails(t *testing.T) {
 	known := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":" ALICE@example.com "}`)
 
 	if unknown.Code != http.StatusAccepted || known.Code != http.StatusAccepted {
-		t.Fatalf("status = %d y %d, se esperaba 202", unknown.Code, known.Code)
+		t.Fatalf("status = %d and %d, want 202", unknown.Code, known.Code)
 	}
 	if unknown.Body.String() != known.Body.String() {
-		t.Errorf("las respuestas difieren:\n%s\n%s", unknown.Body, known.Body)
+		t.Errorf("the responses differ:\n%s\n%s", unknown.Body, known.Body)
 	}
 
-	// Solo se envió un correo, al email registrado, con el enlace al frontend.
+	// Only one email was sent, to the registered address, with the link to the frontend.
 	msgs := mails.Messages()
 	if len(msgs) != 1 || msgs[0].To != "alice@example.com" {
-		t.Fatalf("correos enviados: %+v", msgs)
+		t.Fatalf("emails sent: %+v", msgs)
 	}
 	if !strings.Contains(msgs[0].Body, "https://app.test/reset-password?token=") {
-		t.Errorf("el correo no tiene el enlace esperado:\n%s", msgs[0].Body)
+		t.Errorf("the email does not have the expected link:\n%s", msgs[0].Body)
 	}
 
 	resp := testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"no-es-email"}`),
 		http.StatusUnprocessableEntity)
 	if resp.Error.Fields["email"] == "" {
-		t.Errorf("se esperaba error en email: %+v", resp.Error)
+		t.Errorf("want an error on email: %+v", resp.Error)
 	}
 }
 
@@ -56,12 +56,12 @@ func TestResetPassword(t *testing.T) {
 	msg, _ := mails.Last("alice@example.com")
 	token := testutil.TokenFromEmail(t, msg)
 
-	t.Run("una contraseña inválida no gasta el token", func(t *testing.T) {
+	t.Run("an invalid password does not use up the token", func(t *testing.T) {
 		resp := testutil.Decode[testutil.APIError](t,
-			testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(token, "corta")),
+			testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(token, "short")),
 			http.StatusUnprocessableEntity)
 		if resp.Error.Fields["password"] == "" {
-			t.Errorf("se esperaba error en password: %+v", resp.Error)
+			t.Errorf("want an error on password: %+v", resp.Error)
 		}
 	})
 
@@ -69,27 +69,27 @@ func TestResetPassword(t *testing.T) {
 		t.Fatalf("reset: status = %d; cuerpo: %s", w.Code, w.Body)
 	}
 
-	// Se cerraron todas las sesiones del usuario.
+	// Every session of the user was closed.
 	if w := testutil.Do(t, api, session, http.MethodGet, "/auth/me", ""); w.Code != http.StatusUnauthorized {
-		t.Errorf("la sesión anterior sigue activa: status = %d", w.Code)
+		t.Errorf("the previous session is still active: status = %d", w.Code)
 	}
 
-	// La contraseña cambió y el email quedó verificado (el usuario recibió el correo).
+	// The password changed and the email was verified (the user received the email).
 	service := auth.NewService(pool, auth.Options{})
 	u, err := service.Authenticate(t.Context(), "alice@example.com", newPassword)
 	if err != nil {
-		t.Fatalf("login con la contraseña nueva: %v", err)
+		t.Fatalf("login with the new password: %v", err)
 	}
 	if !u.EmailVerified() || u.ID != user.ID {
-		t.Errorf("usuario inesperado: %+v", u)
+		t.Errorf("unexpected user: %+v", u)
 	}
 
-	// El token sirve una sola vez.
+	// The token works only once.
 	resp := testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(token, "another-long-password")),
 		http.StatusUnprocessableEntity)
 	if resp.Error.Fields["token"] == "" {
-		t.Errorf("se esperaba error en token: %+v", resp.Error)
+		t.Errorf("want an error on token: %+v", resp.Error)
 	}
 }
 
@@ -106,7 +106,7 @@ func TestResetPasswordInvalidTokens(t *testing.T) {
 	}
 
 	first := forgot()
-	second := forgot() // pedir otro enlace invalida el anterior
+	second := forgot() // asking for another link invalidates the previous one
 
 	expired := second
 	if _, err := pool.Exec(t.Context(), "UPDATE user_tokens SET expires_at = now() - interval '1 minute'"); err != nil {
@@ -114,10 +114,10 @@ func TestResetPasswordInvalidTokens(t *testing.T) {
 	}
 
 	for name, token := range map[string]string{
-		"inventado":            "token-inventado",
-		"vacío":                "",
-		"reemplazado por otro": first,
-		"vencido":              expired,
+		"inventado":               "token-inventado",
+		"empty":                   "",
+		"replaced by another one": first,
+		"expired":                 expired,
 	} {
 		t.Run(name, func(t *testing.T) {
 			testutil.Decode[testutil.APIError](t,
@@ -127,12 +127,12 @@ func TestResetPasswordInvalidTokens(t *testing.T) {
 	}
 }
 
-// Si un paso de la recuperación falla, no cambia nada y el enlace sigue sirviendo.
+// If a step of the reset fails, nothing changes and the link still works.
 func TestResetPasswordIsAtomic(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	testutil.Login(t, pool, "alice@example.com", auth.RoleUser) // una sesión que cerrar
+	testutil.Login(t, pool, "alice@example.com", auth.RoleUser) // a session to close
 
 	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
 	msg, _ := mails.Last("alice@example.com")
@@ -141,35 +141,35 @@ func TestResetPasswordIsAtomic(t *testing.T) {
 	exec := func(sql string) error { _, err := pool.Exec(context.Background(), sql); return err }
 	failSessionDeletes(t, exec)
 
-	// Falla el cierre de sesiones, el último paso: se deshace todo.
+	// Closing the sessions fails, the last step: everything is undone.
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", body), http.StatusInternalServerError)
 
 	service := auth.NewService(pool, auth.Options{})
 	if _, err := service.Authenticate(t.Context(), "alice@example.com", "test-password"); err != nil {
-		t.Errorf("la contraseña no debería haber cambiado: %v", err)
+		t.Errorf("the password should not have changed: %v", err)
 	}
 
-	// Sin la falla, el mismo enlace funciona: no se gastó.
+	// Without the failure, the same link works: it was not used up.
 	if err := exec("DROP TRIGGER test_fail_session_delete ON sessions"); err != nil {
 		t.Fatal(err)
 	}
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", body); w.Code != http.StatusNoContent {
-		t.Fatalf("el enlace debería seguir sirviendo: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("the link should still work: status = %d; body: %s", w.Code, w.Body)
 	}
 	if _, err := service.Authenticate(t.Context(), "alice@example.com", newPassword); err != nil {
-		t.Errorf("la contraseña nueva debería funcionar: %v", err)
+		t.Errorf("the new password should work: %v", err)
 	}
 }
 
-// Varios pedidos de enlace simultáneos para el mismo usuario dejan un solo enlace válido.
-// (Sin el bloqueo de la fila del usuario, este test fallaría o no según coincidieran en el
-// tiempo; con el bloqueo pasa siempre.)
+// Several simultaneous link requests for the same user leave a single valid link.
+// (Without the lock on the user's row, this test would fail or not depending on the timing;
+// with the lock it always passes.)
 func TestConcurrentForgotLeavesOneToken(t *testing.T) {
 	pool := testutil.NewDB(t)
 	testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	for round := range 5 {
-		api := testutil.NewAPI(pool) // límites nuevos en cada ronda
+		api := testutil.NewAPI(pool) // new limits in each round
 		var wg sync.WaitGroup
 		for i := range 3 {
 			wg.Go(func() {
@@ -184,13 +184,13 @@ func TestConcurrentForgotLeavesOneToken(t *testing.T) {
 			t.Fatal(err)
 		}
 		if n != 1 {
-			t.Fatalf("ronda %d: quedaron %d enlaces válidos, se esperaba 1", round+1, n)
+			t.Fatalf("round %d: %d valid links left, want 1", round+1, n)
 		}
 	}
 }
 
-// Los límites por destinatario frenan a quien pide correos para otra persona desde muchas IPs:
-// cada petición sale de una IP distinta, así que el límite por IP no interviene.
+// The per-recipient limits stop whoever requests emails for someone else from many IPs: each
+// request comes from a different IP, so the per-IP limit does not step in.
 func TestForgotPasswordRecipientLimit(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
@@ -200,18 +200,18 @@ func TestForgotPasswordRecipientLimit(t *testing.T) {
 	for i := range 4 {
 		ip := fmt.Sprintf("198.51.100.%d", i+1)
 		w := testutil.DoFromIP(t, api, ip, nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
-		// Siempre la misma respuesta, para no revelar nada.
+		// Always the same answer, so nothing is revealed.
 		testutil.Decode[map[string]string](t, w, http.StatusAccepted)
 	}
 
 	if n := len(mails.Messages()); n != 3 {
-		t.Fatalf("se enviaron %d correos, se esperaban 3", n)
+		t.Fatalf("%d emails were sent, want 3", n)
 	}
 
-	// El cuarto pedido no invalidó el último enlace enviado.
+	// The fourth request did not invalidate the last link sent.
 	last, _ := mails.Last("alice@example.com")
 	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(testutil.TokenFromEmail(t, last), newPassword))
 	if w.Code != http.StatusNoContent {
-		t.Errorf("el último enlace debería seguir sirviendo: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Errorf("the last link should still work: status = %d; body: %s", w.Code, w.Body)
 	}
 }

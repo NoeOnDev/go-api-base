@@ -1,6 +1,6 @@
-// Package auth implementa la autenticación: registro, login con sesiones guardadas en
-// PostgreSQL y enviadas en una cookie HttpOnly, roles (user/admin) y los middlewares
-// que protegen las rutas.
+// Package auth implements authentication: registration, login with sessions stored in
+// PostgreSQL and sent in an HttpOnly cookie, roles (user/admin) and the middlewares that
+// protect the routes.
 package auth
 
 import (
@@ -23,35 +23,35 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
-// Roles de usuario.
+// User roles.
 const (
 	RoleUser  = "user"
 	RoleAdmin = "admin"
 )
 
-// DefaultSessionTTL se usa si no se configura la duración de la sesión.
+// DefaultSessionTTL is used when the session duration is not configured.
 const DefaultSessionTTL = 7 * 24 * time.Hour
 
-// User es el usuario autenticado. Es lo que reciben los handlers y lo que devuelve la API:
-// nunca incluye el hash de la contraseña.
+// User is the authenticated user. It is what the handlers receive and what the API returns:
+// it never includes the password hash.
 type User struct {
 	ID    int64  `json:"id"`
 	Name  string `json:"name"`
 	Email string `json:"email"`
 	Role  string `json:"role"`
-	// EmailVerifiedAt es null mientras el usuario no confirme su email.
+	// EmailVerifiedAt is null until the user confirms their email.
 	EmailVerifiedAt  *time.Time `json:"email_verified_at"`
 	TwoFactorEnabled bool       `json:"two_factor_enabled"`
-	// Locale es el idioma de los correos y las notificaciones del usuario, por ejemplo "es-MX".
-	// null es el idioma por defecto (DEFAULT_LOCALE). Ver docs/i18n.md.
+	// Locale is the language of the user's emails and notifications, for example "es-MX".
+	// null is the default language (DEFAULT_LOCALE). See docs/i18n.md.
 	Locale    *string   `json:"locale"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// EmailVerified indica si el usuario confirmó su email.
+// EmailVerified reports whether the user confirmed their email.
 func (u User) EmailVerified() bool { return u.EmailVerifiedAt != nil }
 
-// IsAdmin indica si el usuario tiene rol de administrador.
+// IsAdmin reports whether the user has the administrator role.
 func (u User) IsAdmin() bool { return u.Role == RoleAdmin }
 
 func toUser(u store.User) User {
@@ -67,57 +67,57 @@ func toUser(u store.User) User {
 	}
 }
 
-// Options configura el servicio de autenticación.
+// Options configures the authentication service.
 type Options struct {
-	// SessionTTL es cuánto dura una sesión. Si es 0 se usa DefaultSessionTTL.
+	// SessionTTL is how long a session lasts. If 0, DefaultSessionTTL is used.
 	SessionTTL time.Duration
-	// SessionIdleTimeout cierra una sesión sin actividad durante ese tiempo. 0 lo desactiva.
+	// SessionIdleTimeout closes a session without activity for that long. 0 turns it off.
 	SessionIdleTimeout time.Duration
-	// CookieSecure hace que la cookie solo viaje por HTTPS. Debe ser true en producción.
+	// CookieSecure makes the cookie travel only over HTTPS. It must be true in production.
 	CookieSecure bool
-	// Mailer envía los correos (recuperar contraseña, verificar email). Si es nil,
-	// los correos se escriben en el log.
+	// Mailer sends the emails (password reset, email verification). If nil, the emails are
+	// written to the log.
 	Mailer mail.Sender
-	// FrontendURL es la base de los enlaces de los correos, por ejemplo https://app.cliente.com.
+	// FrontendURL is the base of the links in the emails, for example https://app.client.com.
 	FrontendURL string
-	// RequireVerifiedEmail exige el email verificado en RequireUser y RequireAdmin.
+	// RequireVerifiedEmail requires a verified email in RequireUser and RequireAdmin.
 	RequireVerifiedEmail bool
-	// Box cifra el secreto del 2FA y protege los códigos de recuperación. Sin él, el 2FA no está disponible.
+	// Box encrypts the two-factor secret and protects the recovery codes. Without it, two-factor authentication is not available.
 	Box *secretbox.Box
-	// Issuer es el nombre de la aplicación que muestra la app de autenticación.
+	// Issuer is the application name that the authenticator app shows.
 	Issuer string
-	// TrustedProxies son los proxies de los que se acepta X-Forwarded-For (ver httpx.ClientIP).
-	// Se usan para registrar la IP real del cliente (por ejemplo, en el correo que avisa de
-	// códigos del 2FA incorrectos).
+	// TrustedProxies are the proxies whose X-Forwarded-For is accepted (see httpx.ClientIP).
+	// They are used to record the real client IP (for example, in the email that warns about wrong
+	// two-factor codes).
 	TrustedProxies httpx.TrustedProxies
-	// I18n son los idiomas de los correos y de los textos al usuario. Si es nil, se usa
-	// i18n.Default() (inglés por defecto).
+	// I18n are the languages of the emails and of the user-facing texts. If nil, i18n.Default()
+	// is used (English by default).
 	I18n *i18n.Catalog
-	// SessionWatcher se entera cuando auth cierra sesiones, para cortar lo que dependía de ellas.
-	// Es opcional. En la plantilla lo implementa el broker de internal/realtime, que corta los
-	// streams de GET /events abiertos con esas sesiones.
+	// SessionWatcher learns when auth closes sessions, to cut what depended on them.
+	// It is optional. In the template, the internal/realtime broker implements it, cutting the
+	// GET /events streams opened with those sessions.
 	SessionWatcher SessionWatcher
-	// Notifier recibe los avisos de seguridad de la cuenta (contraseña cambiada, 2FA activado
-	// o desactivado). Es opcional: si es nil, auth no notifica. En la plantilla lo implementa
-	// internal/notifications, así auth no depende de ese módulo.
+	// Notifier receives the security notices of the account (password changed, two-factor
+	// authentication enabled or disabled). It is optional: if nil, auth does not notify. In the
+	// template internal/notifications implements it, so auth does not depend on that module.
 	Notifier Notifier
 }
 
-// SessionWatcher recibe los cierres de sesión. sessionKey es la de Service.SessionKey.
+// SessionWatcher receives the closed sessions. sessionKey is the one of Service.SessionKey.
 type SessionWatcher interface {
-	// SessionEnded avisa que se cerró una sesión (logout).
+	// SessionEnded reports that a session was closed (logout).
 	SessionEnded(ctx context.Context, sessionKey string)
-	// UserSessionsEnded avisa que se cerraron todas las sesiones del usuario salvo
-	// keepSessionKey (vacío: todas).
+	// UserSessionsEnded reports that every session of the user was closed except keepSessionKey
+	// (empty: all of them).
 	UserSessionsEnded(ctx context.Context, userID int64, keepSessionKey string)
 }
 
-// Notifier envía una notificación a un usuario (ver internal/notifications).
+// Notifier sends a notification to a user (see internal/notifications).
 type Notifier interface {
 	Notify(ctx context.Context, userID int64, kind string, data any) error
 }
 
-// Tipos de las notificaciones de seguridad que envía auth.
+// Kinds of the security notifications that auth sends.
 const (
 	NotifyPasswordChanged   = "password_changed"
 	NotifyTwoFactorEnabled  = "two_factor_enabled"
@@ -125,48 +125,48 @@ const (
 	NotifyEmailChanged      = "email_changed"
 )
 
-// notify avisa al usuario de un cambio de seguridad en su cuenta. data son los datos del aviso
-// (nil si no tiene): el texto no se guarda, lo arma internal/notifications en el idioma de quien lo
-// lee (ver docs/i18n.md). Si falla, solo se registra: el cambio ya se hizo, y no tiene sentido
-// responder un error por el aviso.
+// notify tells the user about a security change in their account. data is the data of the
+// notice (nil if it has none): the text is not stored, internal/notifications builds it in the
+// language of whoever reads it (see docs/i18n.md). If it fails, it is only logged: the change
+// was already made, and answering an error because of the notice makes no sense.
 func (s *Service) notify(ctx context.Context, userID int64, kind string, data map[string]any) {
 	if s.opts.Notifier == nil {
 		return
 	}
 	if data == nil {
-		data = map[string]any{} // se guarda {} y no null
+		data = map[string]any{} // stored as {} and not null
 	}
 	if err := s.opts.Notifier.Notify(ctx, userID, kind, data); err != nil {
-		httpx.LoggerFrom(ctx).Warn("no se pudo enviar la notificación", "user_id", userID, "kind", kind, "error", err)
+		httpx.LoggerFrom(ctx).Warn("could not send the notification", "user_id", userID, "kind", kind, "error", err)
 	}
 }
 
-// resetLimit le devuelve a la clave todos sus intentos. Si falla, solo se registra: lo que el
-// límite protegía ya cambió, y la clave se recarga sola con el tiempo.
+// resetLimit gives the key back all its attempts. If it fails, it is only logged: what the limit
+// protected already changed, and the key refills on its own over time.
 func (s *Service) resetLimit(ctx context.Context, l *ratelimit.Limiter, key string) {
 	if err := l.Reset(ctx, key); err != nil {
-		httpx.LoggerFrom(ctx).Warn("no se pudo reiniciar un límite de intentos", "error", err)
+		httpx.LoggerFrom(ctx).Warn("could not reset a rate limit", "error", err)
 	}
 }
 
-// Service agrupa la lógica de autenticación y sus dependencias.
+// Service groups the authentication logic and its dependencies.
 type Service struct {
-	db   *pgxpool.Pool // para las transacciones (pgx.BeginFunc)
+	db   *pgxpool.Pool // for the transactions (pgx.BeginFunc)
 	q    *store.Queries
 	opts Options
 
-	// Límites que no dependen de la IP (ver handlers.go, two_factor_login.go y emails.go). Están en
-	// la base, así valen para todas las instancias de la API.
+	// Limits that do not depend on the IP (see handlers.go, two_factor_login.go and emails.go).
+	// They are in the database, so they hold for every API instance.
 	loginLimiter     *ratelimit.Limiter
 	twoFactorLimiter *ratelimit.Limiter
 	emailLimiter     *ratelimit.Limiter
 
 	catalog *i18n.Catalog
-	emails  *mail.Templates // plantillas de los correos, por idioma
+	emails  *mail.Templates // email templates, per language
 }
 
-// NewService crea el servicio de autenticación. Recibe el pool, y no solo las consultas,
-// porque algunas operaciones van en una transacción (por ejemplo, recuperar la contraseña).
+// NewService creates the authentication service. It takes the pool, and not only the queries,
+// because some operations run in a transaction (for example, the password reset).
 func NewService(pool *pgxpool.Pool, opts Options) *Service {
 	if opts.SessionTTL <= 0 {
 		opts.SessionTTL = DefaultSessionTTL
@@ -196,10 +196,10 @@ func NewService(pool *pgxpool.Pool, opts Options) *Service {
 	}
 }
 
-// CreateUser valida los datos, hashea la contraseña y crea el usuario con el rol indicado.
-// Lo usan el registro (rol user) y el comando create-admin (rol admin). Los admins quedan
-// con el email verificado: los crea alguien con acceso al servidor.
-// Los errores de validación y el email repetido se devuelven como *httpx.Error.
+// CreateUser validates the data, hashes the password and creates the user with the given role.
+// Registration (role user) and the create-admin command (role admin) use it. Admins get a
+// verified email: they are created by someone with access to the server.
+// Validation errors and a repeated email are returned as *httpx.Error.
 func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string) (User, error) {
 	in.normalize()
 	if err := in.validate(); err != nil {
@@ -211,7 +211,7 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 
 	hash, err := HashPassword(ctx, in.Password)
 	if err != nil {
-		return User{}, fmt.Errorf("hashear contraseña: %w", err)
+		return User{}, fmt.Errorf("hash the password: %w", err)
 	}
 
 	var verifiedAt *time.Time
@@ -232,31 +232,31 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 		return User{}, httpx.Conflict("email_taken", "email")
 	}
 	if err != nil {
-		return User{}, fmt.Errorf("crear usuario: %w", err)
+		return User{}, fmt.Errorf("create user: %w", err)
 	}
 
 	return toUser(u), nil
 }
 
-// errInvalidCredentials es la respuesta a cualquier login fallido. No distingue entre
-// "el email no existe" y "la contraseña es incorrecta", para no revelar qué emails están registrados.
+// errInvalidCredentials is the answer to any failed login. It does not tell "the email does
+// not exist" from "the password is wrong", so it does not reveal which emails are registered.
 var errInvalidCredentials = httpx.Unauthorized("invalid_credentials")
 
-// Authenticate comprueba email y contraseña y devuelve el usuario.
+// Authenticate checks the email and password and returns the user.
 func (s *Service) Authenticate(ctx context.Context, email, password string) (User, error) {
 	u, err := s.q.GetUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Se calcula un hash igual, para que la respuesta tarde lo mismo que con un email válido.
+		// A hash is computed anyway, so the response takes as long as with a valid email.
 		_, _ = VerifyPassword(ctx, password, dummyHash())
 		return User{}, errInvalidCredentials
 	}
 	if err != nil {
-		return User{}, fmt.Errorf("buscar usuario: %w", err)
+		return User{}, fmt.Errorf("find user: %w", err)
 	}
 
 	ok, err := VerifyPassword(ctx, password, u.PasswordHash)
 	if err != nil {
-		return User{}, fmt.Errorf("verificar contraseña del usuario %d: %w", u.ID, err)
+		return User{}, fmt.Errorf("verify the password of user %d: %w", u.ID, err)
 	}
 	if !ok {
 		return User{}, errInvalidCredentials
@@ -268,15 +268,15 @@ func (s *Service) Authenticate(ctx context.Context, email, password string) (Use
 	return toUser(u), nil
 }
 
-// rehashPassword vuelve a hashear la contraseña con los parámetros actuales de argon2, después
-// de un login correcto (es el único momento en que se tiene la contraseña). Si falla, solo se
-// registra: el login ya fue válido, y se vuelve a intentar en el próximo.
+// rehashPassword hashes the password again with the current argon2 parameters, after a
+// successful login (the only moment the password is known). If it fails, it is only logged: the
+// login was already valid, and it is tried again on the next one.
 func (s *Service) rehashPassword(ctx context.Context, u store.User, password string) {
 	hash, err := HashPassword(ctx, password)
 	if err == nil {
 		_, err = s.q.RehashPassword(ctx, store.RehashPasswordParams{ID: u.ID, OldHash: u.PasswordHash, NewHash: hash})
 	}
 	if err != nil {
-		httpx.LoggerFrom(ctx).Warn("no se pudo actualizar el hash de la contraseña", "user_id", u.ID, "error", err)
+		httpx.LoggerFrom(ctx).Warn("could not update the password hash", "user_id", u.ID, "error", err)
 	}
 }

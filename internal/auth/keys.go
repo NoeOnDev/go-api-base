@@ -9,57 +9,57 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 )
 
-// KeyReport es el resultado de RotateKeys: qué se volvió a cifrar y qué sigue dependiendo
-// de claves viejas.
+// KeyReport is the result of RotateKeys: what was encrypted again and what still depends on
+// old keys.
 type KeyReport struct {
 	CurrentKeyID string
-	// Reencrypted son los secretos del 2FA que se volvieron a cifrar con la clave actual.
+	// Reencrypted are the two-factor secrets that were encrypted again with the current key.
 	Reencrypted int
-	// AlreadyCurrent son los secretos que ya estaban con la clave actual.
+	// AlreadyCurrent are the secrets that already used the current key.
 	AlreadyCurrent int
-	// Undecryptable son los secretos que no se pudieron descifrar: su clave no está configurada
-	// o el dato está dañado. Esos usuarios no pueden usar su 2FA hasta que se les desactive.
+	// Undecryptable are the secrets that could not be decrypted: their key is not configured or the
+	// data is damaged. Those users cannot use their two-factor authentication until it is turned off.
 	Undecryptable []UndecryptableSecret
-	// OldRecoveryCodes cuenta, por clave vieja, los usuarios con códigos de recuperación calculados
-	// con ella. No se pueden recalcular sin el código original: dejan de servir si se quita la clave,
-	// así que esos usuarios tienen que regenerarlos.
+	// OldRecoveryCodes counts, per old key, the users with recovery codes computed with it. They
+	// cannot be computed again without the original code: they stop working if the key is removed,
+	// so those users have to regenerate them.
 	OldRecoveryCodes []KeyUsage
-	// QueuedEmails cuenta, por clave vieja, los correos de la cola cifrados con ella que todavía
-	// no salieron (ver AddQueuedEmails). Salen solos en segundos o minutos; si se quita la clave
-	// antes, se cancelan.
+	// QueuedEmails counts, per old key, the queued emails encrypted with it that have not been sent
+	// yet (see AddQueuedEmails). They go out on their own in seconds or minutes; if the key is
+	// removed before, they are cancelled.
 	QueuedEmails []KeyCount
-	// RemovableKeys son las claves anteriores que ya no usa ningún dato: se pueden quitar de
+	// RemovableKeys are the previous keys that no data uses anymore: they can be removed from
 	// ENCRYPTION_PREVIOUS_KEYS.
 	RemovableKeys []string
 }
 
-// KeyCount es la cantidad de datos (por ejemplo, correos en la cola) que dependen de una clave.
+// KeyCount is the amount of data (for example, queued emails) that depends on a key.
 type KeyCount struct {
 	KeyID string
 	Count int64
 }
 
-// UndecryptableSecret es un secreto del 2FA que no se pudo descifrar.
+// UndecryptableSecret is a two-factor secret that could not be decrypted.
 type UndecryptableSecret struct {
 	UserID int64
 	KeyID  string
 	Reason string
 }
 
-// KeyUsage es la cantidad de usuarios con datos que dependen de una clave.
+// KeyUsage is the number of users with data that depends on a key.
 type KeyUsage struct {
 	KeyID string
 	Users int64
 }
 
-// Done indica si ya no queda nada que dependa de claves viejas.
+// Done reports whether nothing depends on old keys anymore.
 func (r KeyReport) Done() bool {
 	return len(r.Undecryptable) == 0 && len(r.OldRecoveryCodes) == 0 && len(r.QueuedEmails) == 0
 }
 
-// AddQueuedEmails suma al reporte los correos de la cola cifrados con claves anteriores. byKey
-// es lo que devuelve jobs.QueuedEmailKeys: auth no conoce la cola, así que RotateKeys no los
-// cuenta solo. Mientras queden correos con una clave, esa clave no se puede quitar.
+// AddQueuedEmails adds to the report the queued emails encrypted with previous keys. byKey is
+// what jobs.QueuedEmailKeys returns: auth does not know the queue, so RotateKeys does not count
+// them on its own. While emails with a key remain, that key cannot be removed.
 func (r *KeyReport) AddQueuedEmails(byKey map[string]int64) {
 	for id, n := range byKey {
 		if id == r.CurrentKeyID || n == 0 {
@@ -71,10 +71,10 @@ func (r *KeyReport) AddQueuedEmails(byKey map[string]int64) {
 	slices.SortFunc(r.QueuedEmails, func(a, b KeyCount) int { return cmp.Compare(a.KeyID, b.KeyID) })
 }
 
-// errNoBox indica que falta ENCRYPTION_KEY: sin ella no se puede guardar el secreto del 2FA.
-var errNoBox = errors.New("2FA no disponible: falta configurar ENCRYPTION_KEY")
+// errNoBox means ENCRYPTION_KEY is missing: without it the two-factor secret cannot be stored.
+var errNoBox = errors.New("two-factor authentication unavailable: ENCRYPTION_KEY is not configured")
 
-// box devuelve el llavero de ENCRYPTION_KEY, o errNoBox si no se configuró.
+// box returns the ENCRYPTION_KEY key ring, or errNoBox if it is not configured.
 func (s *Service) box() (*secretbox.Box, error) {
 	if s.opts.Box == nil {
 		return nil, errNoBox
@@ -82,9 +82,9 @@ func (s *Service) box() (*secretbox.Box, error) {
 	return s.opts.Box, nil
 }
 
-// RotateKeys vuelve a cifrar con la clave actual todos los secretos del 2FA que estén con una
-// clave anterior, e informa lo que todavía depende de claves viejas. Se puede correr las veces
-// que haga falta: lo que ya está con la clave actual no se toca.
+// RotateKeys encrypts again with the current key every two-factor secret that uses a previous
+// key, and reports what still depends on old keys. It can be run as often as needed: what
+// already uses the current key is left alone.
 func (s *Service) RotateKeys(ctx context.Context) (KeyReport, error) {
 	box, err := s.box()
 	if err != nil {
@@ -93,7 +93,7 @@ func (s *Service) RotateKeys(ctx context.Context) (KeyReport, error) {
 	report := KeyReport{CurrentKeyID: box.KeyID()}
 	inUse := map[string]bool{}
 
-	// Lo que cifra o protege el 2FA (ver two_factor.go).
+	// What two-factor authentication encrypts or protects (see two_factor.go).
 	if err := s.rotateTwoFactorKeys(ctx, box, &report, inUse); err != nil {
 		return report, err
 	}

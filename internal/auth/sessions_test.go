@@ -28,7 +28,7 @@ type sessionList struct {
 	Data []sessionItem `json:"data"`
 }
 
-// loginFrom inicia sesión por la API desde un "dispositivo": un navegador y una IP.
+// loginFrom signs in through the API from a "device": a browser and an IP.
 func loginFrom(t *testing.T, api http.Handler, email, userAgent, ip string) *http.Cookie {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(fmt.Sprintf(`{"email":%q,"password":"test-password"}`, email)))
@@ -48,7 +48,7 @@ func listSessions(t *testing.T, api http.Handler, cookie *http.Cookie) []session
 	return testutil.Decode[sessionList](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/sessions", ""), http.StatusOK).Data
 }
 
-// otherSession devuelve la sesión de la lista que no es la actual.
+// otherSession returns the session of the list that is not the current one.
 func otherSession(t *testing.T, sessions []sessionItem) sessionItem {
 	t.Helper()
 	for _, s := range sessions {
@@ -56,7 +56,7 @@ func otherSession(t *testing.T, sessions []sessionItem) sessionItem {
 			return s
 		}
 	}
-	t.Fatalf("no hay otra sesión: %+v", sessions)
+	t.Fatalf("there is no other session: %+v", sessions)
 	return sessionItem{}
 }
 
@@ -65,27 +65,27 @@ func TestListSessions(t *testing.T) {
 	api := testutil.NewAPI(pool)
 	testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
-	laptop := loginFrom(t, api, "alice@example.com", "Firefox en la laptop", "198.51.100.1")
-	loginFrom(t, api, "alice@example.com", "Safari en el teléfono", "198.51.100.2")
+	laptop := loginFrom(t, api, "alice@example.com", "Firefox on the laptop", "198.51.100.1")
+	loginFrom(t, api, "alice@example.com", "Safari on the phone", "198.51.100.2")
 	loginFrom(t, api, "bob@example.com", "Chrome de Bob", "198.51.100.3")
 
 	sessions := listSessions(t, api, laptop)
-	// Las dos de Alice por la API, más la de testutil.Login. Ninguna de Bob.
+	// Alice's two through the API, plus the testutil.Login one. None of Bob's.
 	if len(sessions) != 3 {
-		t.Fatalf("sesiones de Alice: %+v", sessions)
+		t.Fatalf("Alice's sessions: %+v", sessions)
 	}
 	byAgent := map[string]sessionItem{}
 	for _, s := range sessions {
 		byAgent[s.UserAgent] = s
 		if strings.Contains(s.UserAgent, "Bob") {
-			t.Errorf("aparece una sesión de otro usuario: %+v", s)
+			t.Errorf("a session of another user shows up: %+v", s)
 		}
 	}
-	if s := byAgent["Firefox en la laptop"]; !s.Current || s.IP != "198.51.100.1" {
-		t.Errorf("la sesión actual: %+v", s)
+	if s := byAgent["Firefox on the laptop"]; !s.Current || s.IP != "198.51.100.1" {
+		t.Errorf("the current session: %+v", s)
 	}
-	if s := byAgent["Safari en el teléfono"]; s.Current || s.IP != "198.51.100.2" {
-		t.Errorf("la otra sesión: %+v", s)
+	if s := byAgent["Safari on the phone"]; s.Current || s.IP != "198.51.100.2" {
+		t.Errorf("the other session: %+v", s)
 	}
 }
 
@@ -94,7 +94,7 @@ func TestRevokeSession(t *testing.T) {
 	api := testutil.NewAPI(pool)
 	_, alice := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	_, bob := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
-	phone := loginFrom(t, api, "alice@example.com", "Safari en el teléfono", "198.51.100.2")
+	phone := loginFrom(t, api, "alice@example.com", "Safari on the phone", "198.51.100.2")
 
 	sessions := listSessions(t, api, alice)
 	phoneID := otherSession(t, sessions).ID
@@ -105,25 +105,25 @@ func TestRevokeSession(t *testing.T) {
 		}
 	}
 
-	// La sesión de otro usuario no existe para Alice.
+	// Another user's session does not exist for Alice.
 	bobID := listSessions(t, api, bob)[0].ID
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, alice, http.MethodDelete, fmt.Sprintf("/auth/sessions/%d", bobID), ""), http.StatusNotFound)
-	// La actual se cierra con logout.
+	// The current one is closed with logout.
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, alice, http.MethodDelete, fmt.Sprintf("/auth/sessions/%d", currentID), ""), http.StatusUnprocessableEntity)
 
 	if w := testutil.Do(t, api, alice, http.MethodDelete, fmt.Sprintf("/auth/sessions/%d", phoneID), ""); w.Code != http.StatusNoContent {
-		t.Fatalf("cerrar la sesión del teléfono: status = %d", w.Code)
+		t.Fatalf("close the phone session: status = %d", w.Code)
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, phone, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
 	if w := testutil.Do(t, api, alice, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("la sesión actual debería seguir: status = %d", w.Code)
+		t.Errorf("the current session should stay: status = %d", w.Code)
 	}
 	if w := testutil.Do(t, api, bob, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("la sesión de Bob no se toca: status = %d", w.Code)
+		t.Errorf("Bob's session is left alone: status = %d", w.Code)
 	}
 }
 
-// Cerrar una sesión corta en el acto sus streams de GET /events.
+// Closing a session cuts its GET /events streams right away.
 func TestRevokeSessionCutsItsStream(t *testing.T) {
 	pool := testutil.NewDB(t)
 	srv := testutil.NewServer(t, pool)
@@ -157,10 +157,10 @@ func TestRevokeSessionCutsItsStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resp := send(laptop, http.MethodDelete, fmt.Sprintf("/auth/sessions/%d", otherSession(t, list.Data).ID), ""); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("cerrar la sesión: status = %d", resp.StatusCode)
+		t.Fatalf("close the session: status = %d", resp.StatusCode)
 	}
 	if !events.Closed(time.Second) {
-		t.Error("el stream de la sesión cerrada debería cortarse")
+		t.Error("the stream of the closed session should be cut")
 	}
 }
 
@@ -171,10 +171,10 @@ func TestRevokeOtherSessions(t *testing.T) {
 	phone := loginFrom(t, api, "alice@example.com", "Safari", "198.51.100.2")
 	tablet := loginFrom(t, api, "alice@example.com", "Chrome", "198.51.100.3")
 
-	// Pide la contraseña.
+	// It asks for the password.
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, laptop, http.MethodPost, "/auth/sessions/revoke-others", `{"password":"wrong-password"}`), http.StatusUnprocessableEntity)
 	if w := testutil.Do(t, api, phone, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Fatalf("con la contraseña incorrecta no se cierra nada: status = %d", w.Code)
+		t.Fatalf("with the wrong password nothing is closed: status = %d", w.Code)
 	}
 
 	if w := testutil.Do(t, api, laptop, http.MethodPost, "/auth/sessions/revoke-others", `{"password":"test-password"}`); w.Code != http.StatusNoContent {
@@ -184,11 +184,11 @@ func TestRevokeOtherSessions(t *testing.T) {
 		testutil.Decode[testutil.APIError](t, testutil.Do(t, api, c, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
 	}
 	if sessions := listSessions(t, api, laptop); len(sessions) != 1 || !sessions[0].Current {
-		t.Errorf("debería quedar solo la actual: %+v", sessions)
+		t.Errorf("only the current one should be left: %+v", sessions)
 	}
 }
 
-// La última actividad se guarda como mucho cada 5 minutos, no en cada petición.
+// The last activity is saved at most every 5 minutes, not on every request.
 func TestLastSeenIsThrottled(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
@@ -204,13 +204,13 @@ func TestLastSeenIsThrottled(t *testing.T) {
 	setLastSeen(2 * time.Minute)
 	testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", "")
 	if ago := lastSeenAgo(t, pool, u.ID); ago < time.Minute {
-		t.Errorf("con 2 minutos no debería actualizarse: hace %v", ago)
+		t.Errorf("with 2 minutes it should not be updated: %v ago", ago)
 	}
 
 	setLastSeen(10 * time.Minute)
 	testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", "")
 	if ago := lastSeenAgo(t, pool, u.ID); ago > time.Minute {
-		t.Errorf("con 10 minutos debería actualizarse: hace %v", ago)
+		t.Errorf("with 10 minutes it should be updated: %v ago", ago)
 	}
 }
 
@@ -233,30 +233,30 @@ func TestSessionIdleTimeout(t *testing.T) {
 		}
 	}
 
-	// Sin vencimiento por inactividad (por defecto), una sesión quieta hace una hora sigue sirviendo.
+	// Without an idle expiry (the default), a session idle for an hour still works.
 	setLastSeen("1 hour")
 	if w := testutil.Do(t, testutil.NewAPI(pool), cookie, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Fatalf("sin vencimiento: status = %d", w.Code)
+		t.Fatalf("without an expiry: status = %d", w.Code)
 	}
 
 	idle := testutil.WithConfig(func(c *config.Config) { c.SessionIdleTimeout = 30 * time.Minute })
 	api := testutil.NewAPI(pool, idle)
 
-	// Con 30 minutos: activa hace 10, sirve; quieta hace una hora, no.
+	// With 30 minutes: active 10 minutes ago, it works; idle for an hour, it does not.
 	setLastSeen("10 minutes")
 	if w := testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("activa hace 10 minutos: status = %d", w.Code)
+		t.Errorf("active 10 minutes ago: status = %d", w.Code)
 	}
 	setLastSeen("1 hour")
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
 }
 
-// Con vencimiento por inactividad, la lista no muestra las sesiones que vencieron por eso, aunque
-// la limpieza periódica todavía no las haya borrado: ya no sirven para entrar.
+// With an idle expiry, the list does not show the sessions that expired that way, even if the
+// periodic cleanup has not deleted them yet: they can no longer be used to sign in.
 func TestListSessionsHidesIdleSessions(t *testing.T) {
 	pool := testutil.NewDB(t)
 	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
-	newSession(t, pool, u.ID) // otro dispositivo
+	newSession(t, pool, u.ID) // another device
 
 	api := testutil.NewAPI(pool)
 	phoneID := otherSession(t, listSessions(t, api, cookie)).ID
@@ -264,27 +264,27 @@ func TestListSessionsHidesIdleSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Sin vencimiento por inactividad (por defecto), la sesión quieta sigue en la lista.
+	// Without an idle expiry (the default), the idle session stays in the list.
 	if sessions := listSessions(t, api, cookie); len(sessions) != 2 {
-		t.Errorf("sin vencimiento: %+v", sessions)
+		t.Errorf("without an expiry: %+v", sessions)
 	}
 
-	// Con 30 minutos, solo queda la actual.
+	// With 30 minutes, only the current one is left.
 	idle := testutil.NewAPI(pool, testutil.WithConfig(func(c *config.Config) { c.SessionIdleTimeout = 30 * time.Minute }))
 	if sessions := listSessions(t, idle, cookie); len(sessions) != 1 || !sessions[0].Current {
-		t.Errorf("con vencimiento: %+v", sessions)
+		t.Errorf("with an expiry: %+v", sessions)
 	}
 }
 
-// Iniciar sesión cierra la sesión que ese navegador ya tenía (su cookie se reemplaza, así que
-// quedaría como un dispositivo fantasma), pero no las de otros dispositivos.
+// Signing in closes the session that browser already had (its cookie is replaced, so it would
+// be left as a ghost device), but not those of other devices.
 func TestStartSessionReplacesBrowserSession(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
 	u, old := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
-	phone := newSession(t, pool, u.ID) // otro dispositivo
+	phone := newSession(t, pool, u.ID) // another device
 
-	// Login en el mismo navegador, que todavía manda la cookie vieja.
+	// Login in the same browser, which still sends the old cookie.
 	w := testutil.Do(t, api, old, http.MethodPost, "/auth/login", loginBody)
 	if w.Code != http.StatusOK {
 		t.Fatalf("login: status = %d; cuerpo: %s", w.Code, w.Body)
@@ -293,19 +293,19 @@ func TestStartSessionReplacesBrowserSession(t *testing.T) {
 
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, old, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
 	if sessions := listSessions(t, api, current); len(sessions) != 2 {
-		t.Errorf("se esperaban la sesión nueva y la del teléfono: %+v", sessions)
+		t.Errorf("want the new session and the phone one: %+v", sessions)
 	}
 	if w := testutil.Do(t, api, phone, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("la sesión del teléfono debería seguir: status = %d", w.Code)
+		t.Errorf("the phone session should stay: status = %d", w.Code)
 	}
 
-	// Cambio de cuenta en el mismo navegador: registrar a Bob cierra esa sesión de Alice.
+	// Change of account in the same browser: registering Bob closes that session of Alice's.
 	w = testutil.Do(t, api, current, http.MethodPost, "/auth/register", `{"name":"Bob","email":"bob@example.com","password":"a-long-password"}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("registro: status = %d; cuerpo: %s", w.Code, w.Body)
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, current, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
 	if w := testutil.Do(t, api, phone, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("la sesión del teléfono debería seguir: status = %d", w.Code)
+		t.Errorf("the phone session should stay: status = %d", w.Code)
 	}
 }

@@ -19,16 +19,16 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
-// CookieName es el nombre de la cookie que lleva el token de sesión.
-// Con CookieSecure se le agrega el prefijo __Host- (ver cookieName).
+// CookieName is the name of the cookie that carries the session token.
+// With CookieSecure it gets the __Host- prefix (see cookieName).
 const CookieName = "session"
 
-// hostPrefix hace que el navegador solo acepte la cookie si es Secure, tiene Path=/ y no
-// tiene Domain. Así ningún subdominio (por ejemplo, uno comprometido) puede crearla ni pisarla.
+// hostPrefix makes the browser accept the cookie only if it is Secure, has Path=/ and has no
+// Domain. That way no subdomain (for example, a compromised one) can create or overwrite it.
 const hostPrefix = "__Host-"
 
-// cookieName devuelve el nombre real de una cookie: con el prefijo __Host- cuando las cookies
-// son Secure (producción). En desarrollo no se puede usar, porque exige HTTPS.
+// cookieName returns the real name of a cookie: with the __Host- prefix when cookies are Secure
+// (production). It cannot be used in development, because it requires HTTPS.
 func (s *Service) cookieName(base string) string {
 	if s.opts.CookieSecure {
 		return hostPrefix + base
@@ -36,46 +36,46 @@ func (s *Service) cookieName(base string) string {
 	return base
 }
 
-// errNoSession indica que la petición no trae una sesión válida.
-var errNoSession = errors.New("sin sesión válida")
+// errNoSession means the request has no valid session.
+var errNoSession = errors.New("no valid session")
 
-// newToken genera un token aleatorio de 32 bytes (256 bits) para el cliente y el hash que
-// se guarda en la base. Lo usan las sesiones y los tokens que se envían por correo.
+// newToken generates a random 32-byte (256-bit) token for the client and the hash that is stored
+// in the database. Sessions and the tokens sent by email use it.
 func newToken() (token string, hash []byte, err error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		return "", nil, fmt.Errorf("generar token: %w", err)
+		return "", nil, fmt.Errorf("generate token: %w", err)
 	}
 	token = base64.RawURLEncoding.EncodeToString(b)
 	return token, hashToken(token), nil
 }
 
-// hashToken devuelve el SHA-256 del token. Alcanza con un hash rápido (no argon2) porque
-// el token ya es aleatorio y largo: no se puede adivinar por fuerza bruta.
+// hashToken returns the SHA-256 of the token. A fast hash (not argon2) is enough because the
+// token is already random and long: it cannot be guessed by brute force.
 func hashToken(token string) []byte {
 	sum := sha256.Sum256([]byte(token))
 	return sum[:]
 }
 
-// maxUserAgentLen es cuánto del user-agent se guarda con la sesión.
+// maxUserAgentLen is how much of the user-agent is stored with the session.
 const maxUserAgentLen = 512
 
-// touchInterval es cada cuánto se actualiza la última actividad de una sesión. Actualizarla en
-// cada petición sería una escritura en la base por petición; con 5 minutos alcanza para mostrar
-// "activa hace un rato" y para el vencimiento por inactividad.
+// touchInterval is how often the last activity of a session is updated. Updating it on every
+// request would be a database write per request; 5 minutes is enough to show "active a while
+// ago" and for the idle expiry.
 const touchInterval = 5 * time.Minute
 
-// StartSession crea una sesión para el usuario y envía la cookie. Guarda el navegador
-// (user-agent) y la IP de la petición, para que el usuario reconozca sus dispositivos en
-// GET /auth/sessions. Las sesiones vencidas las borra la limpieza periódica (internal/jobs).
+// StartSession creates a session for the user and sends the cookie. It stores the browser
+// (user-agent) and the IP of the request, so the user recognizes their devices in
+// GET /auth/sessions. The periodic cleanup deletes the expired sessions (internal/jobs).
 //
-// Si el navegador ya tenía una sesión (otro login sin logout, o un cambio de cuenta), la cierra:
-// su cookie se reemplaza por la nueva, así que nadie la usaría, pero seguiría viva y figuraría
-// como otro dispositivo. Las sesiones de otros navegadores no se tocan.
+// If the browser already had a session (another login without logout, or a change of account),
+// it closes it: its cookie is replaced by the new one, so nobody would use it, but it would stay
+// alive and show up as another device. The sessions of other browsers are left alone.
 func (s *Service) StartSession(w http.ResponseWriter, r *http.Request, userID int64) error {
-	// Si falla, el login sigue: la sesión vieja la borra la limpieza cuando vence.
+	// If it fails, the login goes on: the cleanup deletes the old session when it expires.
 	if err := s.endRequestSession(r.Context(), r); err != nil {
-		httpx.LoggerFrom(r.Context()).Warn("no se pudo cerrar la sesión anterior del navegador", "error", err)
+		httpx.LoggerFrom(r.Context()).Warn("could not close the previous session of the browser", "error", err)
 	}
 
 	token, hash, err := newToken()
@@ -91,14 +91,14 @@ func (s *Service) StartSession(w http.ResponseWriter, r *http.Request, userID in
 		UserAgent: truncate(strings.ToValidUTF8(r.UserAgent(), ""), maxUserAgentLen),
 		IP:        httpx.ClientIP(r, s.opts.TrustedProxies),
 	}); err != nil {
-		return fmt.Errorf("crear sesión: %w", err)
+		return fmt.Errorf("create session: %w", err)
 	}
 
 	http.SetCookie(w, s.cookie(token, expires))
 	return nil
 }
 
-// EndSession borra la sesión de la petición (si hay) y le indica al navegador que borre la cookie.
+// EndSession deletes the request's session (if any) and tells the browser to delete the cookie.
 func (s *Service) EndSession(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	if err := s.endRequestSession(ctx, r); err != nil {
 		return err
@@ -107,8 +107,8 @@ func (s *Service) EndSession(ctx context.Context, w http.ResponseWriter, r *http
 	return nil
 }
 
-// endRequestSession borra la sesión de la cookie de la petición, si la trae, y avisa al
-// SessionWatcher para que corte sus streams.
+// endRequestSession deletes the session of the request's cookie, if it has one, and tells the
+// SessionWatcher to cut its streams.
 func (s *Service) endRequestSession(ctx context.Context, r *http.Request) error {
 	c, err := r.Cookie(s.cookieName(CookieName))
 	if err != nil {
@@ -116,7 +116,7 @@ func (s *Service) endRequestSession(ctx context.Context, r *http.Request) error 
 	}
 	hash := hashToken(c.Value)
 	if err := s.q.DeleteSession(ctx, hash); err != nil {
-		return fmt.Errorf("borrar sesión: %w", err)
+		return fmt.Errorf("delete session: %w", err)
 	}
 	if s.opts.SessionWatcher != nil {
 		s.opts.SessionWatcher.SessionEnded(ctx, hex.EncodeToString(hash))
@@ -124,16 +124,16 @@ func (s *Service) endRequestSession(ctx context.Context, r *http.Request) error 
 	return nil
 }
 
-// clearSessionCookie le pide al navegador que borre la cookie de sesión.
+// clearSessionCookie asks the browser to delete the session cookie.
 func (s *Service) clearSessionCookie(w http.ResponseWriter) {
 	expired := s.cookie("", time.Unix(0, 0))
 	expired.MaxAge = -1
 	http.SetCookie(w, expired)
 }
 
-// SessionKey identifica la sesión de la petición, o devuelve "" si no hay cookie. Es el hash
-// del token (el mismo que se guarda en la base), así que no sirve para iniciar sesión.
-// La usan los streams de GET /events para cortarse cuando se cierra su sesión.
+// SessionKey identifies the request's session, or returns "" without a cookie. It is the hash of
+// the token (the same one stored in the database), so it cannot be used to sign in. The
+// GET /events streams use it to end when their session is closed.
 func (s *Service) SessionKey(r *http.Request) string {
 	c, err := r.Cookie(s.cookieName(CookieName))
 	if err != nil {
@@ -142,15 +142,15 @@ func (s *Service) SessionKey(r *http.Request) string {
 	return hex.EncodeToString(hashToken(c.Value))
 }
 
-// CheckSession comprueba que la sesión de la petición siga vigente: que no se haya cerrado ni
-// vencido, y que el usuario exista. Sirve para las conexiones largas, que pasaron por
-// RequireUser al abrirse pero siguen abiertas después (ver internal/realtime).
+// CheckSession checks that the request's session is still valid: that it was not closed or did
+// not expire, and that the user exists. It is for long connections, which went through
+// RequireUser when they opened but stay open afterwards (see internal/realtime).
 func (s *Service) CheckSession(r *http.Request) error {
 	_, err := s.userFromRequest(r)
 	return err
 }
 
-// session es la sesión de una petición.
+// session is the session of a request.
 type session struct {
 	id        int64
 	tokenHash []byte
@@ -158,8 +158,8 @@ type session struct {
 	lastSeen  time.Time
 }
 
-// sessionFromRequest busca la sesión enviada en la cookie, con su usuario.
-// Devuelve errNoSession si no hay cookie, la sesión no existe o venció.
+// sessionFromRequest finds the session sent in the cookie, with its user.
+// It returns errNoSession if there is no cookie, or the session does not exist or expired.
 func (s *Service) sessionFromRequest(r *http.Request) (session, error) {
 	c, err := r.Cookie(s.cookieName(CookieName))
 	if err != nil {
@@ -172,19 +172,19 @@ func (s *Service) sessionFromRequest(r *http.Request) (session, error) {
 		return session{}, errNoSession
 	}
 	if err != nil {
-		return session{}, fmt.Errorf("buscar sesión: %w", err)
+		return session{}, fmt.Errorf("find session: %w", err)
 	}
 	return session{id: row.SessionID, tokenHash: hash, user: toUser(row.User), lastSeen: row.LastSeenAt}, nil
 }
 
-// userFromRequest busca el usuario de la sesión enviada en la cookie.
+// userFromRequest finds the user of the session sent in the cookie.
 func (s *Service) userFromRequest(r *http.Request) (User, error) {
 	sess, err := s.sessionFromRequest(r)
 	return sess.user, err
 }
 
-// activeSince es desde cuándo tiene que haber actividad para que una sesión siga sirviendo.
-// Sin vencimiento por inactividad, una fecha mínima.
+// activeSince is the time since when there must be activity for a session to keep working.
+// Without an idle expiry, a minimum date.
 func (s *Service) activeSince() time.Time {
 	if s.opts.SessionIdleTimeout <= 0 {
 		return time.Time{}
@@ -192,18 +192,18 @@ func (s *Service) activeSince() time.Time {
 	return time.Now().Add(-s.opts.SessionIdleTimeout)
 }
 
-// touch actualiza la última actividad de la sesión, como mucho cada touchInterval. Si falla,
-// solo se registra: no es motivo para rechazar la petición.
+// touch updates the last activity of the session, at most every touchInterval. If it fails, it
+// is only logged: it is no reason to reject the request.
 func (s *Service) touch(r *http.Request, sess session) {
 	if time.Since(sess.lastSeen) < touchInterval {
 		return
 	}
 	if err := s.q.TouchSession(r.Context(), sess.tokenHash); err != nil {
-		httpx.LoggerFrom(r.Context()).Warn("no se pudo actualizar la actividad de la sesión", "error", err)
+		httpx.LoggerFrom(r.Context()).Warn("could not update the session activity", "error", err)
 	}
 }
 
-// truncate corta s a como mucho n bytes, sin partir un carácter.
+// truncate cuts s to at most n bytes, without splitting a character.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -214,13 +214,13 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
-// cookie arma la cookie de sesión:
-//   - HttpOnly: JavaScript no puede leerla, así que un ataque XSS no puede robar la sesión.
-//   - SameSite=Lax: el navegador no la envía en peticiones que otro sitio dispara
-//     (por ejemplo un formulario oculto), la primera barrera contra CSRF.
-//   - Secure: solo viaja por HTTPS (se desactiva en desarrollo, donde se usa http://localhost).
-//   - Path=/ y sin Domain: vale para toda la API y solo para el host que la creó. Con Secure,
-//     el nombre lleva el prefijo __Host-, que obliga al navegador a respetar estas tres reglas.
+// cookie builds the session cookie:
+//   - HttpOnly: JavaScript cannot read it, so an XSS attack cannot steal the session.
+//   - SameSite=Lax: the browser does not send it in requests that another site triggers
+//     (for example a hidden form), the first barrier against CSRF.
+//   - Secure: it only travels over HTTPS (turned off in development, which uses http://localhost).
+//   - Path=/ and no Domain: it holds for the whole API and only for the host that created it.
+//     With Secure, the name has the __Host- prefix, which makes the browser enforce these three rules.
 func (s *Service) cookie(value string, expires time.Time) *http.Cookie {
 	return &http.Cookie{
 		Name:     s.cookieName(CookieName),
@@ -233,27 +233,27 @@ func (s *Service) cookie(value string, expires time.Time) *http.Cookie {
 	}
 }
 
-// deleteOtherSessions borra todas las sesiones del usuario salvo la de esta petición, con las
-// consultas q (pueden ser las de una transacción). Devuelve la clave de la sesión que sigue,
-// para avisar con sessionsEnded después del commit.
+// deleteOtherSessions deletes every session of the user except the one of this request, with the
+// queries q (they can be those of a transaction). It returns the key of the remaining session,
+// to notify with sessionsEnded after the commit.
 func (s *Service) deleteOtherSessions(r *http.Request, q *store.Queries, userID int64) (string, error) {
 	c, err := r.Cookie(s.cookieName(CookieName))
 	if err != nil {
-		return "", fmt.Errorf("leer la cookie de sesión: %w", err)
+		return "", fmt.Errorf("read the session cookie: %w", err)
 	}
 	hash := hashToken(c.Value)
 	if err := q.DeleteOtherSessions(r.Context(), store.DeleteOtherSessionsParams{
 		UserID:    userID,
 		TokenHash: hash,
 	}); err != nil {
-		return "", fmt.Errorf("cerrar otras sesiones: %w", err)
+		return "", fmt.Errorf("close the other sessions: %w", err)
 	}
 	return hex.EncodeToString(hash), nil
 }
 
-// sessionsEnded avisa al SessionWatcher que se cerraron las sesiones del usuario salvo keep
-// (vacío: todas), para cortar los streams abiertos con ellas. Va después del commit: si fuera
-// antes, un stream cortado podría reconectarse con una sesión que todavía no se borró.
+// sessionsEnded tells the SessionWatcher that the user's sessions were closed except keep (empty:
+// all of them), to cut the streams opened with them. It goes after the commit: before it, a cut
+// stream could reconnect with a session that was not deleted yet.
 func (s *Service) sessionsEnded(ctx context.Context, userID int64, keep string) {
 	if s.opts.SessionWatcher != nil {
 		s.opts.SessionWatcher.UserSessionsEnded(ctx, userID, keep)

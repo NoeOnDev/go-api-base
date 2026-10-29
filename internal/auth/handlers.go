@@ -8,32 +8,32 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
 
-// Límite de intentos de login por cuenta: 10 seguidos y luego uno por minuto, vengan de la IP
-// que vengan. Complementa el límite por IP, que no frena un ataque repartido entre muchas IPs.
+// Login attempt limit per account: 10 in a row and then one per minute, from whatever IP. It
+// complements the per-IP limit, which does not stop an attack spread across many IPs.
 //
-// Cuenta por email, exista o no, así la respuesta no revela qué emails están registrados.
-// El costo: quien conozca un email puede bloquear ese login mientras siga enviando intentos
-// (le alcanza con uno por minuto). Recuperar la contraseña reinicia el límite (ver resetPassword),
-// pero eso solo ayuda cuando el ataque terminó. Ver docs/decisions.md.
+// It counts per email, whether it exists or not, so the response does not reveal which emails
+// are registered. The cost: someone who knows an email can block that login as long as they
+// keep sending attempts (one per minute is enough). A password reset resets the limit (see
+// resetPassword), but that only helps once the attack is over. See docs/decisions.md.
 const (
 	loginLimitEvery = time.Minute
 	loginLimitBurst = 10
 )
 
-// loginLimitKey es la clave de un email en el límite de intentos del login.
+// loginLimitKey is the key of an email in the login attempt limit.
 func loginLimitKey(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-// register responde POST /auth/register: crea un usuario con rol user e inicia su sesión.
-// Con REQUIRE_EMAIL_VERIFICATION activa, también le envía el enlace para confirmar el email.
+// register answers POST /auth/register: it creates a user with role user and starts its session.
+// With REQUIRE_EMAIL_VERIFICATION on, it also sends the link to confirm the email.
 func (s *Service) register(w http.ResponseWriter, r *http.Request) error {
 	var in RegisterInput
 	if err := httpx.Decode(w, r, &in); err != nil {
 		return err
 	}
-	// El idioma del usuario es el que pidió el navegador, si es uno disponible. Si no pidió
-	// ninguno, queda el idioma por defecto (null), que sigue a DEFAULT_LOCALE si cambia.
+	// The user's language is the one the browser asked for, if it is available. If it asked for
+	// none, it stays the default language (null), which follows DEFAULT_LOCALE if it changes.
 	if locale, ok := s.catalog.Choose(r.Header.Get("Accept-Language")); ok {
 		in.Locale = &locale
 	}
@@ -47,12 +47,12 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Si el correo no se puede encolar, la cuenta igual quedó creada y es válida: se responde 201,
-	// y el usuario puede pedir otro enlace con POST /auth/email/resend. Responder un error acá
-	// confundiría, porque un reintento del registro daría 409 (el email ya existe).
+	// If the email cannot be queued, the account was still created and is valid: it answers 201,
+	// and the user can ask for another link with POST /auth/email/resend. Answering an error here
+	// would be confusing, because retrying the registration would give 409 (the email exists).
 	if s.opts.RequireVerifiedEmail {
 		if err := s.sendVerificationEmail(r.Context(), u); err != nil {
-			httpx.LoggerFrom(r.Context()).Error("no se pudo enviar el correo de verificación del registro", "user_id", u.ID, "error", err)
+			httpx.LoggerFrom(r.Context()).Error("could not send the verification email of the registration", "user_id", u.ID, "error", err)
 		}
 	}
 
@@ -60,9 +60,9 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// login responde POST /auth/login. Si el usuario tiene el 2FA activo, todavía no crea la sesión:
-// responde 202 {"two_factor_required": true} con la cookie del desafío, y el login se completa
-// con POST /auth/two-factor/challenge.
+// login answers POST /auth/login. If the user has two-factor authentication on, it does not
+// create the session yet: it answers 202 {"two_factor_required": true} with the challenge
+// cookie, and the login is completed with POST /auth/two-factor/challenge.
 func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 	var in loginInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -76,7 +76,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if !allowed {
-		httpx.LoggerFrom(r.Context()).Warn("límite de intentos de login de la cuenta superado")
+		httpx.LoggerFrom(r.Context()).Warn("account login attempt limit exceeded")
 		w.Header().Set("Retry-After", s.loginLimiter.RetryAfter())
 		return httpx.TooManyRequests()
 	}
@@ -98,8 +98,8 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// logout responde POST /auth/logout. Borra la sesión si existe y siempre le pide al navegador
-// que borre la cookie, así que responde 204 aunque la sesión ya haya vencido.
+// logout answers POST /auth/logout. It deletes the session if it exists and always asks the
+// browser to delete the cookie, so it answers 204 even if the session already expired.
 func (s *Service) logout(w http.ResponseWriter, r *http.Request) error {
 	if err := s.EndSession(r.Context(), w, r); err != nil {
 		return err
@@ -108,7 +108,7 @@ func (s *Service) logout(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// me responde GET /auth/me con el usuario de la sesión.
+// me answers GET /auth/me with the user of the session.
 func (s *Service) me(w http.ResponseWriter, r *http.Request) error {
 	httpx.Write(w, http.StatusOK, MustUser(r.Context()))
 	return nil

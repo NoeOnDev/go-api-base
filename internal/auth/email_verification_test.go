@@ -18,20 +18,20 @@ func TestEmailVerificationRequired(t *testing.T) {
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails), testutil.WithConfig(requireVerification))
 
-	// Al registrarse se envía el enlace, y el usuario queda sin verificar.
+	// On registration the link is sent, and the user stays unverified.
 	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/register", registerBody)
 	u := testutil.Decode[auth.User](t, w, http.StatusCreated)
 	if u.EmailVerified() {
-		t.Fatal("el usuario no debería estar verificado al registrarse")
+		t.Fatal("the user should not be verified on registration")
 	}
 	cookie := sessionCookie(t, w)
 
 	first, ok := mails.Last("alice@example.com")
 	if !ok || !strings.Contains(first.Body, "https://app.test/verify-email?token=") {
-		t.Fatalf("no se envió el enlace de verificación: %+v", mails.Messages())
+		t.Fatalf("the verification link was not sent: %+v", mails.Messages())
 	}
 
-	// Sin verificar: las rutas protegidas responden 403, pero la cuenta sigue accesible.
+	// Unverified: the protected routes answer 403, but the account is still reachable.
 	resp := testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodGet, "/notes", ""), http.StatusForbidden)
 	if resp.Error.Code != "email_not_verified" {
 		t.Errorf("code = %q", resp.Error.Code)
@@ -41,11 +41,11 @@ func TestEmailVerificationRequired(t *testing.T) {
 		{http.MethodPut, "/auth/me", `{"name":"Alice"}`},
 	} {
 		if w := testutil.Do(t, api, cookie, tt.method, tt.path, tt.body); w.Code != http.StatusOK {
-			t.Errorf("%s %s sin verificar: status = %d", tt.method, tt.path, w.Code)
+			t.Errorf("%s %s unverified: status = %d", tt.method, tt.path, w.Code)
 		}
 	}
 
-	// Pedir otro enlace invalida el anterior.
+	// Asking for another link invalidates the previous one.
 	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/email/resend", ""); w.Code != http.StatusAccepted {
 		t.Fatalf("resend: status = %d", w.Code)
 	}
@@ -54,25 +54,25 @@ func TestEmailVerificationRequired(t *testing.T) {
 		testutil.Do(t, api, nil, http.MethodPost, "/auth/email/verify", verifyBody(testutil.TokenFromEmail(t, first))),
 		http.StatusUnprocessableEntity)
 
-	// Con el enlace nuevo se verifica, y las rutas protegidas ya funcionan.
+	// With the new link it is verified, and the protected routes work.
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/email/verify", verifyBody(testutil.TokenFromEmail(t, second))); w.Code != http.StatusNoContent {
 		t.Fatalf("verify: status = %d; cuerpo: %s", w.Code, w.Body)
 	}
 	me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK)
 	if !me.EmailVerified() {
-		t.Error("el email no quedó verificado")
+		t.Error("the email was not verified")
 	}
 	if w := testutil.Do(t, api, cookie, http.MethodGet, "/notes", ""); w.Code != http.StatusOK {
-		t.Errorf("/notes después de verificar: status = %d", w.Code)
+		t.Errorf("/notes after verifying: status = %d", w.Code)
 	}
 
-	// Ya verificado, pedir otro enlace no envía nada.
+	// Once verified, asking for another link sends nothing.
 	sent := len(mails.Messages())
 	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/email/resend", ""); w.Code != http.StatusNoContent {
-		t.Errorf("resend ya verificado: status = %d", w.Code)
+		t.Errorf("resend when already verified: status = %d", w.Code)
 	}
 	if len(mails.Messages()) != sent {
-		t.Error("se envió un correo a un email ya verificado")
+		t.Error("an email was sent to an already verified address")
 	}
 }
 
@@ -85,10 +85,10 @@ func TestEmailVerificationDisabledByDefault(t *testing.T) {
 	testutil.Decode[auth.User](t, w, http.StatusCreated)
 
 	if len(mails.Messages()) != 0 {
-		t.Errorf("no debería enviar correos al registrarse: %+v", mails.Messages())
+		t.Errorf("should not send emails on registration: %+v", mails.Messages())
 	}
 	if w := testutil.Do(t, api, sessionCookie(t, w), http.MethodGet, "/notes", ""); w.Code != http.StatusOK {
-		t.Errorf("sin verificación obligatoria, /notes debería funcionar: status = %d", w.Code)
+		t.Errorf("without required verification, /notes should work: status = %d", w.Code)
 	}
 }
 
@@ -98,10 +98,10 @@ func TestAdminsAreVerified(t *testing.T) {
 	admin, cookie := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
 
 	if !admin.EmailVerified() {
-		t.Error("un admin debería quedar verificado al crearse")
+		t.Error("an admin should be verified when created")
 	}
 	if w := testutil.Do(t, api, cookie, http.MethodPost, "/categories", `{"name":"Bebidas","slug":"bebidas"}`); w.Code != http.StatusCreated {
-		t.Errorf("el admin no puede usar rutas protegidas: status = %d", w.Code)
+		t.Errorf("the admin cannot use protected routes: status = %d", w.Code)
 	}
 }
 
@@ -113,13 +113,13 @@ func TestVerifyEmailInvalidToken(t *testing.T) {
 		testutil.Do(t, api, nil, http.MethodPost, "/auth/email/verify", verifyBody("token-inventado")),
 		http.StatusUnprocessableEntity)
 	if resp.Error.Fields["token"] == "" {
-		t.Errorf("se esperaba error en token: %+v", resp.Error)
+		t.Errorf("want an error on token: %+v", resp.Error)
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodPost, "/auth/email/resend", ""), http.StatusUnauthorized)
 }
 
-// Los límites por destinatario frenan a quien pide correos para otra persona desde muchas IPs:
-// cada petición sale de una IP distinta, así que el límite por IP no interviene.
+// The per-recipient limits stop whoever requests emails for someone else from many IPs: each
+// request comes from a different IP, so the per-IP limit does not step in.
 func TestResendVerificationRecipientLimit(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
@@ -129,7 +129,7 @@ func TestResendVerificationRecipientLimit(t *testing.T) {
 	testutil.Decode[auth.User](t, w, http.StatusCreated)
 	cookie := sessionCookie(t, w)
 
-	// El correo del registro no cuenta: después se pueden pedir 3 más.
+	// The registration email does not count: after it, 3 more can be requested.
 	for i := range 4 {
 		ip := fmt.Sprintf("198.51.100.%d", i+1)
 		w := testutil.DoFromIP(t, api, ip, cookie, http.MethodPost, "/auth/email/resend", "")
@@ -146,6 +146,6 @@ func TestResendVerificationRecipientLimit(t *testing.T) {
 	}
 
 	if n := len(mails.Messages()); n != 4 {
-		t.Errorf("se enviaron %d correos, se esperaban 4 (registro y 3 reenvíos)", n)
+		t.Errorf("%d emails were sent, want 4 (registration and 3 resends)", n)
 	}
 }

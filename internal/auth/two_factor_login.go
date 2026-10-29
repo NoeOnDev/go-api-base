@@ -16,8 +16,9 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
-// startTwoFactorChallenge es el primer paso del login con 2FA: la contraseña ya fue correcta,
-// así que se crea un desafío que vence en 5 minutos y se envía en una cookie HttpOnly.
+// startTwoFactorChallenge is the first step of the login with two-factor authentication: the
+// password was already correct, so a challenge that expires in 5 minutes is created and sent in
+// an HttpOnly cookie.
 func (s *Service) startTwoFactorChallenge(w http.ResponseWriter, r *http.Request, userID int64) error {
 	token, err := s.issueToken(r.Context(), userID, purposeTwoFactorLogin, twoFactorLoginTTL, nil)
 	if err != nil {
@@ -35,25 +36,25 @@ var (
 	errTwoFactorLocked   = &httpx.Error{Status: http.StatusUnauthorized, Code: "two_factor_locked"}
 )
 
-// ChallengeCookieName es la cookie del desafío del 2FA: el login con la contraseña correcta
-// la envía, y POST /auth/two-factor/challenge la usa para saber qué usuario está entrando.
-// Con CookieSecure también lleva el prefijo __Host-.
+// ChallengeCookieName is the cookie of the two-factor challenge: the login with the correct
+// password sends it, and POST /auth/two-factor/challenge uses it to know which user is signing
+// in. With CookieSecure it also has the __Host- prefix.
 const ChallengeCookieName = "two_factor_challenge"
 
-// Frenos contra la fuerza bruta del código, que hace alguien que ya tiene la contraseña:
-//   - Cada desafío admite maxChallengeAttempts intentos; después hay que volver a poner la contraseña.
-//   - Cada usuario tiene twoFactorLimitBurst intentos seguidos y luego uno cada twoFactorLimitEvery
-//     (10 por hora), sin importar desde cuántas IPs lleguen. Con 3 códigos válidos en un millón,
-//     son unas 240 pruebas por día: cerca de un 0,07 % de acertar.
+// Brakes against brute force on the code, done by someone who already has the password:
+//   - Each challenge allows maxChallengeAttempts attempts; after that the password has to be entered again.
+//   - Each user has twoFactorLimitBurst attempts in a row and then one every twoFactorLimitEvery
+//     (10 per hour), from however many IPs. With 3 valid codes in a million, that is about 240
+//     tries a day: close to a 0.07% chance of guessing.
 //
-// El límite por usuario está en la base (internal/ratelimit): vale para todas las instancias.
+// The per-user limit is in the database (internal/ratelimit): it holds for every instance.
 const (
 	maxChallengeAttempts = 5
 	twoFactorLimitEvery  = 6 * time.Minute
 	twoFactorLimitBurst  = 10
 )
 
-// twoFactorLimitKey es la clave del usuario en el límite de intentos del 2FA.
+// twoFactorLimitKey is the user's key in the two-factor attempt limit.
 func twoFactorLimitKey(userID int64) string {
 	return strconv.FormatInt(userID, 10)
 }
@@ -63,10 +64,10 @@ type challengeInput struct {
 	RecoveryCode string `json:"recovery_code"`
 }
 
-// twoFactorChallenge responde POST /auth/two-factor/challenge con el código de la app
-// ({"code"}) o un código de recuperación ({"recovery_code"}). Si es correcto, crea la sesión.
-// Un código incorrecto deja reintentar hasta maxChallengeAttempts veces; al agotarlos se borra
-// el desafío y se le avisa al usuario por correo.
+// twoFactorChallenge answers POST /auth/two-factor/challenge with the app code ({"code"}) or a
+// recovery code ({"recovery_code"}). If it is correct, it creates the session. A wrong code can
+// be retried up to maxChallengeAttempts times; once they are used up the challenge is deleted
+// and the user is notified by email.
 func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) error {
 	c, err := r.Cookie(s.cookieName(ChallengeCookieName))
 	if err != nil {
@@ -74,7 +75,7 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 	}
 	tokenHash := hashToken(c.Value)
 
-	// Primero el cuerpo: un pedido mal armado no gasta intentos.
+	// The body first: a malformed request does not spend attempts.
 	var in challengeInput
 	if err := httpx.Decode(w, r, &in); err != nil {
 		return err
@@ -91,7 +92,7 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 		return errNoChallenge
 	}
 	if err != nil {
-		return fmt.Errorf("buscar desafío del 2FA: %w", err)
+		return fmt.Errorf("find the two-factor challenge: %w", err)
 	}
 
 	allowed, err := s.twoFactorLimiter.Allow(r.Context(), twoFactorLimitKey(userID))
@@ -99,22 +100,22 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	if !allowed {
-		httpx.LoggerFrom(r.Context()).Warn("límite de intentos del 2FA del usuario superado", "user_id", userID)
+		httpx.LoggerFrom(r.Context()).Warn("the user's two-factor attempt limit exceeded", "user_id", userID)
 		w.Header().Set("Retry-After", s.twoFactorLimiter.RetryAfter())
 		return httpx.TooManyRequests()
 	}
 
 	attempt, err := s.q.UseUserTokenAttempt(r.Context(), store.UseUserTokenAttemptParams(challenge))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return errNoChallenge // venció o se agotó entre las dos consultas
+		return errNoChallenge // it expired or ran out between the two queries
 	}
 	if err != nil {
-		return fmt.Errorf("registrar intento del 2FA: %w", err)
+		return fmt.Errorf("record the two-factor attempt: %w", err)
 	}
 
 	stored, err := s.q.GetUserByID(r.Context(), userID)
 	if err != nil {
-		return fmt.Errorf("buscar usuario %d: %w", userID, err)
+		return fmt.Errorf("find user %d: %w", userID, err)
 	}
 
 	if err := s.checkSecondFactor(r, stored, in); err != nil {
@@ -125,7 +126,7 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 	}
 
 	if err := s.q.DeleteUserToken(r.Context(), tokenHash); err != nil {
-		return fmt.Errorf("borrar desafío del 2FA: %w", err)
+		return fmt.Errorf("delete the two-factor challenge: %w", err)
 	}
 	if err := s.StartSession(w, r, userID); err != nil {
 		return err
@@ -136,8 +137,8 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 	return nil
 }
 
-// checkSecondFactor comprueba el código de la app o el código de recuperación.
-// Un código incorrecto devuelve errWrongCode o errWrongRecoveryCode.
+// checkSecondFactor checks the app code or the recovery code.
+// A wrong code returns errWrongCode or errWrongRecoveryCode.
 func (s *Service) checkSecondFactor(r *http.Request, u store.User, in challengeInput) error {
 	if in.Code != "" {
 		return s.useTOTPCode(r, u, in.Code)
@@ -152,48 +153,49 @@ func (s *Service) checkSecondFactor(r *http.Request, u store.User, in challengeI
 	return nil
 }
 
-// lockChallenge corta el desafío después de demasiados códigos incorrectos: hay que volver a
-// ingresar la contraseña. Quien llegó hasta acá la conoce, así que se le avisa al usuario.
+// lockChallenge ends the challenge after too many wrong codes: the password has to be entered
+// again. Whoever got this far knows it, so the user is notified.
 func (s *Service) lockChallenge(w http.ResponseWriter, r *http.Request, u store.User, tokenHash []byte) error {
 	if err := s.q.DeleteUserToken(r.Context(), tokenHash); err != nil {
-		return fmt.Errorf("borrar desafío del 2FA: %w", err)
+		return fmt.Errorf("delete the two-factor challenge: %w", err)
 	}
 	s.clearChallengeCookie(w)
 
 	ip := httpx.ClientIP(r, s.opts.TrustedProxies)
-	httpx.LoggerFrom(r.Context()).Warn("desafío del 2FA bloqueado por códigos incorrectos", "user_id", u.ID, "ip", ip)
+	httpx.LoggerFrom(r.Context()).Warn("two-factor challenge locked after wrong codes", "user_id", u.ID, "ip", ip)
 	s.sendTwoFactorLockedEmail(r.Context(), u, ip)
 
 	return errTwoFactorLocked
 }
 
-// sendTwoFactorLockedEmail avisa al usuario que alguien con su contraseña falló el código del 2FA.
-// Si no se puede enviar, solo se registra: la respuesta al cliente no cambia.
+// sendTwoFactorLockedEmail tells the user that someone with their password failed the
+// two-factor code. If it cannot be sent, it is only logged: the answer to the client does not
+// change.
 func (s *Service) sendTwoFactorLockedEmail(ctx context.Context, u store.User, ip string) {
 	log := httpx.LoggerFrom(ctx)
 	allowed, err := s.allowEmail(ctx, "two_factor_locked", u.ID)
 	if err != nil {
-		log.Error("no se pudo enviar el aviso de 2FA bloqueado", "user_id", u.ID, "error", err)
+		log.Error("could not send the two-factor locked notice", "user_id", u.ID, "error", err)
 		return
 	}
 	if !allowed {
-		log.Warn("aviso de 2FA bloqueado no enviado: límite de correos del usuario", "user_id", u.ID)
+		log.Warn("two-factor locked notice not sent: the user's email limit", "user_id", u.ID)
 		return
 	}
 	err = s.sendEmail(ctx, u.Email, u.Locale, "two_factor_locked.txt", emailData{
 		Name: u.Name,
 		Link: s.opts.FrontendURL,
-		// Un formato sin ambigüedad en cualquier idioma (02/01 es 2 de enero o 1 de febrero).
+		// A format without ambiguity in any language (02/01 is January 2 or February 1).
 		When: time.Now().UTC().Format("2006-01-02 15:04 UTC"),
 		IP:   ip,
 	})
 	if err != nil {
-		log.Error("no se pudo enviar el aviso de 2FA bloqueado", "user_id", u.ID, "error", err)
+		log.Error("could not send the two-factor locked notice", "user_id", u.ID, "error", err)
 	}
 }
 
-// useTOTPCode valida el código de la app y registra su paso. Un código ya usado (por ejemplo,
-// interceptado de un login anterior) se rechaza aunque siga dentro de su ventana de tiempo.
+// useTOTPCode validates the app code and records its step. A code already used (for example,
+// intercepted from a previous login) is rejected even if it is still within its time window.
 func (s *Service) useTOTPCode(r *http.Request, u store.User, code string) error {
 	if u.TOTPEnabledAt == nil {
 		return errWrongCode
@@ -208,22 +210,23 @@ func (s *Service) useTOTPCode(r *http.Request, u store.User, code string) error 
 
 	rows, err := s.q.UseTOTPStep(r.Context(), store.UseTOTPStepParams{ID: u.ID, TOTPLastStep: &step})
 	if err != nil {
-		return fmt.Errorf("registrar código del 2FA: %w", err)
+		return fmt.Errorf("record the two-factor code: %w", err)
 	}
 	if rows == 0 {
-		return errWrongCode // el código ya se usó
+		return errWrongCode // the code was already used
 	}
 	return nil
 }
 
-// setChallengeCookie envía la cookie del desafío del 2FA, con la misma protección que la de sesión.
+// setChallengeCookie sends the two-factor challenge cookie, with the same protection as the
+// session one.
 func (s *Service) setChallengeCookie(w http.ResponseWriter, token string, expires time.Time) {
 	c := s.cookie(token, expires)
 	c.Name = s.cookieName(ChallengeCookieName)
 	http.SetCookie(w, c)
 }
 
-// clearChallengeCookie le pide al navegador que borre la cookie del desafío.
+// clearChallengeCookie asks the browser to delete the challenge cookie.
 func (s *Service) clearChallengeCookie(w http.ResponseWriter) {
 	c := s.cookie("", time.Unix(0, 0))
 	c.Name = s.cookieName(ChallengeCookieName)

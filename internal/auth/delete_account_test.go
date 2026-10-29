@@ -20,41 +20,41 @@ func TestDeleteAccount(t *testing.T) {
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
 	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	_, bob := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
-	testutil.Do(t, api, cookie, http.MethodPost, "/notes", `{"title":"Una nota"}`)
+	testutil.Do(t, api, cookie, http.MethodPost, "/notes", `{"title":"A note"}`)
 	if _, err := pool.Exec(t.Context(), "INSERT INTO notifications (user_id, kind) VALUES ($1, 'x')", u.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	// Con la contraseña incorrecta no pasa nada.
+	// With the wrong password nothing happens.
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodDelete, "/auth/me", `{"password":"other"}`), http.StatusUnprocessableEntity)
 	if countRows(t, pool, "users", u.ID) != 1 {
-		t.Fatal("la cuenta no debería haberse borrado")
+		t.Fatal("the account should not have been deleted")
 	}
 
 	w := testutil.Do(t, api, cookie, http.MethodDelete, "/auth/me", deleteBody)
 	if w.Code != http.StatusNoContent {
-		t.Fatalf("borrar la cuenta: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("delete the account: status = %d; body: %s", w.Code, w.Body)
 	}
 	for _, c := range w.Result().Cookies() {
 		if c.Name == auth.CookieName && c.MaxAge >= 0 {
-			t.Error("la cookie de sesión debería borrarse")
+			t.Error("the session cookie should be deleted")
 		}
 	}
 
-	// Se fue todo lo suyo, y nada de Bob.
+	// All of it is gone, and nothing of Bob's.
 	for _, table := range []string{"users", "sessions", "notes", "notifications"} {
 		if n := countRows(t, pool, table, u.ID); n != 0 {
-			t.Errorf("quedaron %d filas en %s", n, table)
+			t.Errorf("%d rows left in %s", n, table)
 		}
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
 	if w := testutil.Do(t, api, bob, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("la cuenta de Bob no se toca: status = %d", w.Code)
+		t.Errorf("Bob's account is left alone: status = %d", w.Code)
 	}
 
-	// Le llega el último correo.
+	// The last email arrives.
 	if msg, ok := mails.Last("alice@example.com"); !ok || !strings.Contains(msg.Body, "was deleted") {
-		t.Errorf("correo de cuenta eliminada: %+v", mails.Messages())
+		t.Errorf("account deleted email: %+v", mails.Messages())
 	}
 }
 
@@ -63,18 +63,18 @@ func TestDeleteLastAdmin(t *testing.T) {
 	api := testutil.NewAPI(pool)
 	_, first := testutil.Login(t, pool, "admin1@example.com", auth.RoleAdmin)
 
-	// El único admin no puede borrarse.
+	// The only admin cannot be deleted.
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, first, http.MethodDelete, "/auth/me", deleteBody), http.StatusConflict)
 
-	// Con otro admin, sí.
+	// With another admin, it can.
 	testutil.Login(t, pool, "admin2@example.com", auth.RoleAdmin)
 	if w := testutil.Do(t, api, first, http.MethodDelete, "/auth/me", deleteBody); w.Code != http.StatusNoContent {
-		t.Errorf("con otro admin: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Errorf("with another admin: status = %d; body: %s", w.Code, w.Body)
 	}
 }
 
-// Una tabla de un proyecto que referencia al usuario sin CASCADE impide borrarlo: 409, sin
-// borrar nada a medias.
+// A project table that references the user without CASCADE blocks the deletion: 409, without
+// deleting anything halfway.
 func TestDeleteAccountBlockedByRestrict(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
@@ -92,11 +92,11 @@ func TestDeleteAccountBlockedByRestrict(t *testing.T) {
 
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodDelete, "/auth/me", deleteBody), http.StatusConflict)
 	if countRows(t, pool, "users", u.ID) != 1 || countRows(t, pool, "sessions", u.ID) != 1 {
-		t.Error("la cuenta y su sesión deberían seguir intactas")
+		t.Error("the account and its session should stay intact")
 	}
 }
 
-// Borrar la cuenta corta sus streams de GET /events.
+// Deleting the account cuts its GET /events streams.
 func TestDeleteAccountCutsStreams(t *testing.T) {
 	pool := testutil.NewDB(t)
 	srv := testutil.NewServer(t, pool)
@@ -112,9 +112,9 @@ func TestDeleteAccountCutsStreams(t *testing.T) {
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("borrar la cuenta: status = %d", resp.StatusCode)
+		t.Fatalf("delete the account: status = %d", resp.StatusCode)
 	}
 	if !events.Closed(time.Second) {
-		t.Error("el stream debería cortarse al borrar la cuenta")
+		t.Error("the stream should be cut when the account is deleted")
 	}
 }

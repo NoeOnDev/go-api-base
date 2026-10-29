@@ -8,72 +8,71 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/ratelimit"
 )
 
-// Limits son los límites de peticiones de las rutas de auth, uno por grupo, así un grupo no
-// gasta los intentos de otro (por ejemplo, el segundo paso del 2FA no gasta los del login).
-// Los valores se eligen en server/routes.go.
+// Limits are the rate limits of the auth routes, one per group, so one group does not spend the
+// attempts of another (for example, the second step of the login does not spend the login's).
+// The values are chosen in server/routes.go.
 type Limits struct {
-	// Login, Register y TwoFactor (el segundo paso del login) se limitan por IP.
+	// Login, Register and TwoFactor (the second step of the login) are limited per IP.
 	Login, Register, TwoFactor httpx.Middleware
-	// Tokens: las rutas que reciben un token de un correo (recuperar la contraseña, verificar
-	// o confirmar el email). Por IP.
+	// Tokens: the routes that receive a token from an email (password reset, email verification or
+	// confirmation). Per IP.
 	Tokens httpx.Middleware
-	// Emails: las rutas que envían correos. Por IP; además hay un límite por destinatario.
+	// Emails: the routes that send emails. Per IP; there is also a per-recipient limit.
 	Emails httpx.Middleware
-	// Account: las acciones sensibles con sesión (cambiar la contraseña, el 2FA…). Se limita
-	// por usuario y no por IP: el ataque lo haría alguien con una sesión, y así los usuarios
-	// detrás de una misma IP (una oficina, datos móviles) no comparten el límite. Está en la
-	// base, como los demás límites por usuario, para que valga en todas las instancias.
+	// Account: the sensitive actions with a session (changing the password, two-factor…). It is
+	// limited per user and not per IP: the attack would come from someone with a session, and that
+	// way users behind the same IP (an office, mobile data) do not share the limit. It is in the
+	// database, like the other per-user limits, so it holds for every instance.
 	Account *ratelimit.Limiter
 }
 
-// Register agrega las rutas de autenticación al mux.
+// Register adds the authentication routes to the mux.
 //
-// Para quitar una función que un proyecto no necesita, borrá sus rutas acá (y su archivo:
-// password_reset.go, profile.go…). "Quitar funciones" en docs/auth.md dice qué más cambia.
+// To remove a feature a project does not need, delete its routes here (and its file:
+// password_reset.go, profile.go…). "Quitar funciones" in docs/auth.md says what else changes.
 func Register(mux *http.ServeMux, s *Service, limits Limits) {
-	// Ninguna respuesta de /auth se guarda en caché: algunas llevan secretos (el del 2FA,
-	// los códigos de recuperación) y las demás, datos de la cuenta. NoStore va por fuera
-	// de los límites para que también lo lleven los 429.
+	// No /auth response is cached: some carry secrets (the two-factor one, the recovery codes) and
+	// the rest, account data. NoStore goes outside the limits so the 429s carry it too.
 	handle := func(pattern string, h http.Handler) { mux.Handle(pattern, httpx.NoStore(h)) }
 
-	// account limita por usuario: va dentro de RequireUser o requireSession, que ponen el usuario.
+	// account limits per user: it goes inside RequireUser or requireSession, which set the user.
 	account := limits.Account.Middleware(func(r *http.Request) string {
 		return strconv.FormatInt(MustUser(r.Context()).ID, 10)
 	})
 
-	// Registro e inicio de sesión.
+	// Registration and sign in.
 	handle("POST /auth/register", limits.Register(httpx.Handle(s.register)))
 	handle("POST /auth/login", limits.Login(httpx.Handle(s.login)))
-	// El logout no exige una sesión válida: si venció, igual tiene que borrar la cookie del navegador.
+	// Logout does not require a valid session: if it expired, it still has to delete the browser cookie.
 	handle("POST /auth/logout", httpx.Handle(s.logout))
 
-	// Cuenta del usuario.
+	// The user's account.
 	handle("GET /auth/me", s.requireSession(httpx.Handle(s.me)))
 	handle("PUT /auth/me", s.requireSession(httpx.Handle(s.updateProfile)))
 	handle("DELETE /auth/me", s.requireSession(account(httpx.Handle(s.deleteAccount))))
 	handle("PUT /auth/password", s.RequireUser(account(httpx.Handle(s.changePassword))))
 
-	// Sesiones por dispositivo: verlas y cerrar las que no se reconocen.
+	// Sessions per device: list them and close the ones not recognized.
 	handle("GET /auth/sessions", s.requireSession(httpx.Handle(s.listSessions)))
 	handle("DELETE /auth/sessions/{id}", s.requireSession(account(httpx.Handle(s.revokeSession))))
 	handle("POST /auth/sessions/revoke-others", s.requireSession(account(httpx.Handle(s.revokeOtherSessions))))
 
-	// Recuperar la contraseña por correo.
+	// Password reset by email.
 	handle("POST /auth/password/forgot", limits.Emails(httpx.Handle(s.forgotPassword)))
 	handle("POST /auth/password/reset", limits.Tokens(httpx.Handle(s.resetPassword)))
 
-	// 2FA con app de autenticación (voluntario para cada usuario).
+	// Two-factor authentication with an authenticator app (optional for each user).
 	handle("POST /auth/two-factor/challenge", limits.TwoFactor(httpx.Handle(s.twoFactorChallenge)))
 	handle("POST /auth/two-factor/setup", s.RequireUser(httpx.Handle(s.setupTwoFactor)))
 	handle("POST /auth/two-factor/enable", s.RequireUser(account(httpx.Handle(s.enableTwoFactor))))
 	handle("POST /auth/two-factor/disable", s.RequireUser(account(httpx.Handle(s.disableTwoFactor))))
 	handle("POST /auth/two-factor/recovery-codes", s.RequireUser(account(httpx.Handle(s.regenerateRecoveryCodes))))
 
-	// Verificar el email (obligatorio solo con REQUIRE_EMAIL_VERIFICATION=true).
+	// Email verification (required only with REQUIRE_EMAIL_VERIFICATION=true).
 	handle("POST /auth/email/verify", limits.Tokens(httpx.Handle(s.verifyEmail)))
 	handle("POST /auth/email/resend", limits.Emails(s.requireSession(httpx.Handle(s.resendVerification))))
 
-	// Cambiar el email: se pide con la contraseña y se confirma con el enlace que llega al nuevo.
+	// Email change: it is requested with the password and confirmed with the link sent to the new one.
 	handle("PUT /auth/email", s.requireSession(account(httpx.Handle(s.requestEmailChange))))
 	handle("POST /auth/email/confirm", limits.Tokens(httpx.Handle(s.confirmEmailChange)))
 }

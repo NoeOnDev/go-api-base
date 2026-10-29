@@ -12,13 +12,13 @@ import (
 )
 
 const (
-	// recoveryCodeCount es cuántos códigos de recuperación se generan.
+	// recoveryCodeCount is how many recovery codes are generated.
 	recoveryCodeCount = 10
-	// recoveryCodeAlphabet no tiene caracteres que se confunden al copiarlos a mano (0/o, 1/l/i).
+	// recoveryCodeAlphabet has no characters that get mixed up when copied by hand (0/o, 1/l/i).
 	recoveryCodeAlphabet = "abcdefghjkmnpqrstuvwxyz23456789"
 )
 
-// newRecoveryCode genera un código de 10 caracteres con el formato "xxxxx-xxxxx" (unos 50 bits).
+// newRecoveryCode generates a 10-character code in the format "xxxxx-xxxxx" (about 50 bits).
 func newRecoveryCode() (string, error) {
 	max := big.NewInt(int64(len(recoveryCodeAlphabet)))
 	var b strings.Builder
@@ -28,30 +28,30 @@ func newRecoveryCode() (string, error) {
 		}
 		n, err := rand.Int(rand.Reader, max)
 		if err != nil {
-			return "", fmt.Errorf("generar código de recuperación: %w", err)
+			return "", fmt.Errorf("generate a recovery code: %w", err)
 		}
 		b.WriteByte(recoveryCodeAlphabet[n.Int64()])
 	}
 	return b.String(), nil
 }
 
-// normalizeRecoveryCode acepta el código como lo escriba el usuario: con o sin guion,
-// con espacios o en mayúsculas.
+// normalizeRecoveryCode accepts the code however the user types it: with or without a hyphen,
+// with spaces or in uppercase.
 func normalizeRecoveryCode(code string) string {
 	code = strings.ToLower(code)
 	return strings.NewReplacer("-", "", " ", "").Replace(code)
 }
 
-// recoveryCodeMACInput es lo que se protege con HMAC: el código normalizado, atado al usuario.
-// Así dos usuarios con el mismo código guardan valores distintos, y un hash copiado a otro
-// usuario no le sirve.
+// recoveryCodeMACInput is what is protected with HMAC: the normalized code, bound to the user.
+// That way two users with the same code store different values, and a hash copied to another
+// user is useless to them.
 func recoveryCodeMACInput(userID int64, code string) []byte {
 	return []byte("recovery_code:" + strconv.FormatInt(userID, 10) + ":" + normalizeRecoveryCode(code))
 }
 
-// replaceRecoveryCodes genera códigos nuevos, guarda su HMAC (reemplazando los anteriores)
-// con las consultas q (pueden ser las de una transacción) y los devuelve en texto para
-// mostrárselos al usuario una sola vez.
+// replaceRecoveryCodes generates new codes, stores their HMAC (replacing the previous ones) with
+// the queries q (they can be those of a transaction) and returns them in plain text to show them
+// to the user only once.
 func (s *Service) replaceRecoveryCodes(ctx context.Context, q *store.Queries, userID int64) ([]string, error) {
 	box, err := s.box()
 	if err != nil {
@@ -72,14 +72,14 @@ func (s *Service) replaceRecoveryCodes(ctx context.Context, q *store.Queries, us
 		CodeHashes: hashes,
 		KeyID:      box.KeyID(),
 	}); err != nil {
-		return nil, fmt.Errorf("guardar códigos de recuperación: %w", err)
+		return nil, fmt.Errorf("store the recovery codes: %w", err)
 	}
 	return codes, nil
 }
 
-// useRecoveryCode consume el código si es válido para el usuario. Cada código sirve una vez.
-// Se compara con el HMAC de todas las claves del llavero, así siguen sirviendo los códigos
-// generados antes de una rotación (mientras su clave esté en ENCRYPTION_PREVIOUS_KEYS).
+// useRecoveryCode consumes the code if it is valid for the user. Each code works once.
+// It is compared with the HMAC of every key of the key ring, so the codes generated before a
+// rotation keep working (as long as their key is in ENCRYPTION_PREVIOUS_KEYS).
 func (s *Service) useRecoveryCode(ctx context.Context, userID int64, code string) (bool, error) {
 	box, err := s.box()
 	if err != nil {
@@ -91,7 +91,7 @@ func (s *Service) useRecoveryCode(ctx context.Context, userID int64, code string
 		CodeHashes: box.MACs(recoveryCodeMACInput(userID, code)),
 	})
 	if err != nil {
-		return false, fmt.Errorf("usar código de recuperación: %w", err)
+		return false, fmt.Errorf("use a recovery code: %w", err)
 	}
 	return rows == 1, nil
 }

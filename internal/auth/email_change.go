@@ -21,13 +21,13 @@ type emailChangeInput struct {
 
 var errEmailTaken = httpx.Conflict("email_taken", "email")
 
-// requestEmailChange responde PUT /auth/email con {email, password}: pide cambiar el email.
-// El email no cambia todavía: se envía un enlace a la dirección nueva, y cambia recién cuando
-// se confirma (POST /auth/email/confirm). Así el usuario demuestra que la dirección es suya.
+// requestEmailChange answers PUT /auth/email with {email, password}: it asks to change the
+// email. The email does not change yet: a link is sent to the new address, and it changes only
+// when confirmed (POST /auth/email/confirm). That way the user proves the address is theirs.
 //
-// Pide la contraseña: si no, alguien con una sesión robada cambiaría el email, después
-// recuperaría la contraseña con él y se quedaría con la cuenta. Además se le avisa al email
-// actual, por si el pedido no lo hizo el dueño.
+// It asks for the password: otherwise someone with a stolen session would change the email,
+// then reset the password with it and keep the account. The current email is also notified,
+// in case the request was not made by the owner.
 func (s *Service) requestEmailChange(w http.ResponseWriter, r *http.Request) error {
 	var in emailChangeInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -45,12 +45,12 @@ func (s *Service) requestEmailChange(w http.ResponseWriter, r *http.Request) err
 	if newEmail == user.Email {
 		return httpx.Validation(httpx.Fields{"email": i18n.M("validation.same_email")})
 	}
-	// Igual que el registro, indica si el email está en uso: si no, el usuario no sabría por qué
-	// nunca se confirma.
+	// Like registration, it says whether the email is in use: otherwise the user would not know
+	// why it is never confirmed.
 	if _, err := s.q.GetUserByEmail(r.Context(), newEmail); err == nil {
 		return errEmailTaken
 	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("buscar email: %w", err)
+		return fmt.Errorf("find email: %w", err)
 	}
 
 	allowed, err := s.allowEmail(r.Context(), purposeEmailChange, user.ID)
@@ -90,9 +90,9 @@ type confirmEmailInput struct {
 	Token string `json:"token"`
 }
 
-// confirmEmailChange responde POST /auth/email/confirm con el token del enlace. Es pública, como
-// la verificación: el token identifica al usuario, así funciona aunque abra el enlace en otro
-// dispositivo. Cambia el email y lo deja verificado.
+// confirmEmailChange answers POST /auth/email/confirm with the token of the link. It is public,
+// like the verification: the token identifies the user, so it works even if the link is opened
+// on another device. It changes the email and leaves it verified.
 func (s *Service) confirmEmailChange(w http.ResponseWriter, r *http.Request) error {
 	var in confirmEmailInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -102,7 +102,7 @@ func (s *Service) confirmEmailChange(w http.ResponseWriter, r *http.Request) err
 		return errInvalidToken
 	}
 
-	// Todo o nada: si el email nuevo ya lo tomó otra cuenta, el enlace sigue sin usarse.
+	// All or nothing: if another account took the new email in the meantime, the link stays unused.
 	var userID int64
 	var oldEmail, newEmail string
 	err := pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
@@ -116,18 +116,18 @@ func (s *Service) confirmEmailChange(w http.ResponseWriter, r *http.Request) err
 		}
 		before, err := q.GetUserByID(r.Context(), row.UserID)
 		if err != nil {
-			return fmt.Errorf("buscar usuario %d: %w", row.UserID, err)
+			return fmt.Errorf("find user %d: %w", row.UserID, err)
 		}
 		if _, err := q.UpdateUserEmail(r.Context(), store.UpdateUserEmailParams{ID: row.UserID, Email: row.Email}); err != nil {
 			if _, ok := db.IsUniqueViolation(err); ok {
 				return errEmailTaken
 			}
-			return fmt.Errorf("cambiar email del usuario %d: %w", row.UserID, err)
+			return fmt.Errorf("change the email of user %d: %w", row.UserID, err)
 		}
-		// Los enlaces de recuperación pendientes se enviaron al email anterior, que ya no es de la
-		// cuenta: si el usuario lo cambió porque perdió ese correo, quien lo tenga no puede usarlos.
+		// The pending reset links were sent to the previous email, which no longer belongs to the
+		// account: if the user changed it because they lost that inbox, whoever has it cannot use them.
 		if err := q.DeleteUserTokens(r.Context(), store.DeleteUserTokensParams{UserID: row.UserID, Purpose: purposePasswordReset}); err != nil {
-			return fmt.Errorf("borrar enlaces de recuperación pendientes: %w", err)
+			return fmt.Errorf("delete the pending reset links: %w", err)
 		}
 		userID, oldEmail, newEmail = row.UserID, before.Email, row.Email
 		return nil
@@ -136,7 +136,7 @@ func (s *Service) confirmEmailChange(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 
-	// El límite de intentos de login del email viejo ya no corresponde a nadie.
+	// The login rate limit of the old email no longer belongs to anyone.
 	s.resetLimit(r.Context(), s.loginLimiter, loginLimitKey(oldEmail))
 	s.notify(r.Context(), userID, NotifyEmailChanged, map[string]any{"email": newEmail})
 

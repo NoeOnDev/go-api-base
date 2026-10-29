@@ -19,9 +19,9 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-// Ayudas que comparten los tests de varias funciones de auth. Están acá, y no en el test de una
-// función, para que quitar una función con sus tests (ver "Quitar funciones" en docs/auth.md) no
-// rompa los tests de las demás.
+// Helpers shared by the tests of several auth features. They live here, and not in the test of
+// one feature, so that removing a feature with its tests (see "Quitar funciones" in
+// docs/auth.md) does not break the tests of the others.
 
 type apiError struct {
 	Error struct {
@@ -61,11 +61,11 @@ func do(t *testing.T, api http.Handler, method, path, body string, cookie *http.
 func decode[T any](t *testing.T, w *httptest.ResponseRecorder, wantStatus int) T {
 	t.Helper()
 	if w.Code != wantStatus {
-		t.Fatalf("status = %d, se esperaba %d; cuerpo: %s", w.Code, wantStatus, w.Body)
+		t.Fatalf("status = %d, want %d; body: %s", w.Code, wantStatus, w.Body)
 	}
 	var v T
 	if err := json.NewDecoder(w.Body).Decode(&v); err != nil {
-		t.Fatalf("respuesta no es JSON válido: %v", err)
+		t.Fatalf("the response is not valid JSON: %v", err)
 	}
 	return v
 }
@@ -77,21 +77,21 @@ func sessionCookie(t *testing.T, w *httptest.ResponseRecorder) *http.Cookie {
 			return c
 		}
 	}
-	t.Fatal("la respuesta no tiene cookie de sesión")
+	t.Fatal("the response has no session cookie")
 	return nil
 }
 
-// newSession inicia otra sesión para el mismo usuario, como si entrara desde otro dispositivo.
+// newSession starts another session for the same user, as if they signed in from another device.
 func newSession(t *testing.T, pool *pgxpool.Pool, userID int64) *http.Cookie {
 	t.Helper()
 	w := httptest.NewRecorder()
 	if err := auth.NewService(pool, auth.Options{}).StartSession(w, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/auth/login", nil), userID); err != nil {
-		t.Fatalf("iniciar sesión: %v", err)
+		t.Fatalf("start the session: %v", err)
 	}
 	return sessionCookie(t, w)
 }
 
-// countRows cuenta las filas del usuario en la tabla (en users, la del propio usuario).
+// countRows counts the user's rows in the table (in users, the user's own row).
 func countRows(t *testing.T, pool *pgxpool.Pool, table string, userID int64) int {
 	t.Helper()
 	column := "user_id"
@@ -115,7 +115,7 @@ func requireVerification(c *config.Config) { c.RequireEmailVerification = true }
 
 const loginBody = `{"email":"alice@example.com","password":"test-password"}`
 
-// ips entrega una IP nueva en cada llamada.
+// ips hands out a new IP on each call.
 type ips struct{ n int }
 
 func (p *ips) next() string {
@@ -123,8 +123,8 @@ func (p *ips) next() string {
 	return fmt.Sprintf("198.51.100.%d", p.n)
 }
 
-// failSessionDeletes hace que la base rechace borrar sesiones, para simular una falla a mitad
-// de una operación. Se deshace al terminar el test.
+// failSessionDeletes makes the database refuse to delete sessions, to simulate a failure in the
+// middle of an operation. It is undone when the test ends.
 func failSessionDeletes(t *testing.T, exec func(sql string) error) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -133,7 +133,7 @@ func failSessionDeletes(t *testing.T, exec func(sql string) error) {
 	})
 	for _, sql := range []string{
 		`CREATE FUNCTION test_fail_session_delete() RETURNS trigger LANGUAGE plpgsql
-		 AS $$ BEGIN RAISE EXCEPTION 'falla de prueba'; END $$`,
+		 AS $$ BEGIN RAISE EXCEPTION 'test failure'; END $$`,
 		`CREATE TRIGGER test_fail_session_delete BEFORE DELETE ON sessions
 		 FOR EACH ROW EXECUTE FUNCTION test_fail_session_delete()`,
 	} {

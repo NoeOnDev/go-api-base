@@ -7,23 +7,23 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 )
 
-// Los correos de la cola cifrados con una clave anterior impiden quitarla; los de la clave
-// actual no cuentan.
+// The queued emails encrypted with a previous key prevent removing it; those of the current key
+// do not count.
 func TestKeyReportAddQueuedEmails(t *testing.T) {
-	report := auth.KeyReport{CurrentKeyID: "actual", RemovableKeys: []string{"vieja-1", "vieja-2"}}
+	report := auth.KeyReport{CurrentKeyID: "actual", RemovableKeys: []string{"old-1", "old-2"}}
 	if !report.Done() {
-		t.Fatal("sin nada pendiente, el reporte debería estar listo")
+		t.Fatal("with nothing pending, the report should be done")
 	}
 
-	report.AddQueuedEmails(map[string]int64{"actual": 4, "vieja-2": 3, "vieja-3": 0})
+	report.AddQueuedEmails(map[string]int64{"actual": 4, "old-2": 3, "old-3": 0})
 
-	if want := []auth.KeyCount{{KeyID: "vieja-2", Count: 3}}; !slices.Equal(report.QueuedEmails, want) {
-		t.Errorf("QueuedEmails = %+v, se esperaba %+v", report.QueuedEmails, want)
+	if want := []auth.KeyCount{{KeyID: "old-2", Count: 3}}; !slices.Equal(report.QueuedEmails, want) {
+		t.Errorf("QueuedEmails = %+v, want %+v", report.QueuedEmails, want)
 	}
-	if want := []string{"vieja-1"}; !slices.Equal(report.RemovableKeys, want) {
-		t.Errorf("RemovableKeys = %v, se esperaba %v", report.RemovableKeys, want)
+	if want := []string{"old-1"}; !slices.Equal(report.RemovableKeys, want) {
+		t.Errorf("RemovableKeys = %v, want %v", report.RemovableKeys, want)
 	}
 	if report.Done() {
-		t.Error("con correos en la cola, la rotación no debería darse por terminada")
+		t.Error("with emails in the queue, the rotation should not be done")
 	}
 }

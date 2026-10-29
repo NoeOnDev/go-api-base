@@ -17,10 +17,10 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/totp"
 )
 
-// Clave A: la de los tests (testutil.EncryptionKey). Clave B: la nueva, después de rotar.
+// Key A: the tests' one (testutil.EncryptionKey). Key B: the new one, after rotating.
 var keyB = bytes.Repeat([]byte{2}, 32)
 
-// serviceWithKeys crea el servicio de auth con un llavero, como lo hace el comando rotate-keys.
+// serviceWithKeys creates the auth service with a key ring, as the rotate-keys command does.
 func serviceWithKeys(t *testing.T, pool *pgxpool.Pool, current []byte, previous ...[]byte) (*auth.Service, *secretbox.Box) {
 	t.Helper()
 	box, err := secretbox.New(current, previous...)
@@ -30,7 +30,7 @@ func serviceWithKeys(t *testing.T, pool *pgxpool.Pool, current []byte, previous 
 	return auth.NewService(pool, auth.Options{Box: box}), box
 }
 
-// rotatedAPI es la API después de rotar: B es la actual y A sigue como anterior.
+// rotatedAPI is the API after rotating: B is the current key and A stays as a previous one.
 func rotatedAPI(pool *pgxpool.Pool) http.Handler {
 	return testutil.NewAPI(pool, testutil.WithConfig(func(c *config.Config) {
 		c.EncryptionKey = keyB
@@ -38,7 +38,7 @@ func rotatedAPI(pool *pgxpool.Pool) http.Handler {
 	}))
 }
 
-// onlyNewKeyAPI es la API si se quitó la clave A antes de terminar la rotación.
+// onlyNewKeyAPI is the API if key A was removed before the rotation finished.
 func onlyNewKeyAPI(pool *pgxpool.Pool) http.Handler {
 	return testutil.NewAPI(pool, testutil.WithConfig(func(c *config.Config) {
 		c.EncryptionKey = keyB
@@ -64,53 +64,53 @@ func loginAs(t *testing.T, api http.Handler, email string) *http.Cookie {
 			return c
 		}
 	}
-	t.Fatal("falta la cookie del desafío")
+	t.Fatal("missing the challenge cookie")
 	return nil
 }
 
 func TestTwoFactorAfterKeyRotation(t *testing.T) {
 	pool := testutil.NewDB(t)
 	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
-	tf := testutil.EnableTwoFactor(t, testutil.NewAPI(pool), session, testutil.Password) // con la clave A
+	tf := testutil.EnableTwoFactor(t, testutil.NewAPI(pool), session, testutil.Password) // with key A
 
 	boxB, _ := secretbox.New(keyB)
 	before := storedSecret(t, pool, "alice@example.com")
 	if strings.HasPrefix(before, boxB.KeyID()+":") {
-		t.Fatal("el secreto debería estar cifrado con la clave A")
+		t.Fatal("the secret should be encrypted with key A")
 	}
 
 	api := rotatedAPI(pool)
 
-	// El login con código funciona con la clave anterior…
+	// The login with a code works with the previous key…
 	if w := challenge(t, api, loginAs(t, api, "alice@example.com"), codeBody(tf.Code(t))); w.Code != http.StatusOK {
-		t.Fatalf("login con la clave anterior: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("login with the previous key: status = %d; body: %s", w.Code, w.Body)
 	}
-	// …y de paso el secreto quedó cifrado con la clave nueva.
+	// …and along the way the secret got encrypted with the new key.
 	if after := storedSecret(t, pool, "alice@example.com"); !strings.HasPrefix(after, boxB.KeyID()+":") {
-		t.Errorf("el secreto no se volvió a cifrar con la clave nueva: %s", after)
+		t.Errorf("the secret was not encrypted again with the new key: %s", after)
 	}
 
-	// Un código de recuperación generado con la clave A sigue sirviendo.
+	// A recovery code generated with key A still works.
 	body := fmt.Sprintf(`{"recovery_code":%q}`, tf.RecoveryCodes[0])
 	if w := challenge(t, api, loginAs(t, api, "alice@example.com"), body); w.Code != http.StatusOK {
-		t.Errorf("código de recuperación de la clave anterior: status = %d", w.Code)
+		t.Errorf("recovery code of the previous key: status = %d", w.Code)
 	}
 }
 
 func TestTwoFactorWithMissingKey(t *testing.T) {
 	pool := testutil.NewDB(t)
 	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
-	tf := testutil.EnableTwoFactor(t, testutil.NewAPI(pool), session, testutil.Password) // con la clave A
+	tf := testutil.EnableTwoFactor(t, testutil.NewAPI(pool), session, testutil.Password) // with key A
 
-	// Se quitó la clave A sin rotar: el usuario recibe un error claro, no un 500.
+	// Key A was removed without rotating: the user gets a clear error, not a 500.
 	api := onlyNewKeyAPI(pool)
 	resp := testutil.Decode[testutil.APIError](t,
 		challenge(t, api, loginAs(t, api, "alice@example.com"), codeBody(tf.Code(t))), http.StatusServiceUnavailable)
-	if resp.Error.Code != "two_factor_unavailable" || strings.Contains(resp.Error.Message, "clave") {
-		t.Errorf("error inesperado (no debe exponer detalles internos): %+v", resp.Error)
+	if resp.Error.Code != "two_factor_unavailable" || strings.Contains(resp.Error.Message, "key") {
+		t.Errorf("unexpected error (it must not expose internal details): %+v", resp.Error)
 	}
 
-	// Los códigos de recuperación de la clave A tampoco sirven sin ella.
+	// The recovery codes of key A do not work without it either.
 	body := fmt.Sprintf(`{"recovery_code":%q}`, tf.RecoveryCodes[0])
 	testutil.Decode[testutil.APIError](t, challenge(t, api, loginAs(t, api, "alice@example.com"), body), http.StatusUnprocessableEntity)
 }
@@ -123,8 +123,8 @@ func TestTwoFactorDataIsBoundToUser(t *testing.T) {
 	tfAlice := testutil.EnableTwoFactor(t, setup, alice, testutil.Password)
 	testutil.EnableTwoFactor(t, setup, bobSession, testutil.Password)
 
-	// Alguien con acceso de escritura a la base copia el secreto de Alice a Bob
-	// y le pasa los códigos de recuperación de Alice.
+	// Someone with write access to the database copies Alice's secret to Bob and hands him Alice's
+	// recovery codes.
 	for _, q := range []string{
 		"UPDATE users SET totp_secret = (SELECT totp_secret FROM users WHERE email = 'alice@example.com') WHERE email = 'bob@example.com'",
 		"DELETE FROM user_recovery_codes WHERE user_id = $1",
@@ -139,26 +139,26 @@ func TestTwoFactorDataIsBoundToUser(t *testing.T) {
 		}
 	}
 
-	// Con la app de Alice no puede entrar como Bob: el secreto no se descifra fuera de su usuario.
+	// With Alice's app they cannot sign in as Bob: the secret does not decrypt outside its user.
 	api := testutil.NewAPI(pool)
 	resp := testutil.Decode[testutil.APIError](t,
 		challenge(t, api, loginAs(t, api, "bob@example.com"), codeBody(tfAlice.Code(t))), http.StatusServiceUnavailable)
 	if resp.Error.Code != "two_factor_unavailable" {
-		t.Errorf("error inesperado: %+v", resp.Error)
+		t.Errorf("unexpected error: %+v", resp.Error)
 	}
 
-	// Los códigos de recuperación de Alice tampoco le sirven a Bob.
+	// Alice's recovery codes do not work for Bob either.
 	body := fmt.Sprintf(`{"recovery_code":%q}`, tfAlice.RecoveryCodes[0])
 	testutil.Decode[testutil.APIError](t, challenge(t, api, loginAs(t, api, "bob@example.com"), body), http.StatusUnprocessableEntity)
 }
 
-// Un secreto pendiente cifrado con una clave anterior se activa igual. Enable no lo vuelve a
-// cifrar (lo hacen el login y rotate-keys): si lo hiciera, el secreto ya no coincidiría con el
-// que se verificó y EnableTOTP no lo activaría.
+// A pending secret encrypted with a previous key is enabled anyway. Enable does not encrypt it
+// again (the login and rotate-keys do): if it did, the secret would no longer match the one that
+// was verified and EnableTOTP would not enable it.
 func TestEnableTwoFactorAfterKeyRotation(t *testing.T) {
 	pool := testutil.NewDB(t)
 	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
-	setup := testutil.Decode[setupResponse](t, testutil.Do(t, testutil.NewAPI(pool), session, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK) // con la clave A
+	setup := testutil.Decode[setupResponse](t, testutil.Do(t, testutil.NewAPI(pool), session, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK) // with key A
 
 	api := rotatedAPI(pool)
 	code, err := totp.Code(setup.Secret, time.Now())
@@ -166,25 +166,25 @@ func TestEnableTwoFactorAfterKeyRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if w := testutil.Do(t, api, session, http.MethodPost, "/auth/two-factor/enable", enableBody(code, testutil.Password)); w.Code != http.StatusOK {
-		t.Fatalf("activar con un secreto de la clave anterior: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("enable with a secret of the previous key: status = %d; body: %s", w.Code, w.Body)
 	}
 
-	// El login con código funciona, y ahí el secreto pasa a la clave nueva.
+	// The login with a code works, and then the secret moves to the new key.
 	tf := testutil.TwoFactor{Secret: setup.Secret}
 	if w := challenge(t, api, loginAs(t, api, "alice@example.com"), codeBody(tf.Code(t))); w.Code != http.StatusOK {
-		t.Fatalf("login después de activar: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Fatalf("login after enabling: status = %d; body: %s", w.Code, w.Body)
 	}
 	boxB, _ := secretbox.New(keyB)
 	if after := storedSecret(t, pool, "alice@example.com"); !strings.HasPrefix(after, boxB.KeyID()+":") {
-		t.Errorf("el secreto no se volvió a cifrar con la clave nueva en el login: %s", after)
+		t.Errorf("the secret was not encrypted again with the new key on login: %s", after)
 	}
 }
 
 func TestRotateKeys(t *testing.T) {
 	pool := testutil.NewDB(t)
-	apiA := testutil.NewAPI(pool) // clave A
+	apiA := testutil.NewAPI(pool) // key A
 
-	// Dos usuarios con 2FA activo y uno con el 2FA a medio configurar, todos con la clave A.
+	// Two users with two-factor authentication on and one halfway through setting it up, all with key A.
 	_, alice := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	_, bob := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
 	_, carol := testutil.Login(t, pool, "carol@example.com", auth.RoleUser)
@@ -192,7 +192,7 @@ func TestRotateKeys(t *testing.T) {
 	testutil.EnableTwoFactor(t, apiA, bob, testutil.Password)
 	testutil.Decode[setupResponse](t, testutil.Do(t, apiA, carol, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
 
-	// Rotación: B es la actual y A queda como anterior.
+	// Rotation: B is the current key and A stays as a previous one.
 	service, boxB := serviceWithKeys(t, pool, keyB, testutil.EncryptionKey)
 	boxA, _ := secretbox.New(testutil.EncryptionKey)
 
@@ -201,23 +201,23 @@ func TestRotateKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	if report.CurrentKeyID != boxB.KeyID() || report.Reencrypted != 3 || report.AlreadyCurrent != 0 {
-		t.Errorf("reporte inesperado: %+v", report)
+		t.Errorf("unexpected report: %+v", report)
 	}
-	// Los códigos de recuperación de A no se pueden recalcular: el reporte lo avisa.
+	// The recovery codes of A cannot be computed again: the report says so.
 	if len(report.OldRecoveryCodes) != 1 || report.OldRecoveryCodes[0] != (auth.KeyUsage{KeyID: boxA.KeyID(), Users: 2}) {
-		t.Errorf("códigos viejos inesperados: %+v", report.OldRecoveryCodes)
+		t.Errorf("unexpected old codes: %+v", report.OldRecoveryCodes)
 	}
 	if report.Done() || len(report.RemovableKeys) != 0 {
-		t.Errorf("la clave A todavía se usa y no debería poder quitarse: %+v", report)
+		t.Errorf("key A is still in use and should not be removable: %+v", report)
 	}
 
-	// Una segunda pasada no vuelve a cifrar nada.
+	// A second pass encrypts nothing again.
 	again, err := service.RotateKeys(t.Context())
 	if err != nil || again.Reencrypted != 0 || again.AlreadyCurrent != 3 {
 		t.Errorf("segunda pasada inesperada: %+v (%v)", again, err)
 	}
 
-	// Cuando los dos usuarios regeneran sus códigos con la clave nueva, la rotación termina.
+	// When both users regenerate their codes with the new key, the rotation finishes.
 	apiB := testutil.NewAPI(pool, testutil.WithConfig(func(c *config.Config) {
 		c.EncryptionKey = keyB
 		c.EncryptionPreviousKeys = [][]byte{testutil.EncryptionKey}
@@ -232,14 +232,14 @@ func TestRotateKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !done.Done() || len(done.RemovableKeys) != 1 || done.RemovableKeys[0] != boxA.KeyID() {
-		t.Errorf("la rotación debería estar completa y la clave A se puede quitar: %+v", done)
+		t.Errorf("the rotation should be complete and key A removable: %+v", done)
 	}
 }
 
 func TestRotateKeysReportsUndecryptable(t *testing.T) {
 	pool := testutil.NewDB(t)
 
-	// Un usuario con el secreto cifrado con una clave C que no está en el llavero.
+	// A user with the secret encrypted with a key C that is not in the key ring.
 	keyC := bytes.Repeat([]byte{3}, 32)
 	apiC := testutil.NewAPI(pool, testutil.WithConfig(func(c *config.Config) { c.EncryptionKey = keyC }))
 	user, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
@@ -253,9 +253,9 @@ func TestRotateKeysReportsUndecryptable(t *testing.T) {
 
 	boxC, _ := secretbox.New(keyC)
 	if len(report.Undecryptable) != 1 || report.Undecryptable[0].UserID != user.ID || report.Undecryptable[0].KeyID != boxC.KeyID() {
-		t.Errorf("se esperaba un secreto sin descifrar del usuario %d: %+v", user.ID, report.Undecryptable)
+		t.Errorf("want an undecrypted secret of user %d: %+v", user.ID, report.Undecryptable)
 	}
 	if report.Done() {
-		t.Error("la rotación no debería darse por terminada")
+		t.Error("the rotation should not be done")
 	}
 }

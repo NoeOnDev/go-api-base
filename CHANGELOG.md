@@ -11,6 +11,46 @@ La plantilla edita sus migraciones originales, porque representan el esquema ini
 desplegado, no edites las suyas: las versiones con cambios de esquema traen, en **Actualizar un proyecto existente**,
 el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
+## [Sin publicar]
+
+La API funciona con varias instancias. Cambia el esquema: ver **Actualizar un proyecto existente**.
+
+### Agregado
+
+- **Varias instancias de la API.** Lo que tenía que valer para todas y vivía en memoria pasa por PostgreSQL (ver "Varias instancias" en `docs/decisions.md`):
+  - **`internal/ratelimit`:** límites de intentos guardados en la tabla `rate_limits`, con el algoritmo GCRA (una fecha por clave y una sola sentencia atómica por intento). Los usan el login (por cuenta), el 2FA (por usuario), los correos (por destinatario) y las acciones de la cuenta. Ahora valen para todas las instancias y no se reinician al desplegar. Los límites por IP siguen en memoria.
+  - **El broker del tiempo real reparte los eventos entre las instancias** con `LISTEN/NOTIFY` (`Broker.Listen`, que llama `main.go`), y también los cierres de sesión: un logout en una instancia corta en el acto los streams de esa sesión en las demás. Un mensaje de más de 8000 bytes se guarda en la tabla `realtime_messages`, y viaja su id. Si se corta la conexión de `LISTEN`, se reconecta y corta los streams abiertos, para que el navegador pida el estado.
+- La limpieza de cada hora también borra las claves de los límites que ya se recargaron y los mensajes viejos de `realtime_messages`.
+
+### Cambiado
+
+- `auth.Limits.Account` es un `*ratelimit.Limiter` (`ratelimit.New(queries, "account", 12*time.Second, 5)`) en lugar de un `*httpx.RateLimiter`.
+- **Hace falta una conexión directa a PostgreSQL**, o PgBouncer en modo `session`: `LISTEN` no funciona con PgBouncer en modo `transaction`.
+- `sqlc.yaml` genera `interval` como `time.Duration`.
+
+### Corregido
+
+- `docs/auth.md` decía que las sesiones y los tokens vencidos se borran al crear nuevos. Desde v0.4.0 los borra el trabajo de cada hora.
+
+### Actualizar un proyecto existente
+
+Copiá `internal/ratelimit`, `internal/realtime/instances.go` y las consultas `rate_limits.sql` y `realtime.sql`, sumá el override de `interval` a `sqlc.yaml` y corré `make sqlc`. El esquema necesita dos migraciones nuevas (`make migrate-new name=create_rate_limits` y `name=create_realtime_messages`), cada una con su `DROP TABLE` en `-- +goose Down`:
+
+```sql
+CREATE TABLE rate_limits (
+    key bytea       PRIMARY KEY,
+    tat timestamptz NOT NULL
+);
+```
+
+```sql
+CREATE TABLE realtime_messages (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    payload    text        NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+```
+
 ## [v0.5.5] - 2026-10-25
 
 Mejoras de una tercera revisión y documentación sin instrucciones de despliegue. Cambia el esquema: ver **Actualizar un proyecto existente**.

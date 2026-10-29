@@ -9,7 +9,7 @@ Es completa, pero con pocas dependencias: prioriza la librería estándar y suma
 - **la cola de trabajos River**, también sobre PostgreSQL
 - paquetes oficiales del equipo de Go para las contraseñas y el límite de peticiones
 
-Corre como un solo binario, con PostgreSQL como único servicio (sin Redis ni colas aparte), y está pensada para **una instancia**. Con varias, los límites de intentos y el tiempo real tienen que pasar a la base o a otro servicio (ver [docs/decisions.md](docs/decisions.md)).
+Corre como un solo binario, con PostgreSQL como único servicio (sin Redis ni colas aparte). Funciona igual con **una instancia o con varias** detrás de un balanceador: las sesiones, los límites por cuenta, la cola y el tiempo real se coordinan a través de PostgreSQL (ver [docs/decisions.md](docs/decisions.md#varias-instancias)).
 
 Incluye:
 
@@ -178,6 +178,7 @@ Lo que hay que revisar en la configuración, sea cual sea el servidor. Si `COOKI
 - **`MAIL_DRIVER=smtp`** con un proveedor real, y **`FRONTEND_URL`** con el dominio del frontend (los enlaces de los correos apuntan ahí). Con el frontend en otro dominio, también `CORS_ALLOWED_ORIGINS`.
 - **`ENCRYPTION_KEY` guardada como secreto y respaldada aparte de la base:** si se pierde, los usuarios tienen que volver a configurar el 2FA (ver [docs/encryption.md](docs/encryption.md)).
 - **`GOMEMLIMIT`** cerca del 70 % de la RAM del servidor.
+- **Conexión directa a PostgreSQL**, o PgBouncer en modo `session`. El tiempo real y River escuchan con `LISTEN`, que no funciona con PgBouncer en modo `transaction`.
 
 ## Comandos
 
@@ -200,9 +201,10 @@ Ejecutá `make` para ver la lista completa. Los principales:
 ```
 cmd/api/             arranque de la aplicación y comando create-admin
 internal/config/     variables de entorno
-internal/httpx/      JSON, errores, paginación, middlewares, CORS y límite de peticiones
+internal/httpx/      JSON, errores, paginación, middlewares, CORS y límite de peticiones por IP
 internal/server/     servidor, rutas y protección CSRF
 internal/auth/       usuarios, sesiones, roles, perfil, recuperación y verificación (y sus plantillas de correo)
+internal/ratelimit/  límites de intentos por cuenta o usuario, en PostgreSQL
 internal/mail/       envío de correos (log y SMTP)
 internal/jobs/       trabajos en segundo plano (River): workers, periódicos y la cola de correos
 internal/realtime/   tiempo real con SSE: streams, canales y temas

@@ -44,7 +44,7 @@ var (
 //     (10 por hora), sin importar desde cuántas IPs lleguen. Con 3 códigos válidos en un millón,
 //     son unas 240 pruebas por día: cerca de un 0,07 % de acertar.
 //
-// El límite por usuario está en memoria: alcanza para una sola instancia, como el límite por IP.
+// El límite por usuario está en la base (internal/ratelimit): vale para todas las instancias.
 const (
 	maxChallengeAttempts = 5
 	twoFactorLimitEvery  = 6 * time.Minute
@@ -53,7 +53,7 @@ const (
 
 // twoFactorLimitKey es la clave del usuario en el límite de intentos del 2FA.
 func twoFactorLimitKey(userID int64) string {
-	return "two_factor:" + strconv.FormatInt(userID, 10)
+	return strconv.FormatInt(userID, 10)
 }
 
 type challengeInput struct {
@@ -92,9 +92,13 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 		return fmt.Errorf("buscar desafío del 2FA: %w", err)
 	}
 
-	if !s.twoFactorLimiter.Allow(twoFactorLimitKey(userID)) {
+	allowed, err := s.twoFactorLimiter.Allow(r.Context(), twoFactorLimitKey(userID))
+	if err != nil {
+		return err
+	}
+	if !allowed {
 		httpx.LoggerFrom(r.Context()).Warn("límite de intentos del 2FA del usuario superado", "user_id", userID)
-		w.Header().Set("Retry-After", strconv.Itoa(int(twoFactorLimitEvery.Seconds())))
+		w.Header().Set("Retry-After", s.twoFactorLimiter.RetryAfter())
 		return httpx.TooManyRequests()
 	}
 
@@ -165,11 +169,16 @@ func (s *Service) lockChallenge(w http.ResponseWriter, r *http.Request, u store.
 // Si no se puede enviar, solo se registra: la respuesta al cliente no cambia.
 func (s *Service) sendTwoFactorLockedEmail(ctx context.Context, u store.User, ip string) {
 	log := httpx.LoggerFrom(ctx)
-	if !s.allowEmail("two_factor_locked", u.ID) {
+	allowed, err := s.allowEmail(ctx, "two_factor_locked", u.ID)
+	if err != nil {
+		log.Error("no se pudo enviar el aviso de 2FA bloqueado", "user_id", u.ID, "error", err)
+		return
+	}
+	if !allowed {
 		log.Warn("aviso de 2FA bloqueado no enviado: límite de correos del usuario", "user_id", u.ID)
 		return
 	}
-	err := s.sendEmail(ctx, u.Email, "Intento de inicio de sesión bloqueado", "two_factor_locked.txt", emailData{
+	err = s.sendEmail(ctx, u.Email, "Intento de inicio de sesión bloqueado", "two_factor_locked.txt", emailData{
 		Name: u.Name,
 		Link: s.opts.FrontendURL,
 		When: time.Now().UTC().Format("02/01/2006 15:04") + " (UTC)",

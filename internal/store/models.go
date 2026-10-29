@@ -100,6 +100,17 @@ type Product struct {
 	UpdatedAt   time.Time
 }
 
+type RateLimit struct {
+	Key []byte
+	Tat time.Time
+}
+
+type RealtimeMessage struct {
+	ID        int64
+	Payload   string
+	CreatedAt time.Time
+}
+
 type RiverJob struct {
 	ID           int64
 	State        RiverJobState

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
@@ -55,8 +54,12 @@ func (s *Service) resendVerification(w http.ResponseWriter, r *http.Request) err
 		httpx.Write(w, http.StatusNoContent, nil)
 		return nil
 	}
-	if !s.allowEmail(purposeEmailVerification, u.ID) {
-		w.Header().Set("Retry-After", strconv.Itoa(int(emailLimitEvery.Seconds())))
+	allowed, err := s.allowEmail(r.Context(), purposeEmailVerification, u.ID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		w.Header().Set("Retry-After", s.emailLimiter.RetryAfter())
 		return &httpx.Error{
 			Status:  http.StatusTooManyRequests,
 			Code:    "too_many_requests",

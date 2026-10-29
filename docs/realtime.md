@@ -210,7 +210,7 @@ Librerías como `@microsoft/fetch-event-source` o el SDK de IA que uses hacen es
 | Conexiones en total | 1000 | `429 too_many_connections` |
 | Temas por conexión | 20 | `400` |
 
-Cada conexión abierta ocupa unos **11 KB** de memoria (medido con 500 conexiones). Los valores están en `internal/realtime/broker.go`.
+Cada conexión abierta ocupa unos **11 KB** de memoria (medido con 500 conexiones). Los valores están en `internal/realtime/broker.go`, y son por instancia de la API.
 
 ## Detrás de un proxy
 
@@ -218,9 +218,16 @@ Cada conexión abierta ocupa unos **11 KB** de memoria (medido con 500 conexione
 - **Latido:** cada 25 segundos, por debajo de los 60 que suelen esperar los proxies antes de cortar una conexión sin tráfico.
 - **HTTP/2:** con HTTP/1.1, el navegador abre como mucho 6 conexiones por dominio, y cada pestaña con `EventSource` ocupa una. Con HTTP/2, lo habitual con HTTPS, no hay ese límite.
 
-## Una sola instancia
+## Varias instancias
 
-El broker vive en memoria: un evento publicado en una instancia solo llega a las conexiones de esa instancia. Con una sola instancia es lo correcto. Si algún día hay varias, se reparten los eventos con `LISTEN/NOTIFY` de PostgreSQL: `Publish` hace un `NOTIFY` y cada instancia escucha con `LISTEN` y reenvía a sus conexiones. La firma de `Publish` ya recibe `ctx` para poder cambiarlo sin tocar a quien publica.
+Cada instancia de la API tiene su broker, con sus conexiones. Con `Listen` (lo llama `cmd/api/main.go`), los brokers se avisan con `LISTEN/NOTIFY` de PostgreSQL. Así, un evento publicado en cualquier instancia llega a las conexiones de todas, y lo mismo los cierres de sesión (`SessionEnded`, `UserSessionsEnded`, `DisconnectUser`). Quien publica no tiene que hacer nada distinto. El código está en `internal/realtime/instances.go`.
+
+- **Cada instancia entrega lo suyo en el acto** y envía el mensaje por `NOTIFY`. Las demás lo reciben y lo entregan a sus conexiones; la que lo envió lo ignora.
+- **Eventos grandes:** un `NOTIFY` admite menos de 8000 bytes. Un mensaje más grande, como el evento de una nota larga, se guarda en la tabla `realtime_messages`, y por `NOTIFY` viaja solo su id. La limpieza de cada hora borra los viejos. No hace falta vigilar el tamaño, aunque un evento chico (ids y lo que cambió) sigue siendo lo mejor.
+- **Si se corta la conexión de `LISTEN`** (se reinicia PostgreSQL, falla la red), se reconecta sola. Al reconectarse corta los streams abiertos en esa instancia: mientras no escuchaba pudo perderse algún evento, y al reconectarse el navegador vuelve a pedir el estado.
+- **Usa una conexión propia**, aparte del pool, que aparece en `pg_stat_activity` como `realtime-listener`. Necesita una conexión directa a PostgreSQL, o PgBouncer en modo `session`.
+- **Los límites de conexiones son por instancia:** con 3 instancias, un usuario puede llegar a 30.
+- En los tests, el broker vive solo en memoria (sin `Listen`). `internal/realtime/instances_test.go` prueba dos instancias sobre la misma base.
 
 ## Por qué no WebSockets
 
@@ -230,9 +237,10 @@ SSE cubre todo lo de arriba: en esos casos el navegador envía poco (con REST no
 
 Si un proyecto no lo necesita:
 
-1. Borrá `internal/realtime` e `internal/notifications`, y la migración `00009_create_notifications.sql`.
+1. Borrá `internal/realtime` e `internal/notifications`, las migraciones `00009_create_notifications.sql` y `00011_create_realtime_messages.sql`, y las consultas `notifications.sql` y `realtime.sql` de `internal/db/queries`.
 2. En `internal/server/routes.go`, quitá el broker, el servicio de notificaciones, `GET /events` y `notifications.Register`. Pasale `nil` como `Notifier` a auth.
-3. En `internal/notes`, quitá el broker y las llamadas a `PublishToUser`. En `cmd/api/main.go`, quitá el broker y `RegisterOnShutdown`.
-4. `make sqlc` y `make check`.
+3. En `internal/notes`, quitá el broker y las llamadas a `PublishToUser`. En `cmd/api/main.go`, quitá el broker, `Listen` y `RegisterOnShutdown`.
+4. En `internal/jobs/cleanup.go`, quitá el borrado de las notificaciones y de los mensajes del tiempo real.
+5. `make sqlc` y `make check`.
 
-Para quitar solo las notificaciones, hacé los pasos 1 y 2 únicamente con `internal/notifications`.
+Para quitar solo las notificaciones, hacé los pasos 1, 2 y 4 únicamente con lo de las notificaciones.

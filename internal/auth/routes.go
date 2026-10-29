@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/ratelimit"
 )
 
 // Limits son los límites de peticiones de las rutas de auth, uno por grupo, así un grupo no
@@ -20,8 +21,9 @@ type Limits struct {
 	Emails httpx.Middleware
 	// Account: las acciones sensibles con sesión (cambiar la contraseña, el 2FA…). Se limita
 	// por usuario y no por IP: el ataque lo haría alguien con una sesión, y así los usuarios
-	// detrás de una misma IP (una oficina, datos móviles) no comparten el límite.
-	Account *httpx.RateLimiter
+	// detrás de una misma IP (una oficina, datos móviles) no comparten el límite. Está en la
+	// base, como los demás límites por usuario, para que valga en todas las instancias.
+	Account *ratelimit.Limiter
 }
 
 // Register agrega las rutas de autenticación al mux.
@@ -35,8 +37,8 @@ func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	handle := func(pattern string, h http.Handler) { mux.Handle(pattern, httpx.NoStore(h)) }
 
 	// account limita por usuario: va dentro de RequireUser o requireSession, que ponen el usuario.
-	account := limits.Account.MiddlewareBy(func(r *http.Request) string {
-		return "account:" + strconv.FormatInt(MustUser(r.Context()).ID, 10)
+	account := limits.Account.Middleware(func(r *http.Request) string {
+		return strconv.FormatInt(MustUser(r.Context()).ID, 10)
 	})
 
 	// Registro e inicio de sesión.

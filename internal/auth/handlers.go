@@ -2,7 +2,6 @@ package auth
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -23,7 +22,7 @@ const (
 
 // loginLimitKey es la clave de un email en el límite de intentos del login.
 func loginLimitKey(email string) string {
-	return "login:" + strings.ToLower(strings.TrimSpace(email))
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // register responde POST /auth/register: crea un usuario con rol user e inicia su sesión.
@@ -67,9 +66,13 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) error {
 	if err := in.validate(); err != nil {
 		return err
 	}
-	if !s.loginLimiter.Allow(loginLimitKey(in.Email)) {
+	allowed, err := s.loginLimiter.Allow(r.Context(), loginLimitKey(in.Email))
+	if err != nil {
+		return err
+	}
+	if !allowed {
 		httpx.LoggerFrom(r.Context()).Warn("límite de intentos de login de la cuenta superado")
-		w.Header().Set("Retry-After", strconv.Itoa(int(loginLimitEvery.Seconds())))
+		w.Header().Set("Retry-After", s.loginLimiter.RetryAfter())
 		return httpx.TooManyRequests()
 	}
 

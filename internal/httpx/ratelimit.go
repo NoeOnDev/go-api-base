@@ -14,8 +14,9 @@ import (
 // RateLimiter limita las peticiones por IP (o por bloque /64 en IPv6) con el algoritmo
 // token bucket: cada IP tiene "burst" intentos disponibles, que se recargan de a uno cada "every".
 //
-// Guarda el estado en memoria: alcanza para una sola instancia de la API, que es el caso
-// de un VPS. Con varias instancias detrás de un balanceador, cada una contaría por separado.
+// Guarda el estado en memoria: con varias instancias de la API, cada una cuenta por separado. Por
+// eso se usa para los límites por IP, que son una primera barrera gruesa y barata. Los que frenan
+// la fuerza bruta contra una cuenta están en PostgreSQL (internal/ratelimit) y valen para todas.
 type RateLimiter struct {
 	every time.Duration
 	burst int

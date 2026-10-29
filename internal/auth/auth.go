@@ -17,6 +17,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
+	"github.com/NoeOnDev/go-api-base/internal/ratelimit"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
@@ -127,16 +128,25 @@ func (s *Service) notify(ctx context.Context, userID int64, kind, message string
 	}
 }
 
+// resetLimit le devuelve a la clave todos sus intentos. Si falla, solo se registra: lo que el
+// límite protegía ya cambió, y la clave se recarga sola con el tiempo.
+func (s *Service) resetLimit(ctx context.Context, l *ratelimit.Limiter, key string) {
+	if err := l.Reset(ctx, key); err != nil {
+		httpx.LoggerFrom(ctx).Warn("no se pudo reiniciar un límite de intentos", "error", err)
+	}
+}
+
 // Service agrupa la lógica de autenticación y sus dependencias.
 type Service struct {
 	db   *pgxpool.Pool // para las transacciones (pgx.BeginFunc)
 	q    *store.Queries
 	opts Options
 
-	// Límites en memoria que no dependen de la IP (ver handlers.go, two_factor_login.go y emails.go).
-	loginLimiter     *httpx.RateLimiter
-	twoFactorLimiter *httpx.RateLimiter
-	emailLimiter     *httpx.RateLimiter
+	// Límites que no dependen de la IP (ver handlers.go, two_factor_login.go y emails.go). Están en
+	// la base, así valen para todas las instancias de la API.
+	loginLimiter     *ratelimit.Limiter
+	twoFactorLimiter *ratelimit.Limiter
+	emailLimiter     *ratelimit.Limiter
 }
 
 // NewService crea el servicio de autenticación. Recibe el pool, y no solo las consultas,
@@ -154,13 +164,14 @@ func NewService(pool *pgxpool.Pool, opts Options) *Service {
 	if opts.Issuer == "" {
 		opts.Issuer = "Mi App"
 	}
+	q := store.New(pool)
 	return &Service{
 		db:               pool,
-		q:                store.New(pool),
+		q:                q,
 		opts:             opts,
-		loginLimiter:     httpx.NewRateLimiter(loginLimitEvery, loginLimitBurst),
-		twoFactorLimiter: httpx.NewRateLimiter(twoFactorLimitEvery, twoFactorLimitBurst),
-		emailLimiter:     httpx.NewRateLimiter(emailLimitEvery, emailLimitBurst),
+		loginLimiter:     ratelimit.New(q, "login", loginLimitEvery, loginLimitBurst),
+		twoFactorLimiter: ratelimit.New(q, "two_factor", twoFactorLimitEvery, twoFactorLimitBurst),
+		emailLimiter:     ratelimit.New(q, "email", emailLimitEvery, emailLimitBurst),
 	}
 }
 

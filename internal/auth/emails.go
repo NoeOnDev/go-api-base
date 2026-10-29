@@ -41,8 +41,8 @@ const (
 
 // allowEmail indica si se le puede enviar otro correo de este tipo al usuario.
 // Cada tipo (recuperación, verificación, aviso) tiene su propio límite.
-func (s *Service) allowEmail(kind string, userID int64) bool {
-	return s.emailLimiter.Allow(kind + ":" + strconv.FormatInt(userID, 10))
+func (s *Service) allowEmail(ctx context.Context, kind string, userID int64) (bool, error) {
+	return s.emailLimiter.Allow(ctx, kind+":"+strconv.FormatInt(userID, 10))
 }
 
 // sendEmail arma el correo con la plantilla indicada y lo envía. Con jobs.MailSender el envío

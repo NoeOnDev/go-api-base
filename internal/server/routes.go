@@ -18,6 +18,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/notes"
 	"github.com/NoeOnDev/go-api-base/internal/notifications"
 	"github.com/NoeOnDev/go-api-base/internal/products"
+	"github.com/NoeOnDev/go-api-base/internal/ratelimit"
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/store"
@@ -80,6 +81,9 @@ func NewHandler(d Deps) http.Handler {
 	// Los de IP son generosos porque muchas personas pueden salir por la misma IP (una oficina,
 	// una universidad, los datos móviles). La fuerza bruta la frenan sobre todo los límites por
 	// cuenta (login), por desafío y usuario (2FA) y por destinatario (correos), que están en auth.
+	//
+	// Los de IP viven en memoria: son una primera barrera barata, y con varias instancias cada una
+	// cuenta por separado. Los de cuenta y usuario están en PostgreSQL (internal/ratelimit).
 	byIP := func(every time.Duration, burst int) httpx.Middleware {
 		return httpx.NewRateLimiter(every, burst).MiddlewareByIP(d.Config.TrustedProxies)
 	}
@@ -89,8 +93,9 @@ func NewHandler(d Deps) http.Handler {
 		TwoFactor: byIP(3*time.Second, 20),  // 20 seguidos, luego 1 cada 3 s
 		Tokens:    byIP(6*time.Second, 10),  // 10 seguidos, luego 1 cada 6 s
 		Emails:    byIP(time.Minute, 10),    // 10 seguidos, luego 1 por minuto
-		// Por usuario: 5 seguidos, luego 1 cada 12 s.
-		Account: httpx.NewRateLimiter(12*time.Second, 5),
+		// Por usuario: 5 seguidos, luego 1 cada 12 s. Está en la base, como los demás límites por
+		// usuario o por cuenta, así vale para todas las instancias de la API.
+		Account: ratelimit.New(queries, "account", 12*time.Second, 5),
 	})
 
 	// Tiempo real: un stream SSE con los eventos del usuario y de los temas que pida.

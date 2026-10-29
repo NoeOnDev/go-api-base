@@ -44,7 +44,11 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("buscar usuario: %w", err)
 	}
-	if !s.allowEmail(purposePasswordReset, u.ID) {
+	allowed, err := s.allowEmail(r.Context(), purposePasswordReset, u.ID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
 		httpx.LoggerFrom(r.Context()).Warn("recuperación no enviada: límite de correos del usuario", "user_id", u.ID)
 		httpx.Write(w, http.StatusAccepted, forgotMessage)
 		return nil
@@ -128,8 +132,8 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("buscar usuario %d: %w", userID, err)
 	}
-	s.loginLimiter.Reset(loginLimitKey(u.Email))
-	s.twoFactorLimiter.Reset(twoFactorLimitKey(userID))
+	s.resetLimit(r.Context(), s.loginLimiter, loginLimitKey(u.Email))
+	s.resetLimit(r.Context(), s.twoFactorLimiter, twoFactorLimitKey(userID))
 	s.notify(r.Context(), userID, NotifyPasswordChanged, "Se cambió la contraseña de tu cuenta con un enlace de recuperación.")
 
 	httpx.Write(w, http.StatusNoContent, nil)

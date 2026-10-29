@@ -45,6 +45,17 @@ func TestCleanupDeletesOnlyExpired(t *testing.T) {
 		}
 	}
 
+	// Límites de intentos: uno ya recargado (se borra) y otro que todavía no. Mensajes grandes del
+	// tiempo real: uno de hace una hora (se borra) y otro recién guardado.
+	if _, err := pool.Exec(t.Context(), `INSERT INTO rate_limits (key, tat)
+		VALUES ('recargado', now() - interval '1 minute'), ('en uso', now() + interval '1 minute')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(t.Context(), `INSERT INTO realtime_messages (payload, created_at)
+		VALUES ('{}', now() - interval '1 hour'), ('{}', now())`); err != nil {
+		t.Fatal(err)
+	}
+
 	driver := riverpgxv5.New(pool)
 	worker := rivertest.NewWorker(t, driver, &river.Config{}, &cleanupWorker{q: q, logger: slog.New(slog.DiscardHandler)})
 	tx, err := pool.Begin(t.Context())
@@ -71,6 +82,12 @@ func TestCleanupDeletesOnlyExpired(t *testing.T) {
 	}
 	if n := count("notifications"); n != 2 {
 		t.Errorf("quedaron %d notificaciones, se esperaban la leída reciente y la no leída", n)
+	}
+	if n := count("rate_limits"); n != 1 {
+		t.Errorf("quedaron %d límites, se esperaba solo el que no se recargó", n)
+	}
+	if n := count("realtime_messages"); n != 1 {
+		t.Errorf("quedaron %d mensajes del tiempo real, se esperaba solo el reciente", n)
 	}
 }
 

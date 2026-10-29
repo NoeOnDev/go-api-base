@@ -243,15 +243,15 @@ En las rutas, `RequireAdmin` responde `401` si no hay sesión y `403` si el usua
 
   Los de IP son generosos porque muchas personas pueden compartir una IP (una oficina, una universidad, los datos móviles). Las IPv6 se cuentan por bloque `/64`. Los de cuenta van por usuario, así los usuarios detrás de una misma IP no se cruzan.
 - **Límites por usuario**, aunque los pedidos lleguen de muchas IPs:
-  - **Login:** 10 intentos seguidos por email y luego uno por minuto. Cuenta también los emails que no existen, para no revelar cuáles están registrados. Recuperar la contraseña lo reinicia, aunque contra un ataque que sigue en curso eso no alcanza (ver [decisiones](decisions.md#límite-de-peticiones-en-memoria)).
+  - **Login:** 10 intentos seguidos por email y luego uno por minuto. Cuenta también los emails que no existen, para no revelar cuáles están registrados. Recuperar la contraseña lo reinicia, aunque contra un ataque que sigue en curso eso no alcanza (ver [decisiones](decisions.md#límites-de-intentos)).
   - **Código del 2FA:** 10 intentos seguidos y luego uno cada 6 minutos.
   - **Correos a una misma persona:** 3 seguidos de cada tipo (recuperación, verificación, aviso) y luego uno cada 20 minutos. En `forgot`, al superarlo no se envía nada y la respuesta es la misma de siempre, para no revelar si el email existe; el último enlace enviado sigue sirviendo. `resend` responde `429`.
-- Los límites están en memoria: alcanzan para una instancia de la API, y se reinician con ella.
+- **Dónde se cuentan:** los de IP, en memoria, en cada instancia de la API. Los de usuario, cuenta y destinatario (los de esta lista y el grupo Cuenta) están en PostgreSQL (`internal/ratelimit`): valen para todas las instancias y no se reinician al desplegar.
 - **Como mucho un hash de argon2 por núcleo a la vez**, para que muchos logins simultáneos no agoten la memoria del servidor. Los demás esperan su turno.
 - **Encabezados:** `X-Content-Type-Options: nosniff` en todas las respuestas y `Cache-Control: no-store` en todas las de `/auth`.
 - **2FA** opcional para cada usuario (ver la sección [2FA](#2fa-verificación-en-dos-pasos)).
 - **Protección CSRF** (`http.CrossOriginProtection` de Go): rechaza con `403` los `POST`/`PUT`/`DELETE` que el navegador envía desde otro sitio. Las peticiones sin encabezados de navegador (`curl`, apps móviles) no se ven afectadas.
-- **Limpieza:** las sesiones y los tokens vencidos se borran al crear nuevos.
+- **Limpieza:** un trabajo de cada hora borra las sesiones y los tokens vencidos, y las claves de los límites que ya se recargaron (ver [trabajos](jobs.md)).
 
 ## Desde el frontend (React)
 

@@ -15,7 +15,7 @@ La plantilla trae mucho resuelto (autenticación con 2FA, rotación de claves, c
 - `river`: la cola de trabajos, sobre el mismo PostgreSQL (ver "Trabajos en segundo plano con River").
 - Tres paquetes del equipo de Go:
   - `golang.org/x/crypto`: argon2id;
-  - `golang.org/x/time`: límite de peticiones;
+  - `golang.org/x/time`: límite de peticiones por IP;
   - `golang.org/x/term`: leer la contraseña en `create-admin` sin mostrarla.
 
 ## pgx + sqlc en lugar de un ORM
@@ -138,17 +138,20 @@ Van guardados dentro de cada hash (formato PHC), así que se pueden subir más a
 
 Los orígenes de `CORS_ALLOWED_ORIGINS` se consideran confiables.
 
-## Límite de peticiones en memoria
+## Límites de intentos
 
-Un token bucket (`golang.org/x/time/rate`) con cuatro usos:
+Todos permiten unos intentos seguidos y después recargan uno cada cierto tiempo. Hay dos tipos, según dónde guardan la cuenta:
 
-- **Por IP**, en las rutas de auth sin sesión, uno por grupo (login, registro, 2FA, tokens, correos). Son generosos, porque detrás de una IP puede haber muchas personas (una oficina, CGNAT); sirven sobre todo contra quien prueba muchas cuentas desde una sola IP. Al principio había uno solo para todo, de 5 por minuto, y cortaba a usuarios legítimos.
-- **Por usuario**, en las acciones sensibles con sesión (cambiar la contraseña, el 2FA): ahí el ataque lo hace alguien con una sesión, y la IP no aporta nada.
+**Por IP, en memoria** (`httpx.RateLimiter`, un token bucket de `golang.org/x/time/rate`), en las rutas de auth sin sesión, uno por grupo (login, registro, 2FA, tokens, correos). Son generosos, porque detrás de una IP puede haber muchas personas (una oficina, CGNAT); sirven sobre todo contra quien prueba muchas cuentas desde una sola IP. Al principio había uno solo para todo, de 5 por minuto, y cortaba a usuarios legítimos. Están en memoria porque son una primera barrera barata: no le suman una escritura a la base por petición, que es lo que importa ante una ráfaga. Con varias instancias cada una cuenta por separado, y se acepta porque son una barrera gruesa. Una clave inactiva se olvida recién cuando su límite ya se habría recargado.
+
+**Por cuenta o por usuario, en PostgreSQL** (`internal/ratelimit`). Son los que frenan la fuerza bruta contra una cuenta, así que tienen que valer igual en todas las instancias y no reiniciarse con un despliegue:
+
+- **Por usuario, en las acciones sensibles con sesión** (cambiar la contraseña, el 2FA): ahí el ataque lo hace alguien con una sesión, y la IP no aporta nada.
 - **Por cuenta, en el login:** 10 intentos seguidos por email y luego uno por minuto, vengan de la IP que vengan. Cuenta también los emails que no existen, para no revelar cuáles están registrados.
 - **Por usuario, en el código del 2FA:** quien llega a ese paso ya tiene la contraseña y puede repartir sus intentos entre muchas IPs. Además, cada desafío admite 5 intentos (contados en la base, con un `UPDATE` atómico); después hay que volver a poner la contraseña, y se le avisa al usuario por correo.
 - **Por destinatario, en los correos:** desde muchas IPs tampoco se le pueden mandar decenas de correos a una persona. En "olvidé mi contraseña" el límite es silencioso, para no revelar qué emails existen, y no invalida el último enlace enviado.
 
-Al estar en memoria, alcanza para una instancia, y se reinicia con la API. Con varias instancias, los límites habría que moverlos a la base, a Redis o al proxy. Una clave inactiva se olvida recién cuando su límite ya se habría recargado.
+Usan el algoritmo GCRA, que da el mismo resultado que el token bucket guardando una sola fecha por clave: cuándo vuelve a tener todos sus intentos. Cada intento es un solo `INSERT … ON CONFLICT DO UPDATE … WHERE`, atómico, así dos instancias que gastan a la vez no se pisan (lo prueba `TestLimiterConcurrent`). La clave se guarda como SHA-256, porque puede ser un email, y la limpieza de cada hora borra las que ya se recargaron. Cuesta una escritura por intento, que no se nota al lado del argon2 del login. Redis lo haría igual de bien, pero sería un servicio más.
 
 El límite por cuenta tiene un costo: quien conozca un email puede bloquear ese login **mientras siga enviando intentos**, y le alcanza con uno por minuto. Recuperar la contraseña reinicia los límites del login y del 2FA, pero eso sirve cuando el ataque ya terminó: si continúa, el atacante vuelve a gastar los intentos. Se aceptó porque, sin el límite, un ataque repartido entre cientos de IPs prueba contraseñas sin freno, y porque el bloqueo dura solo lo que dura el ataque.
 
@@ -263,7 +266,27 @@ Decisiones:
 - **Un stream no sobrevive a su sesión:** se corta en el acto con el logout o cuando auth cierra las demás sesiones (contraseña, 2FA), se revisa la sesión con cada latido y dura como mucho 15 minutos. Sin esto, alguien con una sesión robada seguiría recibiendo eventos después de que el dueño recupera la contraseña.
 - **El stream quita el `WriteTimeout` solo para su petición**, y al apagar la API se cierran todos (`RegisterOnShutdown`); si no, el apagado esperaría hasta el timeout.
 - **Límites de 10 conexiones por usuario y 1000 en total**, porque cada una es un socket y una goroutine abiertos. Cada conexión ocupa unos 11 KB.
-- **El broker vive en memoria:** alcanza para una instancia. Con varias, se reparte con `LISTEN/NOTIFY` (ver `docs/realtime.md`).
+- **Varias instancias con `LISTEN/NOTIFY` de PostgreSQL**, sin Redis: cada broker entrega lo suyo en el acto y avisa a los demás. Un mensaje de más de 8000 bytes (el máximo de un `NOTIFY`) se guarda en `realtime_messages`, y viaja su id. Si se corta la conexión de `LISTEN`, al reconectarse corta los streams, porque pudo perder eventos (ver `docs/realtime.md`).
+
+## Varias instancias
+
+La API funciona igual con una instancia que con varias detrás de un balanceador, por ejemplo para desplegar sin cortar el servicio. Lo que tiene que valer para todas pasa por PostgreSQL, sin Redis:
+
+| Qué | Cómo se coordina |
+|---|---|
+| Sesiones | En la tabla `sessions`: cualquier instancia atiende cualquier petición, sin pegar un usuario a una instancia |
+| Límites por cuenta y por usuario | `internal/ratelimit`, en la tabla `rate_limits` |
+| Migraciones | Un advisory lock: migra una sola instancia |
+| Trabajos | River reparte la cola entre las instancias, y una sola (la líder) encola los periódicos |
+| Tiempo real | Los brokers se avisan con `LISTEN/NOTIFY` (ver `docs/realtime.md`) |
+
+Queda en cada instancia, a propósito:
+- **Los límites por IP:** son una barrera gruesa y barata. Con N instancias, el límite efectivo es N veces mayor.
+- **Los límites de conexiones SSE** (10 por usuario, 1000 en total) **y el tope de hashes de argon2** (uno por núcleo): protegen los recursos de cada proceso.
+
+`LISTEN` necesita una conexión directa a PostgreSQL, o PgBouncer en modo `session`. Con PgBouncer en modo `transaction` no llegan los avisos: ni los del tiempo real ni los que usa River (que en ese caso necesita `PollOnly`).
+
+Una regla para el código nuevo: **nada que tenga que valer para todas las instancias se guarda en memoria** (un contador, una caché, un "ya se hizo"). Va en PostgreSQL.
 
 ## Qué no incluye
 

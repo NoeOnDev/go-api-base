@@ -14,7 +14,8 @@ Instrucciones para agentes de código (Claude Code, Codex, Copilot) que trabajen
 > migración nueva.
 
 `go-api-base` es una plantilla de API REST en Go, completa y lista para producción, para proyectos personales, de
-clientes y de empresa. Corre como un solo binario con PostgreSQL, y está pensada para una instancia.
+clientes y de empresa. Corre como un solo binario con PostgreSQL, con una instancia o con varias (ver "Varias instancias"
+en `docs/decisions.md`).
 Prioriza la librería estándar y suma solo lo esencial: PostgreSQL (pgx), migraciones (goose), consultas tipadas (sqlc),
 la cola de trabajos (River) y paquetes del equipo de Go (`golang.org/x/crypto`, `x/time`, `x/term`).
 
@@ -52,13 +53,14 @@ con las versiones fijas al principio del `Makefile`; no hace falta instalarlas. 
 ```
 cmd/api/              arranque (main.go) y subcomando create-admin (admin.go)
 internal/config/      configuración desde variables de entorno
-internal/httpx/       JSON, errores, paginación, middlewares, CORS, límite de peticiones, IP del cliente
+internal/httpx/       JSON, errores, paginación, middlewares, CORS, límite de peticiones por IP, IP del cliente
 internal/server/      http.Server con timeouts, rutas, CSRF y orden de middlewares (routes.go)
 internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/RequireAdmin, perfil,
                       recuperación y verificación; plantillas de correo en emails/*.txt
+internal/ratelimit/   límites de intentos por cuenta o usuario, guardados en PostgreSQL (valen para todas las instancias)
 internal/mail/        envío de correos: LogSender, SMTPSender y Recorder (tests)
 internal/jobs/        trabajos en segundo plano con River: cliente, workers (workers.go), periódicos, MailSender
-internal/realtime/    tiempo real con SSE: Stream, Broker (canales y temas) y GET /events
+internal/realtime/    tiempo real con SSE: Stream, Broker (canales y temas), GET /events y LISTEN/NOTIFY entre instancias
 internal/notifications/ notificaciones guardadas y enviadas en vivo; auth las usa para los avisos de seguridad
 internal/totp/        códigos TOTP del 2FA (RFC 6238), solo librería estándar
 internal/secretbox/   llavero: cifrado AES-256-GCM y HMAC con la clave actual y las anteriores (rotación)
@@ -101,6 +103,13 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 - No tocar la protección CSRF ni CORS de `internal/server/routes.go` sin consultarlo.
 - `RequireUser` también exige el email verificado si `REQUIRE_EMAIL_VERIFICATION=true` (403 `email_not_verified`).
 
+**Límites de intentos y varias instancias** (ver "Límites de intentos" y "Varias instancias" en `docs/decisions.md`)
+- Por IP, en memoria: `httpx.NewRateLimiter(every, burst).MiddlewareByIP(proxies)`. Cada instancia cuenta por separado.
+- Por cuenta o por usuario, en PostgreSQL: `ratelimit.New(queries, "nombre", every, burst)`, con `Allow(ctx, clave)` o
+  `Middleware(clave)`. Vale para todas las instancias: lo que frena la fuerza bruta contra una cuenta va siempre acá.
+- Nada que tenga que valer para todas las instancias (un contador, una caché, un "ya se hizo") se guarda en memoria:
+  va en PostgreSQL.
+
 **Datos sensibles**
 - Todo dato secreto que haya que guardar y después leer (como el secreto del 2FA o un token de una API externa) se
   cifra con `secretbox.Box.Encrypt(dato, aad)`. `aad` ata el dato a su fila, por ejemplo `"users.totp_secret:<id>"`
@@ -131,6 +140,8 @@ docs/                 guías (recursos, autenticación) y decisiones de diseño
 **Tiempo real** (ver `docs/realtime.md`)
 - Publicar con `broker.PublishToUser` (datos del usuario) o `broker.Publish` en un tema (datos compartidos), **después**
   de guardar (y del `Commit`). Para una notificación que quede guardada, `notifications.Service.Notify`.
+- Lo publicado llega a las conexiones de todas las instancias (`LISTEN/NOTIFY`, en `internal/realtime/instances.go`), sin
+  que quien publica haga nada distinto. Un evento de más de 8 KB viaja por la tabla `realtime_messages`.
 - Cada tipo de tema nuevo necesita `broker.Authorize("tipo", …)` con el control de permiso; sin eso, se rechaza.
   Al quitarle a alguien el acceso, llamar a `broker.DisconnectUser` para que deje de escuchar en el acto.
 - Para transmitir una respuesta larga (un agente de IA), `realtime.Open` y `stream.Send`. Después de `Open` los errores

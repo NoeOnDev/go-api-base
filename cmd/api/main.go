@@ -106,7 +106,12 @@ func run() error {
 	// La app no envía los correos: los encola, y los envía un worker (con reintentos).
 	mailer := jobs.NewMailSender(jobsClient, box)
 
+	// Con LISTEN/NOTIFY, los eventos en tiempo real y los cierres de sesión llegan a todas las
+	// instancias de la API. Sigue escuchando hasta la señal de apagado.
 	broker := realtime.NewBroker()
+	if err := broker.Listen(ctx, pool, logger); err != nil {
+		return err
+	}
 
 	srv := server.New(cfg.HTTPAddr, server.NewHandler(server.Deps{
 		Logger: logger,

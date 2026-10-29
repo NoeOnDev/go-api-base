@@ -33,3 +33,6 @@ sql:
           # jsonb se genera como json.RawMessage: se guarda y se devuelve tal cual, sin decodificar.
           - db_type: "jsonb"
             go_type: "encoding/json.RawMessage"
+          # interval se genera como time.Duration (pgx lo convierte solo).
+          - db_type: "pg_catalog.interval"
+            go_type: "time.Duration"

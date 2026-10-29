@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -53,8 +52,12 @@ func (s *Service) requestEmailChange(w http.ResponseWriter, r *http.Request) err
 		return fmt.Errorf("buscar email: %w", err)
 	}
 
-	if !s.allowEmail(purposeEmailChange, user.ID) {
-		w.Header().Set("Retry-After", strconv.Itoa(int(emailLimitEvery.Seconds())))
+	allowed, err := s.allowEmail(r.Context(), purposeEmailChange, user.ID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		w.Header().Set("Retry-After", s.emailLimiter.RetryAfter())
 		return &httpx.Error{Status: http.StatusTooManyRequests, Code: "too_many_requests",
 			Message: "ya te enviamos varios enlaces; revisá tu correo o esperá unos minutos"}
 	}
@@ -134,7 +137,7 @@ func (s *Service) confirmEmailChange(w http.ResponseWriter, r *http.Request) err
 	}
 
 	// El límite de intentos de login del email viejo ya no corresponde a nadie.
-	s.loginLimiter.Reset(loginLimitKey(oldEmail))
+	s.resetLimit(r.Context(), s.loginLimiter, loginLimitKey(oldEmail))
 	s.notify(r.Context(), userID, NotifyEmailChanged, "El email de tu cuenta ahora es "+newEmail+".")
 
 	httpx.Write(w, http.StatusNoContent, nil)

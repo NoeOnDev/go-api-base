@@ -14,7 +14,7 @@ La plantilla usa [River](https://riverqueue.com), una cola de trabajos guardada 
 | Trabajo | Cola | Qué hace |
 |---|---|---|
 | `send_email` | `email` | Envía los correos. Hasta 5 intentos, con el contenido cifrado (ver abajo) |
-| `cleanup` | `default` | Cada hora borra las sesiones y los tokens vencidos, y las notificaciones leídas hace más de 90 días |
+| `cleanup` | `default` | Cada hora borra las sesiones y los tokens vencidos, las notificaciones leídas hace más de 90 días, las claves de los límites de intentos que ya se recargaron y los mensajes grandes del tiempo real |
 
 Hay dos colas, cada una con su propio límite de workers, así un trabajo lento en una no frena a la otra:
 
@@ -193,5 +193,5 @@ Si un proyecto no la necesita:
 
 1. Borrá `internal/jobs` y `migrations/00008_create_river.sql`.
 2. En `cmd/api/main.go`, quitá el cliente y usá el `mail.Sender` directo (`newMailSender`) como `Mailer`. Los correos se enviarían dentro de la petición.
-3. Volvé a poner la limpieza de vencidos en `StartSession` y `issueToken` (`DeleteExpiredSessions` y `DeleteExpiredUserTokens`).
+3. Volvé a poner la limpieza de vencidos en `StartSession` y `issueToken` (`DeleteExpiredSessions` y `DeleteExpiredUserTokens`). Sin la limpieza de cada hora, también se acumulan las filas viejas de `rate_limits` y `realtime_messages`: borralas en otro lado, por ejemplo con un `time.Ticker` en `cmd/api/main.go` que llame a `DeleteExpiredRateLimits` y `DeleteRealtimeMessagesBefore`.
 4. `go mod tidy` y `make check`.

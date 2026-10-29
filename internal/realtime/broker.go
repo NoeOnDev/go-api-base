@@ -2,10 +2,13 @@ package realtime
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
 // Límites por defecto de conexiones abiertas a GET /events. Cada conexión es una goroutine y
@@ -37,8 +40,9 @@ type Authorizer func(ctx context.Context, userID int64, id string) (bool, error)
 //   - Los temas ("project:42"): para que varios usuarios vean en vivo lo mismo. Cada tipo de
 //     tema necesita un Authorizer (ver Authorize); un tema sin autorizador se rechaza.
 //
-// Vive en memoria: alcanza para una instancia de la API. Con varias, los eventos se repartirían
-// con LISTEN/NOTIFY de PostgreSQL (ver docs/realtime.md).
+// Cada instancia de la API tiene su broker, con sus conexiones. Con Listen, los brokers de todas
+// las instancias se avisan por PostgreSQL: un evento publicado en cualquiera llega a las
+// conexiones de todas (ver instances.go). Sin Listen vive solo en memoria, como en los tests.
 type Broker struct {
 	mu          sync.Mutex
 	channels    map[string]map[*subscription]struct{}
@@ -48,6 +52,11 @@ type Broker struct {
 	done        chan struct{}
 
 	maxPerUser, maxTotal int
+
+	// id identifica a esta instancia en los mensajes entre instancias, y q los envía. q es nil
+	// mientras no se llame a Listen.
+	id string
+	q  *store.Queries
 }
 
 // subscription es una conexión abierta de GET /events.
@@ -71,6 +80,7 @@ func NewBroker() *Broker {
 		done:        make(chan struct{}),
 		maxPerUser:  defaultMaxPerUser,
 		maxTotal:    defaultMaxTotal,
+		id:          rand.Text(),
 	}
 }
 
@@ -88,13 +98,16 @@ func (b *Broker) Authorize(kind string, fn Authorizer) {
 	b.authorizers[kind] = fn
 }
 
-// Publish envía el evento a todas las conexiones que escuchan el canal. No bloquea: si una
-// conexión no lee a tiempo, se cierra. Es "mejor esfuerzo": la fuente de verdad es la base,
-// y el frontend vuelve a pedir el estado al reconectarse.
-//
-// Recibe ctx para que se pueda cambiar por una implementación que publique en otro lado
-// (por ejemplo, PostgreSQL) sin tocar a quien publica.
-func (b *Broker) Publish(_ context.Context, channel string, ev Event) {
+// Publish envía el evento a todas las conexiones que escuchan el canal, en esta instancia y (con
+// Listen) en las demás. No bloquea: si una conexión no lee a tiempo, se cierra. Es "mejor
+// esfuerzo": la fuente de verdad es la base, y el frontend vuelve a pedir el estado al reconectarse.
+func (b *Broker) Publish(ctx context.Context, channel string, ev Event) {
+	b.deliver(channel, ev)
+	b.shareEvent(ctx, channel, ev)
+}
+
+// deliver entrega el evento a las conexiones de esta instancia.
+func (b *Broker) deliver(channel string, ev Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for sub := range b.channels[channel] {
@@ -111,9 +124,14 @@ func (b *Broker) PublishToUser(ctx context.Context, userID int64, ev Event) {
 	b.Publish(ctx, UserChannel(userID), ev)
 }
 
-// SessionEnded corta los streams abiertos con esa sesión. Auth lo llama en el logout
-// (el broker implementa auth.SessionWatcher).
-func (b *Broker) SessionEnded(_ context.Context, sessionKey string) {
+// SessionEnded corta los streams abiertos con esa sesión, en todas las instancias. Auth lo llama
+// en el logout (el broker implementa auth.SessionWatcher).
+func (b *Broker) SessionEnded(ctx context.Context, sessionKey string) {
+	b.endSession(sessionKey)
+	b.share(ctx, message{Kind: kindSessionEnded, SessionKey: sessionKey})
+}
+
+func (b *Broker) endSession(sessionKey string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, subs := range b.channels {
@@ -126,10 +144,15 @@ func (b *Broker) SessionEnded(_ context.Context, sessionKey string) {
 }
 
 // UserSessionsEnded corta los streams del usuario abiertos con otras sesiones que no sean
-// keepSessionKey (vacío: todas). Auth lo llama cuando cierra sesiones del usuario: al cambiar o
-// recuperar la contraseña y al activar o desactivar el 2FA. Así, quien tenía una sesión robada
-// deja de recibir eventos en el acto, antes del aviso de "se cambió tu contraseña".
-func (b *Broker) UserSessionsEnded(_ context.Context, userID int64, keepSessionKey string) {
+// keepSessionKey (vacío: todas), en todas las instancias. Auth lo llama cuando cierra sesiones del
+// usuario: al cambiar o recuperar la contraseña y al activar o desactivar el 2FA. Así, quien tenía
+// una sesión robada deja de recibir eventos en el acto, antes del aviso de "se cambió tu contraseña".
+func (b *Broker) UserSessionsEnded(ctx context.Context, userID int64, keepSessionKey string) {
+	b.endUserSessions(userID, keepSessionKey)
+	b.share(ctx, message{Kind: kindUserSessionsEnded, UserID: userID, SessionKey: keepSessionKey})
+}
+
+func (b *Broker) endUserSessions(userID int64, keepSessionKey string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for sub := range b.channels[UserChannel(userID)] {
@@ -139,9 +162,9 @@ func (b *Broker) UserSessionsEnded(_ context.Context, userID int64, keepSessionK
 	}
 }
 
-// DisconnectUser corta todos los streams del usuario. Sirve para quitarle el acceso a un tema
-// al instante (por ejemplo, al sacarlo de un proyecto): el navegador se reconecta solo, y en la
-// reconexión se vuelven a revisar sus permisos.
+// DisconnectUser corta todos los streams del usuario, en todas las instancias. Sirve para quitarle
+// el acceso a un tema al instante (por ejemplo, al sacarlo de un proyecto): el navegador se
+// reconecta solo, y en la reconexión se vuelven a revisar sus permisos.
 func (b *Broker) DisconnectUser(ctx context.Context, userID int64) {
 	b.UserSessionsEnded(ctx, userID, "")
 }
@@ -161,6 +184,11 @@ func (b *Broker) Close() {
 	default:
 	}
 	close(b.done)
+	b.closeSubscriptions()
+}
+
+// closeSubscriptions cierra todas las conexiones de esta instancia. Se llama con b.mu tomado.
+func (b *Broker) closeSubscriptions() {
 	for _, subs := range b.channels {
 		for sub := range subs {
 			sub.close()

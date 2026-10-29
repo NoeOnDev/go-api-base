@@ -1,7 +1,9 @@
 package server
 
 import (
+	"cmp"
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/categories"
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/notes"
 	"github.com/NoeOnDev/go-api-base/internal/notifications"
@@ -43,11 +46,22 @@ type Deps struct {
 	// recuperación. main pasa el mismo que usan los jobs. Si es nil (en algunos tests), el 2FA
 	// no está disponible.
 	Box *secretbox.Box
+	// I18n son los catálogos de los textos al usuario (ver docs/i18n.md). Si es nil, se arma uno
+	// con Config.DefaultLocale (o inglés, si está vacío).
+	I18n *i18n.Catalog
 }
 
 // NewHandler registra todas las rutas y les aplica los middlewares comunes.
 func NewHandler(d Deps) http.Handler {
 	mux := http.NewServeMux()
+
+	catalog := d.I18n
+	if catalog == nil {
+		var err error
+		if catalog, err = i18n.New(cmp.Or(d.Config.DefaultLocale, i18n.BaseLocale)); err != nil {
+			panic(fmt.Sprintf("server: %v", err)) // config.Load ya valida DEFAULT_LOCALE
+		}
+	}
 
 	// Un monitor lo consulta cada pocos segundos: en el log va en debug, salvo que la base no responda.
 	mux.Handle("GET /healthz", httpx.Quiet(health(d.DB)))
@@ -60,7 +74,7 @@ func NewHandler(d Deps) http.Handler {
 	}
 
 	// Notificaciones dentro del sistema: se guardan y se envían en vivo por GET /events.
-	notificationsService := notifications.NewService(queries, broker)
+	notificationsService := notifications.NewService(queries, broker, catalog)
 
 	authService := auth.NewService(d.DB, auth.Options{
 		SessionTTL:           d.Config.SessionTTL,
@@ -73,6 +87,7 @@ func NewHandler(d Deps) http.Handler {
 		Issuer:               d.Config.AppName,
 		TrustedProxies:       d.Config.TrustedProxies,
 		Notifier:             notificationsService,
+		I18n:                 catalog,
 		SessionWatcher:       broker,
 	})
 	// Límites de las rutas de auth: "seguidos" es cuántas peticiones se permiten de golpe, y
@@ -110,16 +125,19 @@ func NewHandler(d Deps) http.Handler {
 
 	// Cualquier ruta no registrada responde 404 con el formato de error de la API.
 	mux.Handle("/", httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		return httpx.NotFound("la ruta no existe")
+		return httpx.NotFound("route_not_found")
 	}))
 
 	// Orden:
 	//   - RequestID primero, para que el resto ya tenga el logger con request_id.
+	//   - El idioma (i18n) antes de todo lo que puede responder un error, para que el mensaje salga
+	//     en el idioma de la petición.
 	//   - SecurityHeaders afuera de todo lo que puede responder, así también lo llevan los errores.
 	//   - Recover dentro de Logger, para que la respuesta 500 de un panic también quede registrada.
 	//   - CORS antes de la protección CSRF, para responder los preflight de los orígenes permitidos.
 	return httpx.Chain(csrfProtection(mux, d.Config.CORSAllowedOrigins),
 		httpx.RequestID(d.Logger),
+		catalog.Middleware,
 		httpx.SecurityHeaders,
 		httpx.Logger,
 		httpx.Recover,
@@ -140,7 +158,7 @@ func csrfProtection(next http.Handler, trustedOrigins []string) http.Handler {
 	cop.SetDenyHandler(httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		httpx.LoggerFrom(r.Context()).Warn("petición de otro origen rechazada",
 			"origin", r.Header.Get("Origin"), "sec_fetch_site", r.Header.Get("Sec-Fetch-Site"))
-		return httpx.Forbidden("petición de otro origen rechazada")
+		return httpx.Forbidden("cross_origin_rejected")
 	}))
 	return cop.Handler(next)
 }
@@ -154,11 +172,7 @@ func health(pool *pgxpool.Pool) http.HandlerFunc {
 
 		if err := pool.Ping(ctx); err != nil {
 			httpx.LoggerFrom(r.Context()).Warn("health check: la base no responde", "error", err)
-			return &httpx.Error{
-				Status:  http.StatusServiceUnavailable,
-				Code:    "unavailable",
-				Message: "la base de datos no responde",
-			}
+			return &httpx.Error{Status: http.StatusServiceUnavailable, Code: "unavailable"}
 		}
 
 		httpx.Write(w, http.StatusOK, map[string]string{"status": "ok"})

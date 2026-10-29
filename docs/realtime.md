@@ -57,7 +57,7 @@ function connect(topics = []) {
 
   events.addEventListener("notification", (e) => {
     const notification = JSON.parse(e.data);
-    showToast(notification.data.message);
+    showToast(notification.message); // ya en el idioma del usuario (ver docs/i18n.md)
   });
 
   events.addEventListener("note.updated", (e) => {

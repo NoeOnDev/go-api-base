@@ -31,11 +31,7 @@ func (s *Service) RequireUser(next http.Handler) http.Handler {
 	}))
 }
 
-var errEmailNotVerified = &httpx.Error{
-	Status:  http.StatusForbidden,
-	Code:    "email_not_verified",
-	Message: "confirmá tu email para continuar; revisá tu correo o pedí otro enlace",
-}
+var errEmailNotVerified = &httpx.Error{Status: http.StatusForbidden, Code: "email_not_verified"}
 
 // requireSession exige una sesión válida, pero no el email verificado. Lo usan las rutas
 // de la propia cuenta (ver el perfil, cerrar sesión, reenviar la verificación), que tienen
@@ -44,7 +40,7 @@ func (s *Service) requireSession(next http.Handler) http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		sess, err := s.sessionFromRequest(r)
 		if errors.Is(err, errNoSession) {
-			return httpx.Unauthorized("necesitás iniciar sesión")
+			return httpx.Unauthorized("unauthorized")
 		}
 		if err != nil {
 			return err
@@ -86,7 +82,7 @@ func (s *Service) OptionalUser(next http.Handler) http.Handler {
 func (s *Service) RequireAdmin(next http.Handler) http.Handler {
 	return s.RequireUser(httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		if !MustUser(r.Context()).IsAdmin() {
-			return httpx.Forbidden("solo un administrador puede hacer esto")
+			return httpx.Forbidden("forbidden")
 		}
 		next.ServeHTTP(w, r)
 		return nil

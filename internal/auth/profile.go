@@ -8,27 +8,46 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/validate"
 )
 
 type profileInput struct {
 	Name string `json:"name"`
+	// Locale es opcional: si no viene, el idioma no cambia.
+	Locale *string `json:"locale"`
 }
 
-// updateProfile responde PUT /auth/me: cambia el nombre del usuario.
-// El email no se cambia acá: cambiarlo exige verificar la nueva dirección.
+// updateProfile responde PUT /auth/me: cambia el nombre del usuario y, si viene, su idioma
+// (uno de los disponibles; ver docs/i18n.md). El email no se cambia acá: cambiarlo exige
+// verificar la nueva dirección.
 func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) error {
 	var in profileInput
 	if err := httpx.Decode(w, r, &in); err != nil {
 		return err
 	}
 	in.Name = strings.TrimSpace(in.Name)
-	if msg := validate.Required(in.Name, maxNameLen); msg != "" {
-		return httpx.Validation(map[string]string{"name": msg})
+	fields := httpx.Fields{}
+	if msg := validate.Required(in.Name, maxNameLen); !msg.IsZero() {
+		fields["name"] = msg
+	}
+	if in.Locale != nil {
+		if locale, ok := s.catalog.Lookup(*in.Locale); ok {
+			in.Locale = &locale // escrito como el catálogo ("es-mx" es "es-MX")
+		} else {
+			fields["locale"] = i18n.M("validation.unsupported_locale", "locales", strings.Join(s.catalog.Locales(), ", "))
+		}
+	}
+	if len(fields) > 0 {
+		return httpx.Validation(fields)
 	}
 
-	u, err := s.q.UpdateUserName(r.Context(), store.UpdateUserNameParams{ID: MustUser(r.Context()).ID, Name: in.Name})
+	u, err := s.q.UpdateUserProfile(r.Context(), store.UpdateUserProfileParams{
+		ID:     MustUser(r.Context()).ID,
+		Name:   in.Name,
+		Locale: in.Locale,
+	})
 	if err != nil {
 		return fmt.Errorf("actualizar perfil: %w", err)
 	}
@@ -51,11 +70,11 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	fields := map[string]string{}
+	fields := httpx.Fields{}
 	if in.CurrentPassword == "" {
-		fields["current_password"] = "es obligatoria"
+		fields["current_password"] = i18n.M("validation.required")
 	}
-	if msg := validatePassword(in.Password); msg != "" {
+	if msg := validatePassword(in.Password); !msg.IsZero() {
 		fields["password"] = msg
 	}
 	if len(fields) > 0 {
@@ -89,7 +108,7 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.sessionsEnded(r.Context(), user.ID, keep)
-	s.notify(r.Context(), user.ID, NotifyPasswordChanged, "Se cambió la contraseña de tu cuenta. Si no fuiste vos, recuperala cuanto antes.")
+	s.notify(r.Context(), user.ID, NotifyPasswordChanged, nil)
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -31,9 +32,7 @@ const (
 
 // errInvalidToken responde a un enlace inventado, vencido o ya usado. No distingue entre
 // los casos: al usuario solo le sirve saber que tiene que pedir uno nuevo.
-var errInvalidToken = httpx.Validation(map[string]string{
-	"token": "el enlace no es válido o ya venció; pedí uno nuevo",
-})
+var errInvalidToken = httpx.Validation(httpx.Fields{"token": i18n.M("validation.invalid_token")})
 
 // issueToken crea un token de un solo uso para el usuario y lo devuelve para enviarlo por correo.
 // Invalida los anteriores del mismo propósito: solo sirve el último enlace enviado. newEmail es

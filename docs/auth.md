@@ -39,7 +39,7 @@ El desafío del 2FA usa una cookie con los mismos atributos: `two_factor_challen
 | `POST` | `/auth/login` | público | `{email, password}` | `200` con el usuario y la cookie; `202 {two_factor_required: true}` si tiene 2FA; `401` si los datos no coinciden |
 | `POST` | `/auth/logout` | público | | `204`, siempre (también si la sesión ya venció) |
 | `GET` | `/auth/me` | sesión | | `200` con el usuario |
-| `PUT` | `/auth/me` | sesión | `{name}` | `200` con el usuario |
+| `PUT` | `/auth/me` | sesión | `{name, locale?}` | `200` con el usuario |
 | `DELETE` | `/auth/me` | sesión | `{password}` | `204`, borra la cuenta; `422` si la contraseña es incorrecta; `409` si es el único admin |
 | `PUT` | `/auth/email` | sesión | `{email, password}` | `202`, envía el enlace al email nuevo; `409` si está en uso; `422` |
 | `POST` | `/auth/email/confirm` | público | `{token}` | `204`, cambia el email; `422` si el enlace no es válido o venció; `409` si el email lo tomó otra cuenta |
@@ -64,7 +64,7 @@ En la columna de acceso:
 El usuario se devuelve así (nunca incluye la contraseña):
 
 ```json
-{"id": 1, "name": "Ana", "email": "ana@ejemplo.com", "role": "user", "email_verified_at": null, "two_factor_enabled": false, "created_at": "..."}
+{"id": 1, "name": "Ana", "email": "ana@ejemplo.com", "role": "user", "email_verified_at": null, "two_factor_enabled": false, "locale": "es-MX", "created_at": "..."}
 ```
 
 **Reglas:**
@@ -74,7 +74,7 @@ El usuario se devuelve así (nunca incluye la contraseña):
 
 ## Perfil y cambio de contraseña
 
-- **`PUT /auth/me`** cambia el nombre. El email se cambia aparte (ver "Cambiar el email"), porque hay que verificar la dirección nueva.
+- **`PUT /auth/me`** cambia el nombre y, si viene, el idioma (`locale`: uno de los disponibles, como `en` o `es-MX`). El idioma decide en qué idioma le llegan los correos y las notificaciones; el registro guarda el que pidió el navegador (ver [idiomas](i18n.md)). El email se cambia aparte (ver "Cambiar el email"), porque hay que verificar la dirección nueva.
 - **`PUT /auth/password`** pide la contraseña actual, así alguien que encuentre la sesión abierta no puede cambiarla. Al cambiarla se **cierran todas las demás sesiones** del usuario y la actual sigue activa, y se **cancela un cambio de email pendiente** (ver "Cambiar el email").
 
 ## Sesiones por dispositivo
@@ -202,7 +202,7 @@ SMTP_HOST=localhost
 SMTP_PORT=1025
 ```
 
-Las plantillas están en `internal/auth/emails/*.txt`, en texto plano. Para cambiar los textos, editá esos archivos.
+Las plantillas están en `internal/auth/emails/<idioma>/*.txt` (`en` y `es-MX`), en texto plano, y cada una define su asunto en la primera línea. Cada correo sale en el idioma del usuario. Para cambiar los textos, editá esos archivos; para sumar un idioma, ver [idiomas](i18n.md).
 
 ## Roles
 

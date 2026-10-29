@@ -16,6 +16,7 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/ratelimit"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
@@ -41,7 +42,10 @@ type User struct {
 	// EmailVerifiedAt es null mientras el usuario no confirme su email.
 	EmailVerifiedAt  *time.Time `json:"email_verified_at"`
 	TwoFactorEnabled bool       `json:"two_factor_enabled"`
-	CreatedAt        time.Time  `json:"created_at"`
+	// Locale es el idioma de los correos y las notificaciones del usuario, por ejemplo "es-MX".
+	// null es el idioma por defecto (DEFAULT_LOCALE). Ver docs/i18n.md.
+	Locale    *string   `json:"locale"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // EmailVerified indica si el usuario confirmó su email.
@@ -58,6 +62,7 @@ func toUser(u store.User) User {
 		Role:             u.Role,
 		EmailVerifiedAt:  u.EmailVerifiedAt,
 		TwoFactorEnabled: u.TOTPEnabledAt != nil,
+		Locale:           u.Locale,
 		CreatedAt:        u.CreatedAt,
 	}
 }
@@ -85,6 +90,9 @@ type Options struct {
 	// Se usan para registrar la IP real del cliente (por ejemplo, en el correo que avisa de
 	// códigos del 2FA incorrectos).
 	TrustedProxies httpx.TrustedProxies
+	// I18n son los idiomas de los correos y de los textos al usuario. Si es nil, se usa
+	// i18n.Default() (inglés por defecto).
+	I18n *i18n.Catalog
 	// SessionWatcher se entera cuando auth cierra sesiones, para cortar lo que dependía de ellas.
 	// Es opcional. En la plantilla lo implementa el broker de internal/realtime, que corta los
 	// streams de GET /events abiertos con esas sesiones.
@@ -117,13 +125,18 @@ const (
 	NotifyEmailChanged      = "email_changed"
 )
 
-// notify avisa al usuario de un cambio de seguridad en su cuenta. Si falla, solo se registra:
-// el cambio ya se hizo, y no tiene sentido responder un error por el aviso.
-func (s *Service) notify(ctx context.Context, userID int64, kind, message string) {
+// notify avisa al usuario de un cambio de seguridad en su cuenta. data son los datos del aviso
+// (nil si no tiene): el texto no se guarda, lo arma internal/notifications en el idioma de quien lo
+// lee (ver docs/i18n.md). Si falla, solo se registra: el cambio ya se hizo, y no tiene sentido
+// responder un error por el aviso.
+func (s *Service) notify(ctx context.Context, userID int64, kind string, data map[string]any) {
 	if s.opts.Notifier == nil {
 		return
 	}
-	if err := s.opts.Notifier.Notify(ctx, userID, kind, map[string]string{"message": message}); err != nil {
+	if data == nil {
+		data = map[string]any{} // se guarda {} y no null
+	}
+	if err := s.opts.Notifier.Notify(ctx, userID, kind, data); err != nil {
 		httpx.LoggerFrom(ctx).Warn("no se pudo enviar la notificación", "user_id", userID, "kind", kind, "error", err)
 	}
 }
@@ -147,6 +160,9 @@ type Service struct {
 	loginLimiter     *ratelimit.Limiter
 	twoFactorLimiter *ratelimit.Limiter
 	emailLimiter     *ratelimit.Limiter
+
+	catalog *i18n.Catalog
+	emails  *mail.Templates // plantillas de los correos, por idioma
 }
 
 // NewService crea el servicio de autenticación. Recibe el pool, y no solo las consultas,
@@ -164,11 +180,16 @@ func NewService(pool *pgxpool.Pool, opts Options) *Service {
 	if opts.Issuer == "" {
 		opts.Issuer = "Mi App"
 	}
+	if opts.I18n == nil {
+		opts.I18n = i18n.Default()
+	}
 	q := store.New(pool)
 	return &Service{
 		db:               pool,
 		q:                q,
 		opts:             opts,
+		catalog:          opts.I18n,
+		emails:           newEmailTemplates(opts.I18n),
 		loginLimiter:     ratelimit.New(q, "login", loginLimitEvery, loginLimitBurst),
 		twoFactorLimiter: ratelimit.New(q, "two_factor", twoFactorLimitEvery, twoFactorLimitBurst),
 		emailLimiter:     ratelimit.New(q, "email", emailLimitEvery, emailLimitBurst),
@@ -205,9 +226,10 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 		PasswordHash:    hash,
 		Role:            role,
 		EmailVerifiedAt: verifiedAt,
+		Locale:          in.Locale,
 	})
 	if _, ok := db.IsUniqueViolation(err); ok {
-		return User{}, httpx.Conflict("el email ya está registrado", "email")
+		return User{}, httpx.Conflict("email_taken", "email")
 	}
 	if err != nil {
 		return User{}, fmt.Errorf("crear usuario: %w", err)
@@ -218,7 +240,7 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 
 // errInvalidCredentials es la respuesta a cualquier login fallido. No distingue entre
 // "el email no existe" y "la contraseña es incorrecta", para no revelar qué emails están registrados.
-var errInvalidCredentials = httpx.Unauthorized("email o contraseña incorrectos")
+var errInvalidCredentials = httpx.Unauthorized("invalid_credentials")
 
 // Authenticate comprueba email y contraseña y devuelve el usuario.
 func (s *Service) Authenticate(ctx context.Context, email, password string) (User, error) {

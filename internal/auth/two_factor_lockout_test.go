@@ -33,7 +33,7 @@ func challengeFromIP(t *testing.T, api http.Handler, ip string, cookie *http.Coo
 	return testutil.DoFromIP(t, api, ip, cookie, http.MethodPost, "/auth/two-factor/challenge", body)
 }
 
-const lockedSubject = "Intento de inicio de sesión bloqueado"
+const lockedSubject = "Sign-in attempt blocked"
 
 func TestChallengeLocksAfterMaxAttempts(t *testing.T) {
 	pool := testutil.NewDB(t)

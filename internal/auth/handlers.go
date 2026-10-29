@@ -32,6 +32,11 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(w, r, &in); err != nil {
 		return err
 	}
+	// El idioma del usuario es el que pidió el navegador, si es uno disponible. Si no pidió
+	// ninguno, queda el idioma por defecto (null), que sigue a DEFAULT_LOCALE si cambia.
+	if locale, ok := s.catalog.Choose(r.Header.Get("Accept-Language")); ok {
+		in.Locale = &locale
+	}
 
 	u, err := s.CreateUser(r.Context(), in, RoleUser)
 	if err != nil {

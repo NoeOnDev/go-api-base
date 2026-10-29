@@ -43,10 +43,10 @@ Para actualizar una herramienta, cambiá su versión en el `Makefile`.
 ## Formato único de errores
 
 ```json
-{"error": {"code": "validation_failed", "message": "...", "fields": {"title": "es obligatorio"}}}
+{"error": {"code": "validation_failed", "message": "...", "fields": {"title": "This field is required."}}}
 ```
 
-El frontend maneja todos los errores igual. Los errores 500 no exponen detalles; la causa real queda en el log con su `request_id`.
+El frontend maneja todos los errores igual. Cada error tiene un código específico (`email_taken`, y no un `conflict` compartido por nueve casos), que es también la clave de su mensaje en los catálogos: así el frontend puede distinguir los casos sin leer el texto, y el texto sale en el idioma de la petición (ver `docs/i18n.md`). Los errores 500 no exponen detalles; la causa real queda en el log con su `request_id`.
 
 ## Handlers que devuelven error
 

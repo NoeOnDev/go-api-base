@@ -10,6 +10,7 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -18,7 +19,7 @@ type emailChangeInput struct {
 	Password string `json:"password"`
 }
 
-var errEmailTaken = httpx.Conflict("el email ya está en uso", "email")
+var errEmailTaken = httpx.Conflict("email_taken", "email")
 
 // requestEmailChange responde PUT /auth/email con {email, password}: pide cambiar el email.
 // El email no cambia todavía: se envía un enlace a la dirección nueva, y cambia recién cuando
@@ -33,8 +34,8 @@ func (s *Service) requestEmailChange(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	newEmail := strings.ToLower(strings.TrimSpace(in.Email))
-	if msg := validateEmail(newEmail); msg != "" {
-		return httpx.Validation(map[string]string{"email": msg})
+	if msg := validateEmail(newEmail); !msg.IsZero() {
+		return httpx.Validation(httpx.Fields{"email": msg})
 	}
 
 	user := MustUser(r.Context())
@@ -42,7 +43,7 @@ func (s *Service) requestEmailChange(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	if newEmail == user.Email {
-		return httpx.Validation(map[string]string{"email": "es tu email actual"})
+		return httpx.Validation(httpx.Fields{"email": i18n.M("validation.same_email")})
 	}
 	// Igual que el registro, indica si el email está en uso: si no, el usuario no sabría por qué
 	// nunca se confirma.
@@ -58,22 +59,21 @@ func (s *Service) requestEmailChange(w http.ResponseWriter, r *http.Request) err
 	}
 	if !allowed {
 		w.Header().Set("Retry-After", s.emailLimiter.RetryAfter())
-		return &httpx.Error{Status: http.StatusTooManyRequests, Code: "too_many_requests",
-			Message: "ya te enviamos varios enlaces; revisá tu correo o esperá unos minutos"}
+		return errTooManyEmails
 	}
 
 	token, err := s.issueToken(r.Context(), user.ID, purposeEmailChange, emailChangeTTL, &newEmail)
 	if err != nil {
 		return err
 	}
-	if err := s.sendEmail(r.Context(), newEmail, "Confirmá tu nuevo email", "email_change.txt", emailData{
+	if err := s.sendEmail(r.Context(), newEmail, user.Locale, "email_change.txt", emailData{
 		Name:    user.Name,
 		Link:    s.frontendLink("/confirm-email", token),
-		Expires: "1 hora",
+		Expires: s.expiresIn(user.Locale, emailChangeTTL),
 	}); err != nil {
 		return err
 	}
-	if err := s.sendEmail(r.Context(), user.Email, "Se pidió cambiar el email de tu cuenta", "email_change_notice.txt", emailData{
+	if err := s.sendEmail(r.Context(), user.Email, user.Locale, "email_change_notice.txt", emailData{
 		Name:  user.Name,
 		Email: newEmail,
 	}); err != nil {
@@ -81,7 +81,7 @@ func (s *Service) requestEmailChange(w http.ResponseWriter, r *http.Request) err
 	}
 
 	httpx.Write(w, http.StatusAccepted, map[string]string{
-		"message": "Te enviamos un enlace a " + newEmail + " para confirmar el cambio.",
+		"message": i18n.FromContext(r.Context()).T("messages.email_change_sent", "email", newEmail),
 	})
 	return nil
 }
@@ -138,7 +138,7 @@ func (s *Service) confirmEmailChange(w http.ResponseWriter, r *http.Request) err
 
 	// El límite de intentos de login del email viejo ya no corresponde a nadie.
 	s.resetLimit(r.Context(), s.loginLimiter, loginLimitKey(oldEmail))
-	s.notify(r.Context(), userID, NotifyEmailChanged, "El email de tu cuenta ahora es "+newEmail+".")
+	s.notify(r.Context(), userID, NotifyEmailChanged, map[string]any{"email": newEmail})
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil

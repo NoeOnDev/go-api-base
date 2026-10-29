@@ -18,11 +18,11 @@ func (in *categoryInput) normalize() {
 }
 
 func (in categoryInput) validate() error {
-	fields := map[string]string{}
-	if msg := validate.Required(in.Name, 100); msg != "" {
+	fields := httpx.Fields{}
+	if msg := validate.Required(in.Name, 100); !msg.IsZero() {
 		fields["name"] = msg
 	}
-	if msg := validate.Slug(in.Slug, 100); msg != "" {
+	if msg := validate.Slug(in.Slug, 100); !msg.IsZero() {
 		fields["slug"] = msg
 	}
 	if len(fields) > 0 {

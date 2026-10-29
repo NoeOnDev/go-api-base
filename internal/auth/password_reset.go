@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -18,8 +19,8 @@ type forgotPasswordInput struct {
 }
 
 // forgotMessage es la respuesta a POST /auth/password/forgot, exista o no el email.
-var forgotMessage = map[string]string{
-	"message": "Si el email está registrado, te enviamos un enlace para elegir una contraseña nueva.",
+func forgotMessage(r *http.Request) map[string]string {
+	return map[string]string{"message": i18n.FromContext(r.Context()).T("messages.password_reset_sent")}
 }
 
 // forgotPassword responde POST /auth/password/forgot. Si el email existe, envía un enlace de un
@@ -34,13 +35,13 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	email := strings.ToLower(strings.TrimSpace(in.Email))
-	if msg := validateEmail(email); msg != "" {
-		return httpx.Validation(map[string]string{"email": msg})
+	if msg := validateEmail(email); !msg.IsZero() {
+		return httpx.Validation(httpx.Fields{"email": msg})
 	}
 
 	u, err := s.q.GetUserByEmail(r.Context(), email)
 	if errors.Is(err, pgx.ErrNoRows) {
-		httpx.Write(w, http.StatusAccepted, forgotMessage)
+		httpx.Write(w, http.StatusAccepted, forgotMessage(r))
 		return nil
 	}
 	if err != nil {
@@ -52,7 +53,7 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 	}
 	if !allowed {
 		httpx.LoggerFrom(r.Context()).Warn("recuperación no enviada: límite de correos del usuario", "user_id", u.ID)
-		httpx.Write(w, http.StatusAccepted, forgotMessage)
+		httpx.Write(w, http.StatusAccepted, forgotMessage(r))
 		return nil
 	}
 
@@ -61,15 +62,15 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := s.sendEmail(r.Context(), u.Email, "Recuperá tu contraseña", "password_reset.txt", emailData{
+	if err := s.sendEmail(r.Context(), u.Email, u.Locale, "password_reset.txt", emailData{
 		Name:    u.Name,
 		Link:    s.frontendLink("/reset-password", token),
-		Expires: "1 hora",
+		Expires: s.expiresIn(u.Locale, passwordResetTTL),
 	}); err != nil {
 		return err
 	}
 
-	httpx.Write(w, http.StatusAccepted, forgotMessage)
+	httpx.Write(w, http.StatusAccepted, forgotMessage(r))
 	return nil
 }
 
@@ -91,8 +92,8 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	// Primero se valida la contraseña: si no cumple las reglas, el token sigue sirviendo.
-	if msg := validatePassword(in.Password); msg != "" {
-		return httpx.Validation(map[string]string{"password": msg})
+	if msg := validatePassword(in.Password); !msg.IsZero() {
+		return httpx.Validation(httpx.Fields{"password": msg})
 	}
 
 	// Antes de calcular el hash (argon2, caro) se comprueba que el enlace sirva, sin gastarlo.
@@ -136,7 +137,7 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.resetLimit(r.Context(), s.loginLimiter, loginLimitKey(u.Email))
 	s.resetLimit(r.Context(), s.twoFactorLimiter, twoFactorLimitKey(userID))
-	s.notify(r.Context(), userID, NotifyPasswordChanged, "Se cambió la contraseña de tu cuenta con un enlace de recuperación.")
+	s.notify(r.Context(), userID, NotifyPasswordChanged, nil)
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil

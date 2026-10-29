@@ -51,6 +51,7 @@ de cada guía se listan con `grep -n '^#' docs/*.md`.
 | Transmitir la respuesta de un agente de IA | [docs/realtime.md](docs/realtime.md#transmitir-la-respuesta-de-un-agente-de-ia) |
 | Varias instancias de la API | [docs/decisions.md](docs/decisions.md#varias-instancias) |
 | Cifrado, `ENCRYPTION_KEY` y su rotación | [docs/encryption.md](docs/encryption.md) |
+| Idiomas: textos al usuario, catálogos, agregar un idioma o un mensaje, y la tabla de códigos de error | [docs/i18n.md](docs/i18n.md) |
 | Variables de entorno | [README.md](README.md#configuración) |
 | Qué revisar antes de producción | [README.md](README.md#antes-de-producción) |
 | Empezar un proyecto con la plantilla | [README.md](README.md#usar-como-base-de-un-proyecto-nuevo) |
@@ -94,9 +95,10 @@ internal/httpx/       JSON, errores, paginación, middlewares, CORS, límite de 
 internal/server/      http.Server con timeouts, rutas, CSRF y orden de middlewares (routes.go)
 internal/auth/        usuarios, contraseñas (argon2id), sesiones, RequireUser/RequireAdmin y un archivo por función
                       (perfil, recuperación, verificación, 2FA…; ver "Quitar funciones" en docs/auth.md). Lo común a
-                      varias, en account.go, session.go y tokens.go; plantillas de correo en emails/*.txt
+                      varias, en account.go, session.go y tokens.go; plantillas de correo en emails/<idioma>/*.txt
 internal/ratelimit/   límites de intentos por cuenta o usuario, guardados en PostgreSQL (valen para todas las instancias)
-internal/mail/        envío de correos: LogSender, SMTPSender y Recorder (tests)
+internal/i18n/        textos al usuario por idioma: catálogos locales/*.json (en, es-MX), Accept-Language, traductor
+internal/mail/        envío de correos: LogSender, SMTPSender, Recorder (tests) y plantillas por idioma (Templates)
 internal/jobs/        trabajos en segundo plano con River: cliente, workers (workers.go), periódicos, MailSender
 internal/realtime/    tiempo real con SSE: Stream, Broker (canales y temas), GET /events y LISTEN/NOTIFY entre instancias
 internal/notifications/ notificaciones guardadas y enviadas en vivo; auth las usa para los avisos de seguridad
@@ -115,15 +117,21 @@ docs/                 guías y decisiones de diseño (ver "Dónde buscar"); link
 
 **Generales**
 - Go idiomático y simple. Preferir la librería estándar; **no agregar dependencias sin consultarlo**.
-- Comentarios y mensajes al cliente en español. Nombres de código en inglés.
+- Nombres de código en inglés. Los comentarios todavía están en español (pasan a inglés en una próxima versión).
+- **Ningún texto al usuario final en el código:** errores, validación, mensajes de éxito, correos y notificaciones salen de
+  los catálogos de `internal/i18n` (inglés por defecto y es-MX con tú), en el idioma de la petición. Ver `docs/i18n.md`.
 - Errores envueltos con contexto: `fmt.Errorf("crear nota: %w", err)`. No usar `panic` para errores normales.
 - Pasar `r.Context()` a todo lo que hable con la base.
 
 **HTTP**
 - Los handlers tienen la firma `func(w, r) error` y se registran con `httpx.Handle`. Ante un error, solo `return err`.
 - Leer JSON con `httpx.Decode` y responder con `httpx.Write`. Nunca escribir JSON a mano.
-- Errores para el cliente: `httpx.BadRequest`, `NotFound`, `Unauthorized`, `Forbidden`, `Conflict`, `Validation(fields)`.
+- Errores para el cliente, con un **código específico** que es también la clave de su mensaje (`errors.<código>` en los
+  catálogos): `httpx.BadRequest("malformed_json")`, `NotFound("order_not_found")`, `Unauthorized(…)`, `Forbidden(…)`,
+  `Conflict("invoice_already_paid", "campo")` y `Validation(httpx.Fields{"title": i18n.M("validation.required")})`.
+  Un código nuevo va en todos los catálogos y en la tabla de `docs/i18n.md` (`make check` lo exige).
   Cualquier otro error se responde como 500 sin exponer detalles.
+- Las reglas de `internal/validate` devuelven `i18n.Message` (vacío si el valor es válido: `!msg.IsZero()`).
 - Paginación con `httpx.ParsePage` y respuesta `httpx.List[T]` (`{data, meta}`). IDs de la ruta con `httpx.PathID(r, "id")`.
 - Cada recurso define su propio struct de respuesta; no devolver directamente los structs de `internal/store`.
 - Logs con `httpx.LoggerFrom(r.Context())` (ya incluye `request_id` y, con sesión, `user_id`). Para sumar un dato a todas las
@@ -206,7 +214,8 @@ docs/                 guías y decisiones de diseño (ver "Dónde buscar"); link
   Usan solo `TEST_DATABASE_URL`, que debe terminar en `_test` y ser distinta de `DATABASE_URL`. **No quitar esa protección.**
 - Peticiones con `testutil.NewAPI`, `testutil.Do` y `testutil.Decode`, como en `internal/products/handlers_test.go`.
   Para leer los correos enviados: `testutil.WithMailer(&mail.Recorder{})` y `testutil.TokenFromEmail`. Para cambiar la
-  configuración: `testutil.WithConfig(func(c *config.Config){ … })`. Para el 2FA: `testutil.EnableTwoFactor(t, api, cookie, testutil.Password)` y `TwoFactor.Code`.
+  configuración: `testutil.WithConfig(func(c *config.Config){ … })`. Para pedir otro idioma: `testutil.DoWithLanguage`
+  (sin él, las respuestas van en inglés). Para el 2FA: `testutil.EnableTwoFactor(t, api, cookie, testutil.Password)` y `TwoFactor.Code`.
 - Las rutas de auth tienen límites por IP (ver `internal/server/routes.go`; el más bajo es de 10 seguidos) y las acciones
   de cuenta, de 5 por usuario. Con `testutil.Do` todas las peticiones salen de la misma IP; para más, o para simular
   varias IPs, usar `testutil.DoFromIP`.

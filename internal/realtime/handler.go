@@ -68,11 +68,9 @@ func (b *Broker) Handler(sessions Sessions) http.Handler {
 		switch {
 		case errors.Is(err, ErrTooManyConnections):
 			w.Header().Set("Retry-After", "30")
-			return &httpx.Error{Status: http.StatusTooManyRequests, Code: "too_many_connections",
-				Message: "hay demasiadas conexiones abiertas; cerrá alguna pestaña"}
+			return &httpx.Error{Status: http.StatusTooManyRequests, Code: "too_many_connections"}
 		case errors.Is(err, ErrClosed):
-			return &httpx.Error{Status: http.StatusServiceUnavailable, Code: "shutting_down",
-				Message: "el servidor se está reiniciando; volvé a conectarte en unos segundos"}
+			return &httpx.Error{Status: http.StatusServiceUnavailable, Code: "shutting_down"}
 		case err != nil:
 			return err
 		}
@@ -132,7 +130,7 @@ func parseTopics(raw string) ([]string, error) {
 		}
 	}
 	if len(topics) > maxTopics {
-		return nil, httpx.BadRequest("se pueden escuchar como mucho 20 temas por conexión")
+		return nil, httpx.BadRequest("too_many_topics", "max", maxTopics)
 	}
 	return topics, nil
 }

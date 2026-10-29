@@ -53,7 +53,7 @@ func TestDeleteAccount(t *testing.T) {
 	}
 
 	// Le llega el último correo.
-	if msg, ok := mails.Last("ana@ejemplo.com"); !ok || !strings.Contains(msg.Body, "eliminada") {
+	if msg, ok := mails.Last("ana@ejemplo.com"); !ok || !strings.Contains(msg.Body, "was deleted") {
 		t.Errorf("correo de cuenta eliminada: %+v", mails.Messages())
 	}
 }

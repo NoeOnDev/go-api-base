@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
 type payload struct {
@@ -60,10 +62,10 @@ func TestDecode(t *testing.T) {
 	}
 }
 
-func decodeErrorBody(t *testing.T, body *bytes.Buffer) Error {
+func decodeErrorBody(t *testing.T, body *bytes.Buffer) errorBody {
 	t.Helper()
 	var resp struct {
-		Error Error `json:"error"`
+		Error errorBody `json:"error"`
 	}
 	if err := json.NewDecoder(body).Decode(&resp); err != nil {
 		t.Fatalf("respuesta no es JSON válido: %v", err)
@@ -76,13 +78,24 @@ func TestWriteErrorFormats(t *testing.T) {
 
 	t.Run("error de la API", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		WriteError(w, r, Validation(map[string]string{"title": "es obligatorio"}))
+		WriteError(w, r, Validation(Fields{"title": i18n.M("validation.required")}))
 
 		if w.Code != http.StatusUnprocessableEntity {
 			t.Errorf("status = %d", w.Code)
 		}
 		got := decodeErrorBody(t, w.Body)
-		if got.Code != "validation_failed" || got.Fields["title"] != "es obligatorio" {
+		if got.Code != "validation_failed" || got.Message != "The data sent is not valid." || got.Fields["title"] != "This field is required." {
+			t.Errorf("cuerpo inesperado: %+v", got)
+		}
+	})
+
+	t.Run("en el idioma de la petición", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		es := r.WithContext(i18n.WithTranslator(r.Context(), i18n.Default().Translator("es-MX")))
+		WriteError(w, es, Validation(Fields{"title": i18n.M("validation.too_long", "max", 200)}))
+
+		got := decodeErrorBody(t, w.Body)
+		if got.Message != "Los datos enviados no son válidos." || got.Fields["title"] != "Debe tener como máximo 200 caracteres." {
 			t.Errorf("cuerpo inesperado: %+v", got)
 		}
 	})
@@ -154,7 +167,7 @@ func TestRecover(t *testing.T) {
 
 func TestHandle(t *testing.T) {
 	h := Handle(func(w http.ResponseWriter, r *http.Request) error {
-		return NotFound("la nota no existe")
+		return NotFound("note_not_found")
 	})
 
 	w := httptest.NewRecorder()
@@ -163,8 +176,8 @@ func TestHandle(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d", w.Code)
 	}
-	if got := decodeErrorBody(t, w.Body); got.Message != "la nota no existe" {
-		t.Errorf("message = %q", got.Message)
+	if got := decodeErrorBody(t, w.Body); got.Code != "note_not_found" || got.Message != "The note does not exist." {
+		t.Errorf("error = %+v", got)
 	}
 }
 
@@ -288,7 +301,7 @@ func TestParsePage(t *testing.T) {
 				t.Fatalf("se esperaba un error de validación, llegó %v", err)
 			}
 			for _, f := range tt.badFields {
-				if apiErr.Fields[f] == "" {
+				if apiErr.Fields[f].IsZero() {
 					t.Errorf("falta el error del campo %q: %v", f, apiErr.Fields)
 				}
 			}

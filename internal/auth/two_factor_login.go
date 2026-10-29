@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -27,15 +28,11 @@ func (s *Service) startTwoFactorChallenge(w http.ResponseWriter, r *http.Request
 	return nil
 }
 
-var errNoChallenge = httpx.Unauthorized("el inicio de sesión venció; volvé a ingresar tu email y contraseña")
+var errNoChallenge = httpx.Unauthorized("two_factor_challenge_expired")
 
 var (
-	errWrongRecoveryCode = httpx.Validation(map[string]string{"recovery_code": "el código no es válido o ya se usó"})
-	errTwoFactorLocked   = &httpx.Error{
-		Status:  http.StatusUnauthorized,
-		Code:    "two_factor_locked",
-		Message: "demasiados códigos incorrectos; volvé a ingresar tu email y contraseña",
-	}
+	errWrongRecoveryCode = httpx.Validation(httpx.Fields{"recovery_code": i18n.M("validation.invalid_recovery_code")})
+	errTwoFactorLocked   = &httpx.Error{Status: http.StatusUnauthorized, Code: "two_factor_locked"}
 )
 
 // ChallengeCookieName es la cookie del desafío del 2FA: el login con la contraseña correcta
@@ -85,7 +82,7 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 	in.Code = strings.TrimSpace(in.Code)
 	in.RecoveryCode = strings.TrimSpace(in.RecoveryCode)
 	if (in.Code == "") == (in.RecoveryCode == "") {
-		return httpx.Validation(map[string]string{"code": "enviá el código de la app o un código de recuperación"})
+		return httpx.Validation(httpx.Fields{"code": i18n.M("validation.code_required")})
 	}
 
 	challenge := store.GetUserTokenUserParams{TokenHash: tokenHash, Purpose: purposeTwoFactorLogin, MaxAttempts: maxChallengeAttempts}
@@ -183,10 +180,11 @@ func (s *Service) sendTwoFactorLockedEmail(ctx context.Context, u store.User, ip
 		log.Warn("aviso de 2FA bloqueado no enviado: límite de correos del usuario", "user_id", u.ID)
 		return
 	}
-	err = s.sendEmail(ctx, u.Email, "Intento de inicio de sesión bloqueado", "two_factor_locked.txt", emailData{
+	err = s.sendEmail(ctx, u.Email, u.Locale, "two_factor_locked.txt", emailData{
 		Name: u.Name,
 		Link: s.opts.FrontendURL,
-		When: time.Now().UTC().Format("02/01/2006 15:04") + " (UTC)",
+		// Un formato sin ambigüedad en cualquier idioma (02/01 es 2 de enero o 1 de febrero).
+		When: time.Now().UTC().Format("2006-01-02 15:04 UTC"),
 		IP:   ip,
 	})
 	if err != nil {

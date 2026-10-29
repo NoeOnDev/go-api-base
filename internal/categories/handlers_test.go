@@ -85,7 +85,7 @@ func TestCategoriesConflicts(t *testing.T) {
 		resp := testutil.Decode[testutil.APIError](t,
 			testutil.Do(t, api, admin, http.MethodPost, "/categories", `{"name":"Otra","slug":"bebidas"}`),
 			http.StatusConflict)
-		if resp.Error.Fields["slug"] == "" {
+		if resp.Error.Code != "slug_taken" || resp.Error.Fields["slug"] == "" {
 			t.Errorf("se esperaba el error en slug: %+v", resp.Error)
 		}
 	})
@@ -97,7 +97,7 @@ func TestCategoriesConflicts(t *testing.T) {
 		resp := testutil.Decode[testutil.APIError](t,
 			testutil.Do(t, api, admin, http.MethodDelete, fmt.Sprintf("/categories/%d", c.ID), ""),
 			http.StatusConflict)
-		if resp.Error.Code != "conflict" {
+		if resp.Error.Code != "category_in_use" {
 			t.Errorf("code = %q", resp.Error.Code)
 		}
 	})

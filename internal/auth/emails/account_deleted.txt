@@ -1,5 +1,0 @@
-Hola {{.Name}}:
-
-Tu cuenta fue eliminada, junto con todos sus datos. Este es el último correo que te enviamos.
-
-Si no fuiste vos, alguien conocía tu contraseña. Respondé este correo o contactá al equipo cuanto antes.

@@ -39,9 +39,9 @@ func toResponse(c store.Category) categoryResponse {
 }
 
 var (
-	errNotFound  = httpx.NotFound("la categoría no existe")
-	errSlugTaken = httpx.Conflict("ya existe una categoría con ese slug", "slug")
-	errInUse     = httpx.Conflict("la categoría tiene productos: borralos o cambialos de categoría antes", "")
+	errNotFound  = httpx.NotFound("category_not_found")
+	errSlugTaken = httpx.Conflict("slug_taken", "slug")
+	errInUse     = httpx.Conflict("category_in_use", "")
 )
 
 // list responde GET /categories?limit=20&offset=0, ordenadas por nombre.

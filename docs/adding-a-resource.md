@@ -88,7 +88,7 @@ Copiá el paquete de ejemplo a `internal/orders` y adaptá cada archivo:
 - **`validation.go`:**
   - El struct de entrada con sus tags JSON, `normalize()` y `validate()`.
   - Para las reglas comunes usá `internal/validate`: `Required`, `MaxLen`, `Slug` y `NonNegative`.
-  - Devolvé `httpx.Validation(fields)`, con un mensaje por campo.
+  - Juntá los errores en `fields := httpx.Fields{}`, con un mensaje por campo (`fields["title"] = i18n.M("validation.required")`), y devolvé `httpx.Validation(fields)`. Los mensajes son claves de los catálogos de `internal/i18n`, no texto: ver [idiomas](i18n.md).
 - **`handlers.go`:**
   - El struct de respuesta y `toResponse`.
   - Un handler por endpoint, con la firma `func(w, r) error`.
@@ -97,10 +97,11 @@ Copiá el paquete de ejemplo a `internal/orders` y adaptá cada archivo:
 
     | Error | Respuesta |
     |---|---|
-    | `pgx.ErrNoRows` o 0 filas afectadas | `httpx.NotFound` |
-    | `db.IsUniqueViolation(err)` | `httpx.Conflict("…", "campo")` |
+    | `pgx.ErrNoRows` o 0 filas afectadas | `httpx.NotFound("order_not_found")` |
+    | `db.IsUniqueViolation(err)` | `httpx.Conflict("order_number_taken", "campo")` |
     | `db.IsForeignKeyViolation(err)` al crear o editar | `httpx.Validation` |
-    | `db.IsForeignKeyViolation(err)` al borrar | `httpx.Conflict` |
+    | `db.IsForeignKeyViolation(err)` al borrar | `httpx.Conflict("order_in_use", "")` |
+    | cada código nuevo | su mensaje en `internal/i18n/locales/*.json` (`"errors.order_not_found": "…"`) y una fila en la tabla de [idiomas](i18n.md) |
     | cualquier otro | envolverlo con contexto: `fmt.Errorf("crear pedido: %w", err)` |
 
 - **Varios cambios que van juntos, en una transacción.** Si una operación hace más de una escritura y tiene que pasar todo o nada (por ejemplo, crear el pedido y descontar el stock), usá `pgx.BeginFunc` con las consultas de la transacción (`q.WithTx(tx)`). Si la función devuelve un error, se deshace todo:

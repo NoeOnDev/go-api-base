@@ -1,0 +1,10 @@
+{{define "subject"}}Confirm your email{{end -}}
+Hi {{.Name}},
+
+To confirm your email address, open this link:
+
+{{.Link}}
+
+The link expires in {{.Expires}} and works only once.
+
+If you didn't create an account, ignore this email.

@@ -1,9 +1,0 @@
-Hola {{.Name}}:
-
-Pediste usar esta dirección como el nuevo email de tu cuenta. Para confirmarlo, abrí este enlace:
-
-{{.Link}}
-
-El enlace vence en {{.Expires}} y sirve una sola vez. Hasta que lo abras, tu email sigue siendo el anterior.
-
-Si no lo pediste vos, ignorá este correo.

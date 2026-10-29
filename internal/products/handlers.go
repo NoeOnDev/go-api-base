@@ -18,6 +18,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -67,9 +68,9 @@ func toResponse(p store.GetProductRow) productResponse {
 }
 
 var (
-	errNotFound   = httpx.NotFound("el producto no existe")
-	errSlugTaken  = httpx.Conflict("ya existe un producto con ese slug", "slug")
-	errNoCategory = httpx.Validation(map[string]string{"category_id": "la categoría no existe"})
+	errNotFound   = httpx.NotFound("product_not_found")
+	errSlugTaken  = httpx.Conflict("slug_taken", "slug")
+	errNoCategory = httpx.Validation(httpx.Fields{"category_id": i18n.M("validation.unknown_category")})
 )
 
 // writeError traduce los errores de la base que dependen de los datos enviados.

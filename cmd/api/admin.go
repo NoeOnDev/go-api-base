@@ -15,6 +15,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
 // runCreateAdmin crea un usuario con rol admin:
@@ -103,19 +104,22 @@ func describe(err error) error {
 	if !errors.As(err, &apiErr) {
 		return err
 	}
+	// La terminal es del operador: los mensajes van en inglés, el idioma del proyecto.
+	t := i18n.Default().Translator(i18n.BaseLocale)
 	if apiErr.Code != "validation_failed" {
-		return errors.New(apiErr.Message)
+		return errors.New(apiErr.Message(t))
 	}
 
-	keys := make([]string, 0, len(apiErr.Fields))
-	for k := range apiErr.Fields {
+	fields := apiErr.FieldMessages(t)
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	msg := apiErr.Message + ":"
+	msg := apiErr.Message(t)
 	for _, k := range keys {
-		msg += fmt.Sprintf("\n  - %s: %s", k, apiErr.Fields[k])
+		msg += fmt.Sprintf("\n  - %s: %s", k, fields[k])
 	}
 	return errors.New(msg)
 }

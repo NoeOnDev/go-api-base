@@ -175,6 +175,7 @@ type User struct {
 	TOTPSecret      *string
 	TOTPEnabledAt   *time.Time
 	TOTPLastStep    *int64
+	Locale          *string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }

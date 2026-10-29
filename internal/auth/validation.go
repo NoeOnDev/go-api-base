@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
 // Límites de longitud, en caracteres.
@@ -21,6 +22,9 @@ type RegisterInput struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// Locale es el idioma del usuario (ver User.Locale). No llega en el cuerpo: el registro lo
+	// toma de Accept-Language, y nil deja el idioma por defecto.
+	Locale *string `json:"-"`
 }
 
 func (in *RegisterInput) normalize() {
@@ -29,20 +33,20 @@ func (in *RegisterInput) normalize() {
 }
 
 func (in RegisterInput) validate() error {
-	fields := map[string]string{}
+	fields := httpx.Fields{}
 
 	switch {
 	case in.Name == "":
-		fields["name"] = "es obligatorio"
+		fields["name"] = i18n.M("validation.required")
 	case utf8.RuneCountInString(in.Name) > maxNameLen:
-		fields["name"] = "no puede superar 100 caracteres"
+		fields["name"] = i18n.M("validation.too_long", "max", maxNameLen)
 	}
 
-	if msg := validateEmail(in.Email); msg != "" {
+	if msg := validateEmail(in.Email); !msg.IsZero() {
 		fields["email"] = msg
 	}
 
-	if msg := validatePassword(in.Password); msg != "" {
+	if msg := validatePassword(in.Password); !msg.IsZero() {
 		fields["password"] = msg
 	}
 
@@ -60,17 +64,17 @@ type loginInput struct {
 }
 
 func (in loginInput) validate() error {
-	fields := map[string]string{}
+	fields := httpx.Fields{}
 	switch {
 	case strings.TrimSpace(in.Email) == "":
-		fields["email"] = "es obligatorio"
+		fields["email"] = i18n.M("validation.required")
 	case len(in.Email) > maxEmailLen:
 		// El email es la clave del límite por cuenta: sin tope, cada intento podría ocupar
 		// hasta el tamaño máximo del cuerpo (1 MB) en memoria.
-		fields["email"] = "es demasiado largo"
+		fields["email"] = i18n.M("validation.too_long", "max", maxEmailLen)
 	}
 	if in.Password == "" {
-		fields["password"] = "es obligatoria"
+		fields["password"] = i18n.M("validation.required")
 	}
 	if len(fields) > 0 {
 		return httpx.Validation(fields)
@@ -80,27 +84,27 @@ func (in loginInput) validate() error {
 
 // validatePassword aplica las reglas de una contraseña nueva. No se recorta:
 // los espacios también cuentan.
-func validatePassword(password string) string {
+func validatePassword(password string) i18n.Message {
 	switch n := utf8.RuneCountInString(password); {
 	case n < minPasswordLen:
-		return "debe tener al menos 8 caracteres"
+		return i18n.M("validation.too_short", "min", minPasswordLen)
 	case n > maxPasswordLen:
-		return "no puede superar 128 caracteres"
+		return i18n.M("validation.too_long", "max", maxPasswordLen)
 	}
-	return ""
+	return i18n.Message{}
 }
 
-func validateEmail(email string) string {
+func validateEmail(email string) i18n.Message {
 	if email == "" {
-		return "es obligatorio"
+		return i18n.M("validation.required")
 	}
 	if len(email) > maxEmailLen {
-		return "es demasiado largo"
+		return i18n.M("validation.too_long", "max", maxEmailLen)
 	}
 	// net/mail acepta formas como "Ana <ana@x.com>"; se exige solo la dirección.
 	addr, err := mail.ParseAddress(email)
 	if err != nil || addr.Address != email || !strings.Contains(email[strings.LastIndex(email, "@"):], ".") {
-		return "no es un email válido"
+		return i18n.M("validation.invalid_email")
 	}
-	return ""
+	return i18n.Message{}
 }

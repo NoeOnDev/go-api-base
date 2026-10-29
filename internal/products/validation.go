@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/validate"
 )
 
@@ -32,24 +33,24 @@ func (in *productInput) normalize() {
 }
 
 func (in productInput) validate() error {
-	fields := map[string]string{}
+	fields := httpx.Fields{}
 
 	if in.CategoryID < 1 {
-		fields["category_id"] = "es obligatorio"
+		fields["category_id"] = i18n.M("validation.required")
 	}
-	if msg := validate.Required(in.Name, 120); msg != "" {
+	if msg := validate.Required(in.Name, 120); !msg.IsZero() {
 		fields["name"] = msg
 	}
-	if msg := validate.Slug(in.Slug, 120); msg != "" {
+	if msg := validate.Slug(in.Slug, 120); !msg.IsZero() {
 		fields["slug"] = msg
 	}
-	if msg := validate.MaxLen(in.Description, 5000); msg != "" {
+	if msg := validate.MaxLen(in.Description, 5000); !msg.IsZero() {
 		fields["description"] = msg
 	}
-	if msg := validate.NonNegative(in.PriceCents); msg != "" {
+	if msg := validate.NonNegative(in.PriceCents); !msg.IsZero() {
 		fields["price_cents"] = msg
 	}
-	if msg := validate.NonNegative(in.Stock); msg != "" {
+	if msg := validate.NonNegative(in.Stock); !msg.IsZero() {
 		fields["stock"] = msg
 	}
 
@@ -69,19 +70,19 @@ type filters struct {
 
 func parseFilters(r *http.Request) (filters, error) {
 	var f filters
-	fields := map[string]string{}
+	fields := httpx.Fields{}
 	query := r.URL.Query()
 
 	if v := query.Get("category_id"); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id < 1 {
-			fields["category_id"] = "debe ser un número entero positivo"
+			fields["category_id"] = i18n.M("validation.positive_integer")
 		}
 		f.CategoryID = &id
 	}
 
 	if v := strings.TrimSpace(query.Get("q")); v != "" {
-		if msg := validate.MaxLen(v, 100); msg != "" {
+		if msg := validate.MaxLen(v, 100); !msg.IsZero() {
 			fields["q"] = msg
 		}
 		escaped := escapeLike(v)
@@ -91,7 +92,7 @@ func parseFilters(r *http.Request) (filters, error) {
 	if v := query.Get("active"); v != "" {
 		active, err := strconv.ParseBool(v)
 		if err != nil {
-			fields["active"] = "debe ser true o false"
+			fields["active"] = i18n.M("validation.boolean")
 		}
 		f.Active = &active
 	}

@@ -13,10 +13,19 @@ el SQL para ponerlo en una migración nueva (`make migrate-new name=…`).
 
 ## [Sin publicar]
 
-La API funciona con varias instancias, y la documentación tiene un índice para los agentes. Cambia el esquema: ver **Actualizar un proyecto existente**.
+La API funciona con varias instancias, los textos al usuario salen en inglés o en español de México según el idioma de la petición, cada error tiene un código específico, y la documentación tiene un índice para los agentes. Cambia el esquema: ver **Actualizar un proyecto existente**.
 
 ### Agregado
 
+- **Textos al usuario en varios idiomas** (ver `docs/i18n.md`): inglés por defecto y español de México, con tú.
+  - **`internal/i18n`:** un catálogo JSON por idioma (`locales/en.json`, `locales/es-MX.json`), embebido. Los idiomas disponibles son los archivos que hay, y todos tienen que tener las claves de `en.json`. Sumar un idioma es sumar archivos.
+  - **El idioma de cada petición sale de `Accept-Language`**, con `golang.org/x/text/language` (ya era una dependencia indirecta y pasa a directa). Un idioma sin catálogo propio cae en el más cercano (`es-AR` o `es-ES` reciben `es-MX`); si no hay ninguno, `DEFAULT_LOCALE` (nueva, `en` por defecto). Las respuestas llevan `Vary: Accept-Language`.
+  - **Se traducen** los mensajes de error y de validación, los mensajes de éxito, los correos (con su asunto) y las notificaciones. Los logs, los errores internos y la salida de los comandos no se traducen.
+  - **Cada usuario tiene un idioma** (`locale`, nuevo en `users` y en el usuario de la API). El registro guarda el que pidió el navegador, `PUT /auth/me` lo cambia, y los correos y el evento en vivo de las notificaciones le llegan en ese idioma, no en el de quien hizo el cambio.
+  - **Correos por idioma:** `internal/auth/emails/<idioma>/*.txt`, cada uno con su asunto en `{{define "subject"}}`. `mail.Templates` los carga y exige los mismos archivos en cada idioma.
+  - **Las notificaciones no guardan su texto:** se guarda el tipo y sus datos, y `message` se arma al leerlas, en el idioma de quien las lee.
+  - **`testutil.DoWithLanguage`**, para probar las respuestas en otro idioma.
+  - **`make check` exige que el código y los catálogos coincidan:** todo código o clave que se usa existe en los catálogos, no quedan claves sin uso, y cada código de error figura en la tabla de `docs/i18n.md`.
 - **Varias instancias de la API.** Lo que tenía que valer para todas y vivía en memoria pasa por PostgreSQL (ver "Varias instancias" en `docs/decisions.md`):
   - **`internal/ratelimit`:** límites de intentos guardados en la tabla `rate_limits`, con el algoritmo GCRA (una fecha por clave y una sola sentencia atómica por intento). Los usan el login (por cuenta), el 2FA (por usuario), los correos (por destinatario) y las acciones de la cuenta. Ahora valen para todas las instancias y no se reinician al desplegar. Los límites por IP siguen en memoria.
   - **El broker del tiempo real reparte los eventos entre las instancias** con `LISTEN/NOTIFY` (`Broker.Listen`, que llama `main.go`), y también los cierres de sesión: un logout en una instancia corta en el acto los streams de esa sesión en las demás. Un mensaje de más de 8000 bytes se guarda en la tabla `realtime_messages`, y viaja su id. Si se corta la conexión de `LISTEN`, se reconecta y corta los streams abiertos, para que el navegador pida el estado.
@@ -26,6 +35,10 @@ La API funciona con varias instancias, y la documentación tiene un índice para
 
 ### Cambiado
 
+- **Cada error tiene un código específico**, que es también la clave de su mensaje. Antes, `conflict` tenía nueve significados, `unauthorized` tres y `forbidden` dos, y el frontend solo podía distinguirlos leyendo el texto. Ahora son, por ejemplo, `email_taken`, `slug_taken`, `two_factor_already_enabled`, `invalid_credentials`, `two_factor_challenge_expired`, `cross_origin_rejected`, `note_not_found` o `malformed_json`. La lista completa está en `docs/i18n.md`. El status HTTP no cambia.
+- **Los helpers de `httpx` reciben el código y no el texto:** `httpx.Conflict("email_taken", "email")`, `httpx.NotFound("note_not_found")`, `httpx.BadRequest("unknown_field", "field", name)`. `httpx.Validation` recibe `httpx.Fields` con `i18n.Message`, y las reglas de `internal/validate` devuelven `i18n.Message`. `httpx.Error` ya no tiene `Message`: se traduce al escribir la respuesta.
+- **Los mensajes de es-MX van con tú y no con voseo**, y los de validación son neutros en género ("Este campo es obligatorio.").
+- La fecha del correo de 2FA bloqueado pasa a un formato sin ambigüedad: `2006-01-02 15:04 UTC`.
 - `auth.Limits.Account` es un `*ratelimit.Limiter` (`ratelimit.New(queries, "account", 12*time.Second, 5)`) en lugar de un `*httpx.RateLimiter`.
 - **Hace falta una conexión directa a PostgreSQL**, o PgBouncer en modo `session`: `LISTEN` no funciona con PgBouncer en modo `transaction`.
 - `sqlc.yaml` genera `interval` como `time.Duration`.
@@ -51,6 +64,14 @@ La API funciona con varias instancias, y la documentación tiene un índice para
 - El README no enlazaba "Quitar funciones" de auth desde "Usar como base de un proyecto nuevo", y un agente que leía el README o `AGENTS.md` no tenía cómo enterarse de que existía.
 
 ### Actualizar un proyecto existente
+
+Para la traducción, copiá `internal/i18n`, `internal/mail/templates.go` y las carpetas `internal/auth/emails/en/` y `es-MX/`, y adaptá los handlers a los códigos (ver `docs/i18n.md`). El idioma del usuario necesita una migración nueva (`make migrate-new name=add_users_locale`), con `ALTER TABLE users DROP COLUMN locale;` en `-- +goose Down`:
+
+```sql
+ALTER TABLE users ADD COLUMN locale text;
+```
+
+Las notificaciones guardadas antes tienen su texto en `data.message`: ese campo queda, pero `message` sale de los catálogos.
 
 Copiá `internal/ratelimit`, `internal/realtime/instances.go` y las consultas `rate_limits.sql` y `realtime.sql`, sumá el override de `interval` a `sqlc.yaml` y corré `make sqlc`. El esquema necesita dos migraciones nuevas (`make migrate-new name=create_rate_limits` y `name=create_realtime_messages`), cada una con su `DROP TABLE` en `-- +goose Down`:
 

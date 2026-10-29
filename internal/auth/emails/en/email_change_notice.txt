@@ -1,0 +1,8 @@
+{{define "subject"}}A change of your account email was requested{{end -}}
+Hi {{.Name}},
+
+Someone asked to change your account email to {{.Email}}. The change only happens once it is confirmed with the link we sent to that address.
+
+If it was you, there is nothing else to do.
+
+If it wasn't you, someone signed in to your account and knows your password: change it right away. As long as nobody confirms the link, your email stays the same.

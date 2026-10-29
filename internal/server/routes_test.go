@@ -58,7 +58,7 @@ func TestUnknownRoute(t *testing.T) {
 	w := httptest.NewRecorder()
 	api.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/no-existe", nil))
 
-	if w.Code != http.StatusNotFound || errorCode(t, w) != "not_found" {
+	if w.Code != http.StatusNotFound || errorCode(t, w) != "route_not_found" {
 		t.Errorf("status = %d", w.Code)
 	}
 }
@@ -74,7 +74,7 @@ func TestCSRFProtection(t *testing.T) {
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 
-		if w.Code != http.StatusForbidden || errorCode(t, w) != "forbidden" {
+		if w.Code != http.StatusForbidden || errorCode(t, w) != "cross_origin_rejected" {
 			t.Errorf("status = %d, se esperaba 403", w.Code)
 		}
 	})

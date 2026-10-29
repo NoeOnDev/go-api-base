@@ -14,6 +14,9 @@ CREATE TABLE users (
     totp_secret       text,
     totp_enabled_at   timestamptz,
     totp_last_step    bigint,
+    -- Idioma del usuario para los correos y las notificaciones que le llegan, por ejemplo 'es-MX'
+    -- (ver docs/i18n.md). NULL es el idioma por defecto (DEFAULT_LOCALE).
+    locale            text,
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );

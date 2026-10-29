@@ -1,0 +1,6 @@
+{{define "subject"}}Your account was deleted{{end -}}
+Hi {{.Name}},
+
+Your account was deleted, along with all its data. This is the last email we will send you.
+
+If it wasn't you, someone knew your password. Reply to this email or contact the team right away.

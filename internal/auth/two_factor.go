@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/totp"
@@ -23,11 +24,11 @@ func totpAAD(userID int64) []byte {
 }
 
 var (
-	errTwoFactorEnabled    = httpx.Conflict("el 2FA ya está activo", "")
-	errTwoFactorNotEnabled = httpx.Conflict("el 2FA no está activo", "")
-	errSetupFirst          = httpx.Conflict("primero pedí el código QR con POST /auth/two-factor/setup", "")
-	errSecretChanged       = httpx.Conflict("el código QR cambió mientras lo activabas; escaneá el nuevo y volvé a intentarlo", "")
-	errWrongCode           = httpx.Validation(map[string]string{"code": "el código no es correcto"})
+	errTwoFactorEnabled    = httpx.Conflict("two_factor_already_enabled", "")
+	errTwoFactorNotEnabled = httpx.Conflict("two_factor_not_enabled", "")
+	errSetupFirst          = httpx.Conflict("two_factor_setup_required", "")
+	errSecretChanged       = httpx.Conflict("two_factor_secret_changed", "")
+	errWrongCode           = httpx.Validation(httpx.Fields{"code": i18n.M("validation.wrong_code")})
 )
 
 type setupResponse struct {
@@ -154,7 +155,7 @@ func (s *Service) enableTwoFactor(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	s.sessionsEnded(r.Context(), user.ID, keep)
-	s.notify(r.Context(), user.ID, NotifyTwoFactorEnabled, "Se activó la verificación en dos pasos en tu cuenta.")
+	s.notify(r.Context(), user.ID, NotifyTwoFactorEnabled, nil)
 
 	httpx.Write(w, http.StatusOK, recoveryCodesResponse{RecoveryCodes: codes})
 	return nil
@@ -191,7 +192,7 @@ func (s *Service) disableTwoFactor(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	s.sessionsEnded(r.Context(), user.ID, keep)
-	s.notify(r.Context(), user.ID, NotifyTwoFactorDisabled, "Se desactivó la verificación en dos pasos en tu cuenta. Si no fuiste vos, cambiá tu contraseña.")
+	s.notify(r.Context(), user.ID, NotifyTwoFactorDisabled, nil)
 
 	httpx.Write(w, http.StatusNoContent, nil)
 	return nil
@@ -262,9 +263,8 @@ func (s *Service) checkTOTP(ctx context.Context, u store.User, code string) (int
 // El usuario ve un mensaje claro; el log registra la causa y la clave para el administrador.
 func twoFactorUnavailable(u store.User, cause error) error {
 	return &httpx.Error{
-		Status:  http.StatusServiceUnavailable,
-		Code:    "two_factor_unavailable",
-		Message: "no pudimos verificar tu 2FA por un problema del servidor; contactá al administrador",
+		Status: http.StatusServiceUnavailable,
+		Code:   "two_factor_unavailable",
 		Err: fmt.Errorf("descifrar secreto del 2FA del usuario %d (clave %q): %w",
 			u.ID, secretbox.KeyIDOf(*u.TOTPSecret), cause),
 	}

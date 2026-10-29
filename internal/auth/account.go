@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -21,7 +22,7 @@ type passwordInput struct {
 // Si no coincide, devuelve un error de validación en el campo indicado.
 func (s *Service) checkPassword(ctx context.Context, userID int64, password, field string) error {
 	if password == "" {
-		return httpx.Validation(map[string]string{field: "es obligatoria"})
+		return httpx.Validation(httpx.Fields{field: i18n.M("validation.required")})
 	}
 	stored, err := s.q.GetUserByID(ctx, userID)
 	if err != nil {
@@ -32,7 +33,7 @@ func (s *Service) checkPassword(ctx context.Context, userID int64, password, fie
 		return fmt.Errorf("verificar contraseña del usuario %d: %w", userID, err)
 	}
 	if !ok {
-		return httpx.Validation(map[string]string{field: "es incorrecta"})
+		return httpx.Validation(httpx.Fields{field: i18n.M("validation.wrong_password")})
 	}
 	return nil
 }

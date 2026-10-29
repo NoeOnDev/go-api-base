@@ -98,8 +98,23 @@ func Do(t *testing.T, api http.Handler, cookie *http.Cookie, method, path, body 
 // atacante que reparte sus intentos entre muchas IPs, o para no chocar con el límite por IP.
 func DoFromIP(t *testing.T, api http.Handler, ip string, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return request(t, api, ip, "", cookie, method, path, body)
+}
+
+// DoWithLanguage es como Do, pero con el encabezado Accept-Language (por ejemplo "es-MX"), para
+// probar las respuestas en otro idioma (ver docs/i18n.md).
+func DoWithLanguage(t *testing.T, api http.Handler, lang string, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return request(t, api, "", lang, cookie, method, path, body)
+}
+
+func request(t *testing.T, api http.Handler, ip, lang string, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
+	if lang != "" {
+		r.Header.Set("Accept-Language", lang)
+	}
 	if ip != "" {
 		r.RemoteAddr = ip + ":1234"
 	}

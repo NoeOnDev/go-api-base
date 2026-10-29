@@ -1,0 +1,11 @@
+{{define "subject"}}Sign-in attempt blocked{{end -}}
+Hi {{.Name}},
+
+Someone entered the correct password of your account, but typed the two-factor code wrong several times. We blocked that sign-in attempt.
+
+Date: {{.When}}
+IP: {{.IP}}
+
+If it was you, there is nothing to do: sign in again with the code from your app.
+
+If it wasn't you, someone knows your password. Change it right away from your profile, or with "Forgot password" at {{.Link}}

@@ -64,7 +64,7 @@ func toResponse(n store.Note) noteResponse {
 	}
 }
 
-var errNotFound = httpx.NotFound("la nota no existe")
+var errNotFound = httpx.NotFound("note_not_found")
 
 // list responde GET /notes?limit=20&offset=0.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {

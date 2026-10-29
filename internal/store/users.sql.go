@@ -11,9 +11,9 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (name, email, password_hash, role, email_verified_at)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
+INSERT INTO users (name, email, password_hash, role, email_verified_at, locale)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
 `
 
 type CreateUserParams struct {
@@ -22,6 +22,7 @@ type CreateUserParams struct {
 	PasswordHash    string
 	Role            string
 	EmailVerifiedAt *time.Time
+	Locale          *string
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
@@ -31,6 +32,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.PasswordHash,
 		arg.Role,
 		arg.EmailVerifiedAt,
+		arg.Locale,
 	)
 	var i User
 	err := row.Scan(
@@ -43,6 +45,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.TOTPSecret,
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
+		&i.Locale,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -98,7 +101,7 @@ func (q *Queries) EnableTOTP(ctx context.Context, arg EnableTOTPParams) (int64, 
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
 FROM users
 WHERE email = $1
 `
@@ -116,6 +119,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.TOTPSecret,
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
+		&i.Locale,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -123,7 +127,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
 FROM users
 WHERE id = $1
 `
@@ -141,10 +145,23 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.TOTPSecret,
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
+		&i.Locale,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getUserLocale = `-- name: GetUserLocale :one
+SELECT locale FROM users
+WHERE id = $1
+`
+
+func (q *Queries) GetUserLocale(ctx context.Context, id int64) (*string, error) {
+	row := q.db.QueryRow(ctx, getUserLocale, id)
+	var locale *string
+	err := row.Scan(&locale)
+	return locale, err
 }
 
 const listUsersWithTOTPSecret = `-- name: ListUsersWithTOTPSecret :many
@@ -300,7 +317,7 @@ const updateUserEmail = `-- name: UpdateUserEmail :one
 UPDATE users
 SET email = $2, email_verified_at = now(), updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
 `
 
 type UpdateUserEmailParams struct {
@@ -322,37 +339,7 @@ func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams
 		&i.TOTPSecret,
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const updateUserName = `-- name: UpdateUserName :one
-UPDATE users
-SET name = $2, updated_at = now()
-WHERE id = $1
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
-`
-
-type UpdateUserNameParams struct {
-	ID   int64
-	Name string
-}
-
-func (q *Queries) UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserName, arg.ID, arg.Name)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Email,
-		&i.PasswordHash,
-		&i.Role,
-		&i.EmailVerifiedAt,
-		&i.TOTPSecret,
-		&i.TOTPEnabledAt,
-		&i.TOTPLastStep,
+		&i.Locale,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -373,6 +360,40 @@ type UpdateUserPasswordParams struct {
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
 	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
 	return err
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :one
+UPDATE users
+SET name = $1, locale = coalesce($2, locale), updated_at = now()
+WHERE id = $3
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
+`
+
+type UpdateUserProfileParams struct {
+	Name   string
+	Locale *string
+	ID     int64
+}
+
+// UpdateUserProfile cambia el nombre y, si se indica, el idioma (locale NULL lo deja como está).
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserProfile, arg.Name, arg.Locale, arg.ID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.PasswordHash,
+		&i.Role,
+		&i.EmailVerifiedAt,
+		&i.TOTPSecret,
+		&i.TOTPEnabledAt,
+		&i.TOTPLastStep,
+		&i.Locale,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const useTOTPStep = `-- name: UseTOTPStep :execrows

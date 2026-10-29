@@ -1,23 +1,28 @@
 -- name: CreateUser :one
-INSERT INTO users (name, email, password_hash, role, email_verified_at)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at;
+INSERT INTO users (name, email, password_hash, role, email_verified_at, locale)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at;
 
 -- name: GetUserByEmail :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
 FROM users
 WHERE email = $1;
 
 -- name: GetUserByID :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
 FROM users
 WHERE id = $1;
 
--- name: UpdateUserName :one
+-- UpdateUserProfile cambia el nombre y, si se indica, el idioma (locale NULL lo deja como está).
+-- name: UpdateUserProfile :one
 UPDATE users
-SET name = $2, updated_at = now()
-WHERE id = $1
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at;
+SET name = sqlc.arg('name'), locale = coalesce(sqlc.narg('locale'), locale), updated_at = now()
+WHERE id = sqlc.arg('id')
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at;
+
+-- name: GetUserLocale :one
+SELECT locale FROM users
+WHERE id = $1;
 
 -- name: UpdateUserPassword :exec
 UPDATE users
@@ -86,7 +91,7 @@ FOR UPDATE;
 UPDATE users
 SET email = $2, email_verified_at = now(), updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, created_at, updated_at;
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at;
 
 -- LockAdmins devuelve los admins y bloquea sus filas hasta el final de la transacción: así dos
 -- admins que borran su cuenta a la vez no pueden dejar la API sin ninguno.

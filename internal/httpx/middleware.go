@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -216,9 +215,8 @@ func Recover(next http.Handler) http.Handler {
 				panic(http.ErrAbortHandler)
 			}
 			log.Error("panic recuperado", "panic", v, "stack", string(debug.Stack()))
-			Write(w, http.StatusInternalServerError, map[string]*Error{
-				"error": Internal(fmt.Errorf("panic: %v", v)),
-			})
+			// El panic ya quedó en el log, con su stack: se responde sin volver a registrarlo.
+			writeBody(w, r, Internal(nil))
 		}()
 		next.ServeHTTP(sw, r)
 	})

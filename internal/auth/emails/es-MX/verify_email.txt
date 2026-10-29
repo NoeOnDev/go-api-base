@@ -1,0 +1,10 @@
+{{define "subject"}}Confirma tu email{{end -}}
+Hola {{.Name}}:
+
+Para confirmar tu dirección de correo, abre este enlace:
+
+{{.Link}}
+
+El enlace vence en {{.Expires}} y sirve una sola vez.
+
+Si no creaste una cuenta, ignora este correo.

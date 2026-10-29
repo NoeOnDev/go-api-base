@@ -95,7 +95,7 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 
 	dup := `{"name":"Otra Ana","email":"ana@EJEMPLO.com","password":"otra-clave-larga"}`
 	resp := decode[apiError](t, do(t, api, http.MethodPost, "/auth/register", dup, nil), http.StatusConflict)
-	if resp.Error.Code != "conflict" || resp.Error.Fields["email"] == "" {
+	if resp.Error.Code != "email_taken" || resp.Error.Fields["email"] == "" {
 		t.Errorf("error inesperado: %+v", resp.Error)
 	}
 }

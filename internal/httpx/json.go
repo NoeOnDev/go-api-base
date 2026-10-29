@@ -42,26 +42,22 @@ func decodeError(err error) error {
 
 	switch {
 	case errors.Is(err, io.EOF):
-		return BadRequest("el cuerpo de la petición está vacío")
+		return BadRequest("empty_body")
 	case errors.As(err, &syntaxErr), errors.Is(err, io.ErrUnexpectedEOF):
-		return BadRequest("el cuerpo contiene JSON mal formado")
+		return BadRequest("malformed_json")
 	case errors.As(err, &typeErr):
 		if typeErr.Field != "" {
-			return BadRequest(fmt.Sprintf("el campo %q tiene un tipo incorrecto", typeErr.Field))
+			return BadRequest("wrong_type", "field", typeErr.Field)
 		}
-		return BadRequest("el cuerpo tiene un tipo incorrecto")
+		return BadRequest("wrong_body_type")
 	case strings.HasPrefix(err.Error(), "json: unknown field "):
 		// encoding/json no exporta un tipo para este error, así que se reconoce por su mensaje.
 		field := strings.TrimPrefix(err.Error(), "json: unknown field ")
-		return BadRequest(fmt.Sprintf("campo desconocido %s", field))
+		return BadRequest("unknown_field", "field", field)
 	case errors.As(err, &maxBytesErr):
-		return &Error{
-			Status:  http.StatusRequestEntityTooLarge,
-			Code:    "payload_too_large",
-			Message: fmt.Sprintf("el cuerpo no puede superar %d bytes", maxBytesErr.Limit),
-		}
+		return &Error{Status: http.StatusRequestEntityTooLarge, Code: "payload_too_large", Args: []any{"limit", maxBytesErr.Limit}}
 	default:
-		return BadRequest("no se pudo leer el cuerpo de la petición")
+		return BadRequest("unreadable_body")
 	}
 }
 

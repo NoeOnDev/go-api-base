@@ -1,0 +1,10 @@
+{{define "subject"}}Confirm your new email{{end -}}
+Hi {{.Name}},
+
+You asked to use this address as the new email of your account. To confirm it, open this link:
+
+{{.Link}}
+
+The link expires in {{.Expires}} and works only once. Until you open it, your email stays the previous one.
+
+If you didn't ask for this, ignore this email.

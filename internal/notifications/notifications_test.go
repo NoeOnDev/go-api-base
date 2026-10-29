@@ -27,7 +27,7 @@ type listResponse struct {
 func TestNotificationsOwnership(t *testing.T) {
 	pool := testutil.NewDB(t)
 	broker := realtime.NewBroker()
-	svc := notifications.NewService(store.New(pool), broker)
+	svc := notifications.NewService(store.New(pool), broker, nil)
 	api := testutil.NewAPI(pool, testutil.WithBroker(broker))
 	ana, anaCookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
 	luis, luisCookie := testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
@@ -103,7 +103,7 @@ func do(t *testing.T, srv *httptest.Server, cookie *http.Cookie, method, path, b
 func TestNotificationsArriveLive(t *testing.T) {
 	pool := testutil.NewDB(t)
 	broker := realtime.NewBroker()
-	svc := notifications.NewService(store.New(pool), broker)
+	svc := notifications.NewService(store.New(pool), broker, nil)
 	srv := testutil.NewServer(t, pool, testutil.WithBroker(broker))
 	ana, anaCookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
 	_, luisCookie := testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
@@ -142,7 +142,7 @@ func TestSecurityChangesNotify(t *testing.T) {
 		t.Fatalf("cambio de contraseña: status = %d", resp.StatusCode)
 	}
 	ev := events.Next(t, 2*time.Second)
-	if ev.Type != notifications.EventNotification || !strings.Contains(ev.Data, auth.NotifyPasswordChanged) {
+	if ev.Type != notifications.EventNotification || !strings.Contains(ev.Data, auth.NotifyPasswordChanged) || !strings.Contains(ev.Data, "password was changed") {
 		t.Errorf("evento: %+v", ev)
 	}
 
@@ -151,7 +151,9 @@ func TestSecurityChangesNotify(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Data) != 1 || list.Data[0].Kind != auth.NotifyPasswordChanged || !strings.Contains(string(list.Data[0].Data), "message") {
+	// El texto se arma al leer (no se guarda): en data no queda ningún mensaje.
+	if len(list.Data) != 1 || list.Data[0].Kind != auth.NotifyPasswordChanged ||
+		!strings.Contains(list.Data[0].Message, "password was changed") || string(list.Data[0].Data) != "{}" {
 		t.Errorf("notificaciones guardadas: %+v", list)
 	}
 }

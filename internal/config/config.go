@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 )
 
@@ -61,6 +62,9 @@ type Config struct {
 
 	// AppName es el nombre de la aplicación, por ejemplo el que muestra la app de autenticación del 2FA.
 	AppName string
+	// DefaultLocale es el idioma de los textos al usuario (errores, correos, notificaciones) cuando
+	// la petición no pide uno disponible. Es uno de los catálogos de internal/i18n (ver docs/i18n.md).
+	DefaultLocale string
 	// EncryptionKey (32 bytes) cifra los datos sensibles guardados en la base, como el secreto del 2FA.
 	// Si se pierde, esos datos no se pueden recuperar.
 	EncryptionKey []byte
@@ -211,6 +215,11 @@ func load(rawGetenv func(string) string) (Config, error) {
 	}
 
 	cfg.AppName = valueOr(getenv("APP_NAME"), "Mi App")
+
+	cfg.DefaultLocale = valueOr(getenv("DEFAULT_LOCALE"), i18n.BaseLocale)
+	if _, err := i18n.New(cfg.DefaultLocale); err != nil {
+		errs = append(errs, fmt.Errorf("DEFAULT_LOCALE: %w", err))
+	}
 
 	if v := strings.TrimSpace(getenv("ENCRYPTION_KEY")); v == "" {
 		errs = append(errs, errors.New("ENCRYPTION_KEY es obligatoria (generala con: make key)"))

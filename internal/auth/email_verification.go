@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
 // sendVerificationEmail envía el enlace para confirmar el email. Invalida los enlaces anteriores.
@@ -14,10 +15,10 @@ func (s *Service) sendVerificationEmail(ctx context.Context, u User) error {
 	if err != nil {
 		return err
 	}
-	return s.sendEmail(ctx, u.Email, "Confirmá tu email", "verify_email.txt", emailData{
+	return s.sendEmail(ctx, u.Email, u.Locale, "verify_email.txt", emailData{
 		Name:    u.Name,
 		Link:    s.frontendLink("/verify-email", token),
-		Expires: "24 horas",
+		Expires: s.expiresIn(u.Locale, emailVerificationTTL),
 	})
 }
 
@@ -60,11 +61,7 @@ func (s *Service) resendVerification(w http.ResponseWriter, r *http.Request) err
 	}
 	if !allowed {
 		w.Header().Set("Retry-After", s.emailLimiter.RetryAfter())
-		return &httpx.Error{
-			Status:  http.StatusTooManyRequests,
-			Code:    "too_many_requests",
-			Message: "ya te enviamos varios enlaces; revisá tu correo o esperá unos minutos",
-		}
+		return errTooManyEmails
 	}
 
 	if err := s.sendVerificationEmail(r.Context(), u); err != nil {
@@ -72,7 +69,7 @@ func (s *Service) resendVerification(w http.ResponseWriter, r *http.Request) err
 	}
 
 	httpx.Write(w, http.StatusAccepted, map[string]string{
-		"message": "Te enviamos un enlace nuevo para confirmar tu email.",
+		"message": i18n.FromContext(r.Context()).T("messages.verification_sent"),
 	})
 	return nil
 }

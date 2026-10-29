@@ -120,7 +120,7 @@ Los listados aceptan `?limit=` (de 1 a 100, 20 por defecto) y `?offset=` (hasta 
 Todos los errores tienen la misma forma:
 
 ```json
-{"error": {"code": "validation_failed", "message": "los datos enviados no son válidos", "fields": {"title": "es obligatorio"}}}
+{"error": {"code": "validation_failed", "message": "The data sent is not valid.", "fields": {"title": "This field is required."}}}
 ```
 
 | Código | Cuándo |
@@ -133,6 +133,8 @@ Todos los errores tienen la misma forma:
 | `422` | Validación |
 | `429` | Demasiados intentos |
 | `500` | Error interno, sin detalles; la causa queda en el log con su `request_id` |
+
+Cada error tiene además un `code` específico (`email_taken`, `slug_taken`, `invalid_credentials`…), y `message` sale en el idioma que pide `Accept-Language`: inglés por defecto, o español de México. La lista completa de códigos y cómo agregar un idioma están en [docs/i18n.md](docs/i18n.md).
 
 ## Configuración
 
@@ -158,6 +160,7 @@ Todo se configura con variables de entorno. [`.env.example`](.env.example) tiene
 | `MAIL_FROM` | `no-reply@localhost` | Remitente |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | — / `587` | Datos del servidor SMTP |
 | `APP_NAME` | `Mi App` | Nombre que muestra la app de autenticación del 2FA |
+| `DEFAULT_LOCALE` | `en` | Idioma de los textos al usuario cuando la petición no pide uno disponible (ver [docs/i18n.md](docs/i18n.md)) |
 | `ENCRYPTION_KEY` | (obligatoria) | Clave para cifrar el secreto del 2FA. Generala con `make key` (ver [docs/encryption.md](docs/encryption.md)) |
 | `ENCRYPTION_PREVIOUS_KEYS` | | Claves anteriores, solo durante una rotación |
 | `JOBS_MAX_WORKERS` | `10` | Trabajos en segundo plano que corren a la vez (los correos tienen su propia cola de 4) |
@@ -205,7 +208,8 @@ internal/httpx/      JSON, errores, paginación, middlewares, CORS y límite de 
 internal/server/     servidor, rutas y protección CSRF
 internal/auth/       usuarios, sesiones, roles, perfil, recuperación y verificación (y sus plantillas de correo)
 internal/ratelimit/  límites de intentos por cuenta o usuario, en PostgreSQL
-internal/mail/       envío de correos (log y SMTP)
+internal/i18n/       textos al usuario por idioma (inglés y es-MX)
+internal/mail/       envío de correos (log y SMTP) y plantillas por idioma
 internal/jobs/       trabajos en segundo plano (River): workers, periódicos y la cola de correos
 internal/realtime/   tiempo real con SSE: streams, canales y temas
 internal/notifications/ notificaciones guardadas y enviadas en vivo
@@ -254,6 +258,7 @@ Después:
 
 - [Autenticación](docs/auth.md): cómo funciona, cómo usarla desde React y cómo quitar las funciones que no uses.
 - [Cifrado y `ENCRYPTION_KEY`](docs/encryption.md): qué protege, cómo guardarla y cómo rotarla.
+- [Idiomas (i18n)](docs/i18n.md): textos al usuario en inglés y español de México, cómo agregar un idioma y la lista de códigos de error.
 - [Trabajos en segundo plano](docs/jobs.md): crear trabajos, encolar en una transacción, periódicos, reintentos y cómo quitar la cola.
 - [Tiempo real](docs/realtime.md): eventos con SSE desde React, temas con permiso, streams para agentes de IA, varias instancias y cómo quitarlo.
 - [Cómo agregar un recurso](docs/adding-a-resource.md)

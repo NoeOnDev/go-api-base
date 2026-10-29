@@ -14,6 +14,7 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/db"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/jobs"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
@@ -80,6 +81,12 @@ func run() error {
 		return fmt.Errorf("ENCRYPTION_KEY: %w", err)
 	}
 
+	// config.Load ya validó DEFAULT_LOCALE.
+	catalog, err := i18n.New(cfg.DefaultLocale)
+	if err != nil {
+		return fmt.Errorf("DEFAULT_LOCALE: %w", err)
+	}
+
 	sender, err := newMailSender(cfg, logger)
 	if err != nil {
 		return err
@@ -121,6 +128,7 @@ func run() error {
 		Broker: broker,
 		Jobs:   jobsClient,
 		Box:    box,
+		I18n:   catalog,
 	}), logger)
 	// Al apagar se cierran los streams SSE; si no, Shutdown esperaría hasta el timeout.
 	srv.RegisterOnShutdown(broker.Close)

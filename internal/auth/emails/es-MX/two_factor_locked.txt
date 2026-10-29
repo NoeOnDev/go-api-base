@@ -1,0 +1,11 @@
+{{define "subject"}}Intento de inicio de sesión bloqueado{{end -}}
+Hola {{.Name}}:
+
+Alguien ingresó la contraseña correcta de tu cuenta, pero escribió mal varias veces el código de la verificación en dos pasos. Bloqueamos ese intento de inicio de sesión.
+
+Fecha: {{.When}}
+IP: {{.IP}}
+
+Si fuiste tú, no tienes que hacer nada: vuelve a iniciar sesión con el código de tu app.
+
+Si no fuiste tú, alguien conoce tu contraseña. Cámbiala cuanto antes desde tu perfil, o con "Olvidé mi contraseña" en {{.Link}}

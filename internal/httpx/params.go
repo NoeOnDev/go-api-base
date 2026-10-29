@@ -3,6 +3,8 @@ package httpx
 import (
 	"net/http"
 	"strconv"
+
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
 // Valores de paginación por defecto para los listados.
@@ -38,12 +40,12 @@ type List[T any] struct {
 // Si son inválidos devuelve un error de validación con el campo correspondiente.
 func ParsePage(r *http.Request) (Page, error) {
 	page := Page{Limit: DefaultLimit}
-	fields := map[string]string{}
+	fields := Fields{}
 
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 32)
 		if err != nil || n < 1 || n > MaxLimit {
-			fields["limit"] = "debe ser un número entre 1 y " + strconv.Itoa(MaxLimit)
+			fields["limit"] = i18n.M("validation.integer_range", "min", 1, "max", MaxLimit)
 		}
 		page.Limit = int32(n)
 	}
@@ -51,7 +53,7 @@ func ParsePage(r *http.Request) (Page, error) {
 	if v := r.URL.Query().Get("offset"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 32)
 		if err != nil || n < 0 || n > MaxOffset {
-			fields["offset"] = "debe ser un número entre 0 y " + strconv.Itoa(MaxOffset)
+			fields["offset"] = i18n.M("validation.integer_range", "min", 0, "max", MaxOffset)
 		}
 		page.Offset = int32(n)
 	}
@@ -66,7 +68,7 @@ func ParsePage(r *http.Request) (Page, error) {
 func PathID(r *http.Request, name string) (int64, error) {
 	id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
 	if err != nil || id < 1 {
-		return 0, BadRequest("el " + name + " debe ser un número entero positivo")
+		return 0, BadRequest("invalid_path_id", "name", name)
 	}
 	return id, nil
 }

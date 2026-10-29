@@ -140,7 +140,7 @@ func TestResendVerificationRecipientLimit(t *testing.T) {
 			continue
 		}
 		resp := testutil.Decode[testutil.APIError](t, w, http.StatusTooManyRequests)
-		if resp.Error.Code != "too_many_requests" || w.Header().Get("Retry-After") != "1200" {
+		if resp.Error.Code != "too_many_emails" || w.Header().Get("Retry-After") != "1200" {
 			t.Errorf("respuesta inesperada: %+v, Retry-After %q", resp.Error, w.Header().Get("Retry-After"))
 		}
 	}

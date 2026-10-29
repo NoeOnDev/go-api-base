@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -52,7 +53,7 @@ func (s *Service) listSessions(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-var errCurrentSession = httpx.Validation(map[string]string{"id": "es la sesión de este dispositivo; para cerrarla, usá POST /auth/logout"})
+var errCurrentSession = httpx.Validation(httpx.Fields{"id": i18n.M("validation.current_session")})
 
 // revokeSession responde DELETE /auth/sessions/{id}: cierra una sesión del usuario, por ejemplo
 // la de un dispositivo que no reconoce. La de otro usuario responde 404, como en notes. Se corta
@@ -76,7 +77,7 @@ func (s *Service) revokeSession(w http.ResponseWriter, r *http.Request) error {
 		TokenHash: hashToken(c.Value),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return httpx.NotFound("la sesión no existe")
+		return httpx.NotFound("session_not_found")
 	}
 	if err != nil {
 		return fmt.Errorf("cerrar sesión %d: %w", id, err)

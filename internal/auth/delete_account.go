@@ -10,7 +10,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
 
-var errLastAdmin = httpx.Conflict("no podés borrar la única cuenta de administrador; nombrá otro admin antes", "")
+var errLastAdmin = httpx.Conflict("last_admin", "")
 
 // deleteAccount responde DELETE /auth/me con {password}: borra la cuenta del usuario y todos sus
 // datos (sesiones, tokens, notas, notificaciones…, por ON DELETE CASCADE). Pide la contraseña,
@@ -44,7 +44,7 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 		}
 		if _, err := q.DeleteUser(r.Context(), user.ID); err != nil {
 			if _, ok := db.IsForeignKeyViolation(err); ok {
-				return httpx.Conflict("la cuenta tiene datos que impiden borrarla; contactá al equipo", "")
+				return httpx.Conflict("account_has_data", "")
 			}
 			return fmt.Errorf("borrar usuario %d: %w", user.ID, err)
 		}
@@ -59,7 +59,7 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 	s.clearSessionCookie(w)
 
 	// El último correo, por si no fue el dueño. Si no sale, la cuenta igual quedó borrada.
-	if err := s.sendEmail(r.Context(), user.Email, "Tu cuenta fue eliminada", "account_deleted.txt", emailData{Name: user.Name}); err != nil {
+	if err := s.sendEmail(r.Context(), user.Email, user.Locale, "account_deleted.txt", emailData{Name: user.Name}); err != nil {
 		httpx.LoggerFrom(r.Context()).Error("no se pudo enviar el correo de cuenta eliminada", "user_id", user.ID, "error", err)
 	}
 	httpx.LoggerFrom(r.Context()).Info("cuenta eliminada", "user_id", user.ID)

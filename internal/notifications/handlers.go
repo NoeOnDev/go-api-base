@@ -9,11 +9,12 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
-var errNotFound = httpx.NotFound("la notificación no existe")
+var errNotFound = httpx.NotFound("notification_not_found")
 
 // listResponse es el listado paginado, con la cantidad sin leer para el contador del frontend.
 type listResponse struct {
@@ -33,7 +34,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	case "true":
 		unreadOnly = true
 	default:
-		return httpx.Validation(map[string]string{"unread": "debe ser true o false"})
+		return httpx.Validation(httpx.Fields{"unread": i18n.M("validation.boolean")})
 	}
 
 	user := auth.MustUser(r.Context())
@@ -52,9 +53,10 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("contar notificaciones sin leer: %w", err)
 	}
 
+	t := i18n.FromContext(r.Context())
 	data := make([]Response, len(rows))
 	for i, n := range rows {
-		data[i] = toResponse(n)
+		data[i] = toResponse(n, t)
 	}
 	httpx.Write(w, http.StatusOK, listResponse{
 		List:   httpx.List[Response]{Data: data, Meta: httpx.PageMeta{Limit: page.Limit, Offset: page.Offset, Total: total}},
@@ -80,7 +82,7 @@ func (s *Service) markRead(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	s.broker.PublishToUser(r.Context(), user.ID, realtime.Event{Type: EventRead, Data: map[string]int64{"id": id}})
-	httpx.Write(w, http.StatusOK, toResponse(n))
+	httpx.Write(w, http.StatusOK, toResponse(n, i18n.FromContext(r.Context())))
 	return nil
 }
 

@@ -1,9 +1,0 @@
-Hola {{.Name}}:
-
-Para confirmar tu dirección de correo, abrí este enlace:
-
-{{.Link}}
-
-El enlace vence en {{.Expires}} y sirve una sola vez.
-
-Si no creaste una cuenta, ignorá este correo.

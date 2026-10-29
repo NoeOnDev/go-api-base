@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
 // Límites de longitud, en caracteres.
@@ -26,17 +27,17 @@ func (in *noteInput) normalize() {
 
 // validate revisa las reglas y devuelve un error de validación con todos los campos que fallan.
 func (in noteInput) validate() error {
-	fields := map[string]string{}
+	fields := httpx.Fields{}
 
 	switch {
 	case in.Title == "":
-		fields["title"] = "es obligatorio"
+		fields["title"] = i18n.M("validation.required")
 	case utf8.RuneCountInString(in.Title) > maxTitleLen:
-		fields["title"] = "no puede superar 200 caracteres"
+		fields["title"] = i18n.M("validation.too_long", "max", maxTitleLen)
 	}
 
 	if utf8.RuneCountInString(in.Body) > maxBodyLen {
-		fields["body"] = "no puede superar 10000 caracteres"
+		fields["body"] = i18n.M("validation.too_long", "max", maxBodyLen)
 	}
 
 	if len(fields) > 0 {

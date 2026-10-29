@@ -175,7 +175,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) error {
 - `Open` removes the 30-second `WriteTimeout` for this request, so a long response is not cut.
 - If the user closes the tab, `r.Context()` is cancelled: pass it to the model call to stop generating (and paying for tokens).
 - It goes over `POST`, so it goes through the CSRF protection like any other route.
-- The error event carries a code (`generation_failed`), not a text: the frontend shows the message in the user's language, as with the other errors (see [docs/i18n.md](i18n.md)).
+- The error event carries a code (`generation_failed`), not a text, because no user-facing text goes in the code: the frontend maps it to its message. To send the text instead, add a key to the catalogs and translate it with `i18n.FromContext(r.Context())` (see [docs/i18n.md](i18n.md)).
 
 In the frontend, `EventSource` only does `GET`, so the response is read with `fetch`:
 

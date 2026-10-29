@@ -85,7 +85,7 @@ func TestRotation(t *testing.T) {
 
 func TestAADBindsContext(t *testing.T) {
 	b := testBox(t, 1)
-	enc, err := b.Encrypt([]byte("secreto de ana"), []byte("users.totp_secret:1"))
+	enc, err := b.Encrypt([]byte("secreto de alice"), []byte("users.totp_secret:1"))
 	if err != nil {
 		t.Fatal(err)
 	}

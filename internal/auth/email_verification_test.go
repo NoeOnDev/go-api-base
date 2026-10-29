@@ -26,7 +26,7 @@ func TestEmailVerificationRequired(t *testing.T) {
 	}
 	cookie := sessionCookie(t, w)
 
-	first, ok := mails.Last("ana@ejemplo.com")
+	first, ok := mails.Last("alice@example.com")
 	if !ok || !strings.Contains(first.Body, "https://app.test/verify-email?token=") {
 		t.Fatalf("no se envió el enlace de verificación: %+v", mails.Messages())
 	}
@@ -38,7 +38,7 @@ func TestEmailVerificationRequired(t *testing.T) {
 	}
 	for _, tt := range []struct{ method, path, body string }{
 		{http.MethodGet, "/auth/me", ""},
-		{http.MethodPut, "/auth/me", `{"name":"Ana"}`},
+		{http.MethodPut, "/auth/me", `{"name":"Alice"}`},
 	} {
 		if w := testutil.Do(t, api, cookie, tt.method, tt.path, tt.body); w.Code != http.StatusOK {
 			t.Errorf("%s %s sin verificar: status = %d", tt.method, tt.path, w.Code)
@@ -49,7 +49,7 @@ func TestEmailVerificationRequired(t *testing.T) {
 	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/email/resend", ""); w.Code != http.StatusAccepted {
 		t.Fatalf("resend: status = %d", w.Code)
 	}
-	second, _ := mails.Last("ana@ejemplo.com")
+	second, _ := mails.Last("alice@example.com")
 	testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, nil, http.MethodPost, "/auth/email/verify", verifyBody(testutil.TokenFromEmail(t, first))),
 		http.StatusUnprocessableEntity)
@@ -95,7 +95,7 @@ func TestEmailVerificationDisabledByDefault(t *testing.T) {
 func TestAdminsAreVerified(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool, testutil.WithConfig(requireVerification))
-	admin, cookie := testutil.Login(t, pool, "admin@ejemplo.com", auth.RoleAdmin)
+	admin, cookie := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
 
 	if !admin.EmailVerified() {
 		t.Error("un admin debería quedar verificado al crearse")

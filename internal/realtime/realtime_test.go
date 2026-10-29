@@ -177,34 +177,34 @@ func TestEventsHandler(t *testing.T) {
 	// Un WriteTimeout corto: sin quitarlo, el servidor cortaría el stream enseguida.
 	srv := testServer(t, b, 200*time.Millisecond)
 
-	resp, ana := connect(t, srv, 1, "?topics=project:42")
+	resp, alice := connect(t, srv, 1, "?topics=project:42")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
-	if ev := ana.Next(t, time.Second); ev.Type != "ready" || ev.Data != `{"topics":["project:42"],"rejected":[]}` {
+	if ev := alice.Next(t, time.Second); ev.Type != "ready" || ev.Data != `{"topics":["project:42"],"rejected":[]}` {
 		t.Fatalf("primer evento: %+v", ev)
 	}
-	_, luis := connect(t, srv, 2, "")
-	if ev := luis.Next(t, time.Second); ev.Data != `{"topics":[],"rejected":[]}` {
+	_, bob := connect(t, srv, 2, "")
+	if ev := bob.Next(t, time.Second); ev.Data != `{"topics":[],"rejected":[]}` {
 		t.Errorf("ready sin temas: %+v", ev)
 	}
 
 	// Pasado el WriteTimeout, el stream sigue vivo, con latidos.
 	time.Sleep(300 * time.Millisecond)
-	if c := ana.NextComment(t, time.Second); c != "ping" {
+	if c := alice.NextComment(t, time.Second); c != "ping" {
 		t.Errorf("latido = %q", c)
 	}
 
 	// Cada uno recibe lo de su canal y de sus temas, y nada más.
-	b.PublishToUser(t.Context(), 1, Event{Type: "notification", Data: "hola Ana"})
+	b.PublishToUser(t.Context(), 1, Event{Type: "notification", Data: "hola Alice"})
 	b.Publish(t.Context(), "project:42", Event{Type: "task.moved", Data: 5})
-	if ev := ana.Next(t, time.Second); ev.Type != "notification" || ev.Data != `"hola Ana"` {
+	if ev := alice.Next(t, time.Second); ev.Type != "notification" || ev.Data != `"hola Alice"` {
 		t.Errorf("evento del usuario: %+v", ev)
 	}
-	if ev := ana.Next(t, time.Second); ev.Type != "task.moved" || ev.Data != "5" {
+	if ev := alice.Next(t, time.Second); ev.Type != "task.moved" || ev.Data != "5" {
 		t.Errorf("evento del tema: %+v", ev)
 	}
-	luis.Nothing(t, 100*time.Millisecond)
+	bob.Nothing(t, 100*time.Millisecond)
 }
 
 func TestEventsHandlerRejectedTopics(t *testing.T) {
@@ -287,11 +287,11 @@ func TestStreamsEndWithTheirSession(t *testing.T) {
 	b := NewBroker()
 	srv := testServer(t, b, 0)
 
-	// Ana tiene dos sesiones (dos dispositivos), y Luis una.
+	// Alice tiene dos sesiones (dos dispositivos), y Bob una.
 	_, phone := connect(t, srv, 1, "", "telefono")
 	_, laptop := connect(t, srv, 1, "", "laptop")
-	_, luis := connect(t, srv, 2, "")
-	for _, r := range []*ssetest.Reader{phone, laptop, luis} {
+	_, bob := connect(t, srv, 2, "")
+	for _, r := range []*ssetest.Reader{phone, laptop, bob} {
 		r.Next(t, time.Second) // ready
 	}
 
@@ -304,7 +304,7 @@ func TestStreamsEndWithTheirSession(t *testing.T) {
 		t.Error("el stream de la laptop no debería cortarse")
 	}
 
-	// Ana cambia la contraseña desde la laptop: se cortan las demás sesiones, no la suya.
+	// Alice cambia la contraseña desde la laptop: se cortan las demás sesiones, no la suya.
 	_, other := connect(t, srv, 1, "", "sesion-robada")
 	other.Next(t, time.Second)
 	b.UserSessionsEnded(t.Context(), 1, "laptop")
@@ -320,7 +320,7 @@ func TestStreamsEndWithTheirSession(t *testing.T) {
 	if !laptop.Closed(time.Second) {
 		t.Error("recuperar la contraseña debería cortar todos los streams del usuario")
 	}
-	if luis.Closed(100 * time.Millisecond) {
+	if bob.Closed(100 * time.Millisecond) {
 		t.Error("los streams de otro usuario no se tocan")
 	}
 }

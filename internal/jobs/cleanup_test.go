@@ -45,7 +45,7 @@ func count(t *testing.T, pool *pgxpool.Pool, table string) int {
 func TestCleanupDeletesOnlyExpired(t *testing.T) {
 	pool := testutil.NewDB(t)
 	q := store.New(pool)
-	u, _ := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser) // una sesión vigente
+	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser) // una sesión vigente
 
 	// Una sesión y un token vencidos, y un token vigente.
 	past, future := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
@@ -82,7 +82,7 @@ func TestCleanupDeletesOnlyExpired(t *testing.T) {
 
 func TestCleanupDeletesOldNotifications(t *testing.T) {
 	pool := testutil.NewDB(t)
-	u, _ := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	// Leída hace 100 días (se borra), leída hace 10 días y sin leer de hace un año.
 	for _, n := range []struct {
@@ -120,7 +120,7 @@ func TestCleanupDeletesOldRealtimeMessages(t *testing.T) {
 
 func TestCleanupDeletesIdleSessions(t *testing.T) {
 	pool := testutil.NewDB(t)
-	u, _ := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser) // activa ahora
+	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser) // activa ahora
 	if _, err := pool.Exec(t.Context(), `INSERT INTO sessions (token_hash, user_id, expires_at, last_seen_at)
 		VALUES ('quieta', $1, now() + interval '1 day', now() - interval '2 hours')`, u.ID); err != nil {
 		t.Fatal(err)

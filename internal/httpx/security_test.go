@@ -113,11 +113,11 @@ func TestCORS(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 	})
-	h := CORS([]string{"https://app.ejemplo.com"})(next)
+	h := CORS([]string{"https://app.example.com"})(next)
 
 	t.Run("preflight de un origen permitido", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodOptions, "/notes", nil)
-		r.Header.Set("Origin", "https://app.ejemplo.com")
+		r.Header.Set("Origin", "https://app.example.com")
 		r.Header.Set("Access-Control-Request-Method", "POST")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
@@ -125,7 +125,7 @@ func TestCORS(t *testing.T) {
 		if w.Code != http.StatusNoContent {
 			t.Errorf("status = %d", w.Code)
 		}
-		if w.Header().Get("Access-Control-Allow-Origin") != "https://app.ejemplo.com" ||
+		if w.Header().Get("Access-Control-Allow-Origin") != "https://app.example.com" ||
 			w.Header().Get("Access-Control-Allow-Credentials") != "true" ||
 			w.Header().Get("Access-Control-Allow-Methods") == "" {
 			t.Errorf("encabezados incompletos: %v", w.Header())
@@ -134,11 +134,11 @@ func TestCORS(t *testing.T) {
 
 	t.Run("petición normal de un origen permitido", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, "/notes", nil)
-		r.Header.Set("Origin", "https://app.ejemplo.com")
+		r.Header.Set("Origin", "https://app.example.com")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
 
-		if w.Code != http.StatusTeapot || w.Header().Get("Access-Control-Allow-Origin") != "https://app.ejemplo.com" {
+		if w.Code != http.StatusTeapot || w.Header().Get("Access-Control-Allow-Origin") != "https://app.example.com" {
 			t.Errorf("status = %d, encabezados = %v", w.Code, w.Header())
 		}
 	})
@@ -156,7 +156,7 @@ func TestCORS(t *testing.T) {
 
 	t.Run("sin orígenes configurados no agrega nada", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, "/notes", nil)
-		r.Header.Set("Origin", "https://app.ejemplo.com")
+		r.Header.Set("Origin", "https://app.example.com")
 		w := httptest.NewRecorder()
 		CORS(nil)(next).ServeHTTP(w, r)
 
@@ -210,19 +210,19 @@ func TestRateLimiterRemembersUntilRefilled(t *testing.T) {
 	// 3 intentos que se recargan de a uno cada 20 minutos: tarda 1 hora en llenarse.
 	rl := NewRateLimiter(20*time.Minute, 3)
 	for range 3 {
-		rl.Allow("ana")
+		rl.Allow("alice")
 	}
-	if rl.Allow("ana") {
+	if rl.Allow("alice") {
 		t.Fatal("el cuarto intento debería rechazarse")
 	}
 
 	// Pasaron 15 minutos sin intentos (más que visitorTTL) y toca la limpieza:
 	// la clave no se olvida, porque todavía no se recargó.
 	rl.mu.Lock()
-	rl.visitors["ana"].lastSeen = time.Now().Add(-15 * time.Minute)
+	rl.visitors["alice"].lastSeen = time.Now().Add(-15 * time.Minute)
 	rl.lastCleanup = time.Now().Add(-2 * time.Minute)
 	rl.mu.Unlock()
-	if rl.Allow("ana") {
+	if rl.Allow("alice") {
 		t.Error("la clave se olvidó antes de recargarse y recuperó todos sus intentos")
 	}
 
@@ -233,12 +233,12 @@ func TestRateLimiterRemembersUntilRefilled(t *testing.T) {
 
 func TestRateLimiterReset(t *testing.T) {
 	rl := NewRateLimiter(time.Hour, 1)
-	rl.Allow("ana")
-	if rl.Allow("ana") {
+	rl.Allow("alice")
+	if rl.Allow("alice") {
 		t.Fatal("el segundo intento debería rechazarse")
 	}
-	rl.Reset("ana")
-	if !rl.Allow("ana") {
+	rl.Reset("alice")
+	if !rl.Allow("alice") {
 		t.Error("después de Reset la clave debería tener sus intentos de nuevo")
 	}
 }

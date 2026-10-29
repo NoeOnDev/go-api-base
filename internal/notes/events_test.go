@@ -17,17 +17,17 @@ import (
 func TestNoteChangesArriveLive(t *testing.T) {
 	pool := testutil.NewDB(t)
 	srv := testutil.NewServer(t, pool)
-	_, ana := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	_, luis := testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
+	_, alice := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	_, bob := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
 
-	otherTab := testutil.OpenEvents(t, srv, ana, "")
-	luisTab := testutil.OpenEvents(t, srv, luis, "")
+	otherTab := testutil.OpenEvents(t, srv, alice, "")
+	bobTab := testutil.OpenEvents(t, srv, bob, "")
 
 	send := func(method, path, body string) *http.Response {
 		t.Helper()
 		req, _ := http.NewRequestWithContext(t.Context(), method, srv.URL+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-		req.AddCookie(ana)
+		req.AddCookie(alice)
 		resp, err := srv.Client().Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -57,5 +57,5 @@ func TestNoteChangesArriveLive(t *testing.T) {
 		t.Errorf("borrada: %+v", ev)
 	}
 
-	luisTab.Nothing(t, 100*time.Millisecond)
+	bobTab.Nothing(t, 100*time.Millisecond)
 }

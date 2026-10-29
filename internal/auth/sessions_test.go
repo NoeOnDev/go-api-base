@@ -31,7 +31,7 @@ type sessionList struct {
 // loginFrom inicia sesión por la API desde un "dispositivo": un navegador y una IP.
 func loginFrom(t *testing.T, api http.Handler, email, userAgent, ip string) *http.Cookie {
 	t.Helper()
-	r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(fmt.Sprintf(`{"email":%q,"password":"contraseña-de-prueba"}`, email)))
+	r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(fmt.Sprintf(`{"email":%q,"password":"test-password"}`, email)))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("User-Agent", userAgent)
 	r.RemoteAddr = ip + ":1234"
@@ -63,21 +63,21 @@ func otherSession(t *testing.T, sessions []sessionItem) sessionItem {
 func TestListSessions(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
-	laptop := loginFrom(t, api, "ana@ejemplo.com", "Firefox en la laptop", "198.51.100.1")
-	loginFrom(t, api, "ana@ejemplo.com", "Safari en el teléfono", "198.51.100.2")
-	loginFrom(t, api, "luis@ejemplo.com", "Chrome de Luis", "198.51.100.3")
+	testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
+	laptop := loginFrom(t, api, "alice@example.com", "Firefox en la laptop", "198.51.100.1")
+	loginFrom(t, api, "alice@example.com", "Safari en el teléfono", "198.51.100.2")
+	loginFrom(t, api, "bob@example.com", "Chrome de Bob", "198.51.100.3")
 
 	sessions := listSessions(t, api, laptop)
-	// Las dos de Ana por la API, más la de testutil.Login. Ninguna de Luis.
+	// Las dos de Alice por la API, más la de testutil.Login. Ninguna de Bob.
 	if len(sessions) != 3 {
-		t.Fatalf("sesiones de Ana: %+v", sessions)
+		t.Fatalf("sesiones de Alice: %+v", sessions)
 	}
 	byAgent := map[string]sessionItem{}
 	for _, s := range sessions {
 		byAgent[s.UserAgent] = s
-		if strings.Contains(s.UserAgent, "Luis") {
+		if strings.Contains(s.UserAgent, "Bob") {
 			t.Errorf("aparece una sesión de otro usuario: %+v", s)
 		}
 	}
@@ -92,11 +92,11 @@ func TestListSessions(t *testing.T) {
 func TestRevokeSession(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, ana := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	_, luis := testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
-	phone := loginFrom(t, api, "ana@ejemplo.com", "Safari en el teléfono", "198.51.100.2")
+	_, alice := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	_, bob := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
+	phone := loginFrom(t, api, "alice@example.com", "Safari en el teléfono", "198.51.100.2")
 
-	sessions := listSessions(t, api, ana)
+	sessions := listSessions(t, api, alice)
 	phoneID := otherSession(t, sessions).ID
 	var currentID int64
 	for _, s := range sessions {
@@ -105,21 +105,21 @@ func TestRevokeSession(t *testing.T) {
 		}
 	}
 
-	// La sesión de otro usuario no existe para Ana.
-	luisID := listSessions(t, api, luis)[0].ID
-	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, ana, http.MethodDelete, fmt.Sprintf("/auth/sessions/%d", luisID), ""), http.StatusNotFound)
+	// La sesión de otro usuario no existe para Alice.
+	bobID := listSessions(t, api, bob)[0].ID
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, alice, http.MethodDelete, fmt.Sprintf("/auth/sessions/%d", bobID), ""), http.StatusNotFound)
 	// La actual se cierra con logout.
-	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, ana, http.MethodDelete, fmt.Sprintf("/auth/sessions/%d", currentID), ""), http.StatusUnprocessableEntity)
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, alice, http.MethodDelete, fmt.Sprintf("/auth/sessions/%d", currentID), ""), http.StatusUnprocessableEntity)
 
-	if w := testutil.Do(t, api, ana, http.MethodDelete, fmt.Sprintf("/auth/sessions/%d", phoneID), ""); w.Code != http.StatusNoContent {
+	if w := testutil.Do(t, api, alice, http.MethodDelete, fmt.Sprintf("/auth/sessions/%d", phoneID), ""); w.Code != http.StatusNoContent {
 		t.Fatalf("cerrar la sesión del teléfono: status = %d", w.Code)
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, phone, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
-	if w := testutil.Do(t, api, ana, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
+	if w := testutil.Do(t, api, alice, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
 		t.Errorf("la sesión actual debería seguir: status = %d", w.Code)
 	}
-	if w := testutil.Do(t, api, luis, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("la sesión de Luis no se toca: status = %d", w.Code)
+	if w := testutil.Do(t, api, bob, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
+		t.Errorf("la sesión de Bob no se toca: status = %d", w.Code)
 	}
 }
 
@@ -127,7 +127,7 @@ func TestRevokeSession(t *testing.T) {
 func TestRevokeSessionCutsItsStream(t *testing.T) {
 	pool := testutil.NewDB(t)
 	srv := testutil.NewServer(t, pool)
-	_, laptop := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, laptop := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	send := func(cookie *http.Cookie, method, path, body string) *http.Response {
 		t.Helper()
@@ -167,17 +167,17 @@ func TestRevokeSessionCutsItsStream(t *testing.T) {
 func TestRevokeOtherSessions(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, laptop := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	phone := loginFrom(t, api, "ana@ejemplo.com", "Safari", "198.51.100.2")
-	tablet := loginFrom(t, api, "ana@ejemplo.com", "Chrome", "198.51.100.3")
+	_, laptop := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	phone := loginFrom(t, api, "alice@example.com", "Safari", "198.51.100.2")
+	tablet := loginFrom(t, api, "alice@example.com", "Chrome", "198.51.100.3")
 
 	// Pide la contraseña.
-	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, laptop, http.MethodPost, "/auth/sessions/revoke-others", `{"password":"incorrecta"}`), http.StatusUnprocessableEntity)
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, laptop, http.MethodPost, "/auth/sessions/revoke-others", `{"password":"wrong-password"}`), http.StatusUnprocessableEntity)
 	if w := testutil.Do(t, api, phone, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
 		t.Fatalf("con la contraseña incorrecta no se cierra nada: status = %d", w.Code)
 	}
 
-	if w := testutil.Do(t, api, laptop, http.MethodPost, "/auth/sessions/revoke-others", `{"password":"contraseña-de-prueba"}`); w.Code != http.StatusNoContent {
+	if w := testutil.Do(t, api, laptop, http.MethodPost, "/auth/sessions/revoke-others", `{"password":"test-password"}`); w.Code != http.StatusNoContent {
 		t.Fatalf("revoke-others: status = %d; cuerpo: %s", w.Code, w.Body)
 	}
 	for _, c := range []*http.Cookie{phone, tablet} {
@@ -192,7 +192,7 @@ func TestRevokeOtherSessions(t *testing.T) {
 func TestLastSeenIsThrottled(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	setLastSeen := func(ago time.Duration) {
 		t.Helper()
@@ -225,7 +225,7 @@ func lastSeenAgo(t *testing.T, pool *pgxpool.Pool, userID int64) time.Duration {
 
 func TestSessionIdleTimeout(t *testing.T) {
 	pool := testutil.NewDB(t)
-	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	setLastSeen := func(ago string) {
 		t.Helper()
 		if _, err := pool.Exec(t.Context(), "UPDATE sessions SET last_seen_at = now() - $1::interval WHERE user_id = $2", ago, u.ID); err != nil {
@@ -255,7 +255,7 @@ func TestSessionIdleTimeout(t *testing.T) {
 // la limpieza periódica todavía no las haya borrado: ya no sirven para entrar.
 func TestListSessionsHidesIdleSessions(t *testing.T) {
 	pool := testutil.NewDB(t)
-	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	newSession(t, pool, u.ID) // otro dispositivo
 
 	api := testutil.NewAPI(pool)
@@ -281,7 +281,7 @@ func TestListSessionsHidesIdleSessions(t *testing.T) {
 func TestStartSessionReplacesBrowserSession(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	u, old := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	u, old := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	phone := newSession(t, pool, u.ID) // otro dispositivo
 
 	// Login en el mismo navegador, que todavía manda la cookie vieja.
@@ -299,8 +299,8 @@ func TestStartSessionReplacesBrowserSession(t *testing.T) {
 		t.Errorf("la sesión del teléfono debería seguir: status = %d", w.Code)
 	}
 
-	// Cambio de cuenta en el mismo navegador: registrar a Luis cierra esa sesión de Ana.
-	w = testutil.Do(t, api, current, http.MethodPost, "/auth/register", `{"name":"Luis","email":"luis@ejemplo.com","password":"una-clave-larga"}`)
+	// Cambio de cuenta en el mismo navegador: registrar a Bob cierra esa sesión de Alice.
+	w = testutil.Do(t, api, current, http.MethodPost, "/auth/register", `{"name":"Bob","email":"bob@example.com","password":"a-long-password"}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("registro: status = %d; cuerpo: %s", w.Code, w.Body)
 	}

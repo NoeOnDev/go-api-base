@@ -105,7 +105,7 @@ func countRows(t *testing.T, pool *pgxpool.Pool, table string, userID int64) int
 	return n
 }
 
-const newPassword = "una-clave-nueva"
+const newPassword = "a-new-password"
 
 func resetBody(token, password string) string {
 	return fmt.Sprintf(`{"token":%q,"password":%q}`, token, password)
@@ -113,7 +113,7 @@ func resetBody(token, password string) string {
 
 func requireVerification(c *config.Config) { c.RequireEmailVerification = true }
 
-const loginBody = `{"email":"ana@ejemplo.com","password":"contraseña-de-prueba"}`
+const loginBody = `{"email":"alice@example.com","password":"test-password"}`
 
 // ips entrega una IP nueva en cada llamada.
 type ips struct{ n int }

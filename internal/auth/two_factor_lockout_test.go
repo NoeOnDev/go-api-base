@@ -39,7 +39,7 @@ func TestChallengeLocksAfterMaxAttempts(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
@@ -71,7 +71,7 @@ func TestChallengeLocksAfterMaxAttempts(t *testing.T) {
 	}
 
 	// El usuario recibe el aviso, con la IP del último intento.
-	msg, ok := mails.Last("ana@ejemplo.com")
+	msg, ok := mails.Last("alice@example.com")
 	if !ok || msg.Subject != lockedSubject || !strings.Contains(msg.Body, lastIP) || !strings.Contains(msg.Body, "https://app.test") {
 		t.Errorf("aviso inesperado (%v): %+v", ok, msg)
 	}
@@ -92,7 +92,7 @@ func TestChallengeUserLimitAcrossIPs(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
@@ -127,11 +127,11 @@ func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
-	// Alguien con la contraseña agota el límite del 2FA de Ana y deja un desafío pendiente.
+	// Alguien con la contraseña agota el límite del 2FA de Alice y deja un desafío pendiente.
 	for range 2 {
 		pending := loginFromIP(t, api, addr.next())
 		for range 5 {
@@ -140,9 +140,9 @@ func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
 	}
 	attacker := loginFromIP(t, api, addr.next())
 
-	// Ana recupera su contraseña.
-	testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
-	msg, _ := mails.Last("ana@ejemplo.com")
+	// Alice recupera su contraseña.
+	testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
+	msg, _ := mails.Last("alice@example.com")
 	if w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/password/reset", resetBody(testutil.TokenFromEmail(t, msg), newPassword)); w.Code != http.StatusNoContent {
 		t.Fatalf("reset: status = %d", w.Code)
 	}
@@ -150,9 +150,9 @@ func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
 	// El desafío que se obtuvo con la contraseña vieja ya no sirve…
 	testutil.Decode[testutil.APIError](t, challengeFromIP(t, api, addr.next(), attacker, codeBody(tf.Code(t))), http.StatusUnauthorized)
 
-	// …y Ana entra con la contraseña nueva sin esperar a que se recargue el límite.
+	// …y Alice entra con la contraseña nueva sin esperar a que se recargue el límite.
 	w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/login",
-		fmt.Sprintf(`{"email":"ana@ejemplo.com","password":%q}`, newPassword))
+		fmt.Sprintf(`{"email":"alice@example.com","password":%q}`, newPassword))
 	testutil.Decode[map[string]bool](t, w, http.StatusAccepted)
 	var mine *http.Cookie
 	for _, c := range w.Result().Cookies() {
@@ -161,22 +161,22 @@ func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
 		}
 	}
 	if w := challengeFromIP(t, api, addr.next(), mine, codeBody(tf.Code(t))); w.Code != http.StatusOK {
-		t.Errorf("login de Ana después del reset: status = %d; cuerpo: %s", w.Code, w.Body)
+		t.Errorf("login de Alice después del reset: status = %d; cuerpo: %s", w.Code, w.Body)
 	}
 }
 
 func TestPasswordChangeEndsPendingChallenges(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	addr := &ips{}
 
 	// Alguien con la contraseña pasó el primer paso del login…
 	attacker := loginFromIP(t, api, addr.next())
 
-	// …y Ana, que tiene su sesión abierta, cambia la contraseña.
-	body := fmt.Sprintf(`{"current_password":"contraseña-de-prueba","password":%q}`, newPassword)
+	// …y Alice, que tiene su sesión abierta, cambia la contraseña.
+	body := fmt.Sprintf(`{"current_password":"test-password","password":%q}`, newPassword)
 	if w := testutil.DoFromIP(t, api, addr.next(), session, http.MethodPut, "/auth/password", body); w.Code != http.StatusNoContent {
 		t.Fatalf("cambio de contraseña: status = %d; cuerpo: %s", w.Code, w.Body)
 	}

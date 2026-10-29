@@ -74,11 +74,11 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadMailSMTP(t *testing.T) {
 	cfg, err := load(envFrom(map[string]string{
 		"DATABASE_URL":               "x",
-		"FRONTEND_URL":               "https://app.ejemplo.com/",
+		"FRONTEND_URL":               "https://app.example.com/",
 		"REQUIRE_EMAIL_VERIFICATION": "true",
 		"MAIL_DRIVER":                "smtp",
-		"MAIL_FROM":                  "Mi App <no-reply@ejemplo.com>",
-		"SMTP_HOST":                  "smtp.ejemplo.com",
+		"MAIL_FROM":                  "Mi App <no-reply@example.com>",
+		"SMTP_HOST":                  "smtp.example.com",
 		"SMTP_PORT":                  "465",
 		"SMTP_USERNAME":              "usuario",
 		"SMTP_PASSWORD":              "clave",
@@ -86,10 +86,10 @@ func TestLoadMailSMTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if cfg.FrontendURL != "https://app.ejemplo.com" || !cfg.RequireEmailVerification {
+	if cfg.FrontendURL != "https://app.example.com" || !cfg.RequireEmailVerification {
 		t.Errorf("FrontendURL = %q, RequireEmailVerification = %v", cfg.FrontendURL, cfg.RequireEmailVerification)
 	}
-	want := Mail{Driver: "smtp", From: "Mi App <no-reply@ejemplo.com>", SMTPHost: "smtp.ejemplo.com", SMTPPort: 465, SMTPUser: "usuario", SMTPPass: "clave"}
+	want := Mail{Driver: "smtp", From: "Mi App <no-reply@example.com>", SMTPHost: "smtp.example.com", SMTPPort: 465, SMTPUser: "usuario", SMTPPass: "clave"}
 	if cfg.Mail != want {
 		t.Errorf("Mail = %+v, se esperaba %+v", cfg.Mail, want)
 	}
@@ -104,7 +104,7 @@ func TestLoadCustomValues(t *testing.T) {
 		"SHUTDOWN_TIMEOUT":     "30s",
 		"SESSION_TTL":          "24h",
 		"TRUST_PROXY":          "true",
-		"CORS_ALLOWED_ORIGINS": " https://app.ejemplo.com/ , http://localhost:5173",
+		"CORS_ALLOWED_ORIGINS": " https://app.example.com/ , http://localhost:5173",
 	}))
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
@@ -131,7 +131,7 @@ func TestLoadCustomValues(t *testing.T) {
 	if fmt.Sprint(cfg.TrustedProxies) != fmt.Sprint(httpx.DefaultTrustedProxies) {
 		t.Errorf("con TRUST_PROXY=true y sin TRUSTED_PROXIES: %v", cfg.TrustedProxies)
 	}
-	want := []string{"https://app.ejemplo.com", "http://localhost:5173"}
+	want := []string{"https://app.example.com", "http://localhost:5173"}
 	if fmt.Sprint(cfg.CORSAllowedOrigins) != fmt.Sprint(want) {
 		t.Errorf("CORSAllowedOrigins = %v, se esperaba %v", cfg.CORSAllowedOrigins, want)
 	}
@@ -175,12 +175,12 @@ func TestLoadUnquotesValues(t *testing.T) {
 	cfg, err := load(envFrom(map[string]string{
 		"DATABASE_URL": `"postgres://localhost/db"`,
 		"APP_NAME":     `"Mi App"`,
-		"MAIL_FROM":    `'Mi App <no-reply@ejemplo.com>'`,
+		"MAIL_FROM":    `'Mi App <no-reply@example.com>'`,
 	}))
 	if err != nil {
 		t.Fatalf("error inesperado: %v", err)
 	}
-	if cfg.AppName != "Mi App" || cfg.Mail.From != "Mi App <no-reply@ejemplo.com>" || cfg.DatabaseURL != "postgres://localhost/db" {
+	if cfg.AppName != "Mi App" || cfg.Mail.From != "Mi App <no-reply@example.com>" || cfg.DatabaseURL != "postgres://localhost/db" {
 		t.Errorf("valores con comillas: AppName=%q, From=%q, DatabaseURL=%q", cfg.AppName, cfg.Mail.From, cfg.DatabaseURL)
 	}
 }
@@ -224,8 +224,8 @@ func TestProductionWarnings(t *testing.T) {
 		"APP_ENV":      "production",
 		"DATABASE_URL": "x",
 		"MAIL_DRIVER":  "smtp",
-		"SMTP_HOST":    "smtp.ejemplo.com",
-		"MAIL_FROM":    "Mi App <no-reply@ejemplo.com>",
+		"SMTP_HOST":    "smtp.example.com",
+		"MAIL_FROM":    "Mi App <no-reply@example.com>",
 		"FRONTEND_URL": "http://127.0.0.1:3000",
 	}))
 	if err != nil {
@@ -239,9 +239,9 @@ func TestProductionWarnings(t *testing.T) {
 		"APP_ENV":      "production",
 		"DATABASE_URL": "x",
 		"MAIL_DRIVER":  "smtp",
-		"SMTP_HOST":    "smtp.ejemplo.com",
-		"MAIL_FROM":    "no-reply@ejemplo.com",
-		"FRONTEND_URL": "https://app.ejemplo.com",
+		"SMTP_HOST":    "smtp.example.com",
+		"MAIL_FROM":    "no-reply@example.com",
+		"FRONTEND_URL": "https://app.example.com",
 	}))
 	if err != nil {
 		t.Fatal(err)

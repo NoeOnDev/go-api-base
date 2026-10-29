@@ -17,10 +17,10 @@ func TestStolenSessionStreamIsCutOnPasswordReset(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	srv := testutil.NewServer(t, pool, testutil.WithMailer(mails))
-	_, owner := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, owner := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
-	// Otra sesión de Ana, iniciada por quien le robó la contraseña.
-	resp := do(t, srv, owner, http.MethodPost, "/auth/login", `{"email":"ana@ejemplo.com","password":"contraseña-de-prueba"}`)
+	// Otra sesión de Alice, iniciada por quien le robó la contraseña.
+	resp := do(t, srv, owner, http.MethodPost, "/auth/login", `{"email":"alice@example.com","password":"test-password"}`)
 	var stolen *http.Cookie
 	for _, c := range resp.Cookies() {
 		if c.Name == auth.CookieName {
@@ -33,9 +33,9 @@ func TestStolenSessionStreamIsCutOnPasswordReset(t *testing.T) {
 	attacker := testutil.OpenEvents(t, srv, stolen, "")
 
 	// El dueño recupera la contraseña.
-	do(t, srv, owner, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
-	msg, _ := mails.Last("ana@ejemplo.com")
-	reset := fmt.Sprintf(`{"token":%q,"password":"una-clave-nueva"}`, testutil.TokenFromEmail(t, msg))
+	do(t, srv, owner, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
+	msg, _ := mails.Last("alice@example.com")
+	reset := fmt.Sprintf(`{"token":%q,"password":"a-new-password"}`, testutil.TokenFromEmail(t, msg))
 	if resp := do(t, srv, owner, http.MethodPost, "/auth/password/reset", reset); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("reset: status = %d", resp.StatusCode)
 	}
@@ -50,7 +50,7 @@ func TestStolenSessionStreamIsCutOnPasswordReset(t *testing.T) {
 func TestLogoutCutsItsStream(t *testing.T) {
 	pool := testutil.NewDB(t)
 	srv := testutil.NewServer(t, pool)
-	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	events := testutil.OpenEvents(t, srv, cookie, "")
 
 	if resp := do(t, srv, cookie, http.MethodPost, "/auth/logout", ""); resp.StatusCode != http.StatusNoContent {

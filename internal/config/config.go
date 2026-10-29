@@ -261,7 +261,7 @@ func loadMail(getenv func(string) string) (Mail, error) {
 	var errs []error
 
 	if _, err := mail.ParseAddress(m.From); err != nil {
-		errs = append(errs, fmt.Errorf("MAIL_FROM inválido (ejemplo: Mi App <no-reply@miapp.com>): %w", err))
+		errs = append(errs, fmt.Errorf("MAIL_FROM inválido (ejemplo: Mi App <no-reply@myapp.com>): %w", err))
 	}
 
 	port, err := strconv.Atoi(valueOr(getenv("SMTP_PORT"), "587"))
@@ -288,7 +288,7 @@ func baseURL(value string) (string, error) {
 	value = strings.TrimSuffix(strings.TrimSpace(value), "/")
 	u, err := url.Parse(value)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return "", fmt.Errorf("%q no es una URL válida (ejemplo: https://app.ejemplo.com)", value)
+		return "", fmt.Errorf("%q no es una URL válida (ejemplo: https://app.example.com)", value)
 	}
 	return value, nil
 }
@@ -354,7 +354,7 @@ func origins(value string) ([]string, error) {
 		}
 		u, err := url.Parse(item)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" {
-			return nil, fmt.Errorf("%q no es un origen válido (ejemplo: https://app.ejemplo.com)", item)
+			return nil, fmt.Errorf("%q no es un origen válido (ejemplo: https://app.example.com)", item)
 		}
 		list = append(list, item)
 	}

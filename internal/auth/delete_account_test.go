@@ -12,21 +12,21 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-const deleteBody = `{"password":"contraseña-de-prueba"}`
+const deleteBody = `{"password":"test-password"}`
 
 func TestDeleteAccount(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	_, luis := testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
+	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	_, bob := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
 	testutil.Do(t, api, cookie, http.MethodPost, "/notes", `{"title":"Una nota"}`)
 	if _, err := pool.Exec(t.Context(), "INSERT INTO notifications (user_id, kind) VALUES ($1, 'x')", u.ID); err != nil {
 		t.Fatal(err)
 	}
 
 	// Con la contraseña incorrecta no pasa nada.
-	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodDelete, "/auth/me", `{"password":"otra"}`), http.StatusUnprocessableEntity)
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodDelete, "/auth/me", `{"password":"other"}`), http.StatusUnprocessableEntity)
 	if countRows(t, pool, "users", u.ID) != 1 {
 		t.Fatal("la cuenta no debería haberse borrado")
 	}
@@ -41,19 +41,19 @@ func TestDeleteAccount(t *testing.T) {
 		}
 	}
 
-	// Se fue todo lo suyo, y nada de Luis.
+	// Se fue todo lo suyo, y nada de Bob.
 	for _, table := range []string{"users", "sessions", "notes", "notifications"} {
 		if n := countRows(t, pool, table, u.ID); n != 0 {
 			t.Errorf("quedaron %d filas en %s", n, table)
 		}
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusUnauthorized)
-	if w := testutil.Do(t, api, luis, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
-		t.Errorf("la cuenta de Luis no se toca: status = %d", w.Code)
+	if w := testutil.Do(t, api, bob, http.MethodGet, "/auth/me", ""); w.Code != http.StatusOK {
+		t.Errorf("la cuenta de Bob no se toca: status = %d", w.Code)
 	}
 
 	// Le llega el último correo.
-	if msg, ok := mails.Last("ana@ejemplo.com"); !ok || !strings.Contains(msg.Body, "was deleted") {
+	if msg, ok := mails.Last("alice@example.com"); !ok || !strings.Contains(msg.Body, "was deleted") {
 		t.Errorf("correo de cuenta eliminada: %+v", mails.Messages())
 	}
 }
@@ -61,13 +61,13 @@ func TestDeleteAccount(t *testing.T) {
 func TestDeleteLastAdmin(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, first := testutil.Login(t, pool, "admin1@ejemplo.com", auth.RoleAdmin)
+	_, first := testutil.Login(t, pool, "admin1@example.com", auth.RoleAdmin)
 
 	// El único admin no puede borrarse.
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, first, http.MethodDelete, "/auth/me", deleteBody), http.StatusConflict)
 
 	// Con otro admin, sí.
-	testutil.Login(t, pool, "admin2@ejemplo.com", auth.RoleAdmin)
+	testutil.Login(t, pool, "admin2@example.com", auth.RoleAdmin)
 	if w := testutil.Do(t, api, first, http.MethodDelete, "/auth/me", deleteBody); w.Code != http.StatusNoContent {
 		t.Errorf("con otro admin: status = %d; cuerpo: %s", w.Code, w.Body)
 	}
@@ -78,7 +78,7 @@ func TestDeleteLastAdmin(t *testing.T) {
 func TestDeleteAccountBlockedByRestrict(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	exec := func(sql string, args ...any) {
 		t.Helper()
@@ -100,7 +100,7 @@ func TestDeleteAccountBlockedByRestrict(t *testing.T) {
 func TestDeleteAccountCutsStreams(t *testing.T) {
 	pool := testutil.NewDB(t)
 	srv := testutil.NewServer(t, pool)
-	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	events := testutil.OpenEvents(t, srv, cookie, "")
 
 	req, _ := http.NewRequestWithContext(t.Context(), http.MethodDelete, srv.URL+"/auth/me", strings.NewReader(deleteBody))

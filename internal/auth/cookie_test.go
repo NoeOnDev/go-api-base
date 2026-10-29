@@ -52,7 +52,7 @@ func TestLoginHelperWithSecureCookies(t *testing.T) {
 	api := testutil.NewAPI(pool, secure)
 
 	// Con las mismas opciones que la API, la cookie de testutil.Login coincide.
-	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", "user", secure)
+	_, cookie := testutil.Login(t, pool, "alice@example.com", "user", secure)
 	if cookie.Name != "__Host-session" {
 		t.Errorf("cookie = %q, se esperaba __Host-session", cookie.Name)
 	}

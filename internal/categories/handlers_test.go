@@ -25,7 +25,7 @@ type categoryList struct {
 func TestCategoriesCRUD(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, admin := testutil.Login(t, pool, "admin@ejemplo.com", auth.RoleAdmin)
+	_, admin := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
 
 	created := testutil.Decode[category](t,
 		testutil.Do(t, api, admin, http.MethodPost, "/categories", `{"name":" Bebidas ","slug":"bebidas"}`),
@@ -62,7 +62,7 @@ func TestCategoriesCRUD(t *testing.T) {
 func TestCategoriesWriteRequiresAdmin(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, user := testutil.Login(t, pool, "user@ejemplo.com", auth.RoleUser)
+	_, user := testutil.Login(t, pool, "user@example.com", auth.RoleUser)
 
 	body := `{"name":"Bebidas","slug":"bebidas"}`
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodPost, "/categories", body), http.StatusUnauthorized)
@@ -75,7 +75,7 @@ func TestCategoriesWriteRequiresAdmin(t *testing.T) {
 func TestCategoriesConflicts(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, admin := testutil.Login(t, pool, "admin@ejemplo.com", auth.RoleAdmin)
+	_, admin := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
 
 	c := testutil.Decode[category](t,
 		testutil.Do(t, api, admin, http.MethodPost, "/categories", `{"name":"Bebidas","slug":"bebidas"}`),
@@ -106,7 +106,7 @@ func TestCategoriesConflicts(t *testing.T) {
 func TestCategoriesValidation(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, admin := testutil.Login(t, pool, "admin@ejemplo.com", auth.RoleAdmin)
+	_, admin := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
 
 	resp := testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, admin, http.MethodPost, "/categories", `{"name":"","slug":"Con Espacios"}`),

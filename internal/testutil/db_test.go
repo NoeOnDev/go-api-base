@@ -15,7 +15,7 @@ func TestCheckTestDatabase(t *testing.T) {
 		{"sin DATABASE_URL", "postgres://u:p@localhost:5432/mi_app_test", "", false},
 		{"misma base que la app", app, app, true},
 		{"nombre sin _test", "postgres://u:p@localhost:5432/mi_app_dev", app, true},
-		{"producción por error", "postgres://u:p@db.cliente.com:5432/produccion", app, true},
+		{"producción por error", "postgres://u:p@db.client.com:5432/produccion", app, true},
 		{"misma base _test que la app", "postgres://u:p@localhost:5432/x_test", "postgres://otro:clave@localhost:5432/x_test", true},
 		{"URL inválida", "://", app, true},
 	}

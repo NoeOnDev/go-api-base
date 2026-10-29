@@ -23,12 +23,12 @@ func TestTemplatesRender(t *testing.T) {
 	}
 
 	for locale, want := range map[string][2]string{
-		"":      {"Hello Ana", "Hi Ana,\n\nWelcome.\n"},
-		"es-MX": {"Hola Ana", "Hola Ana:\n\nBienvenida.\n"},
-		"es-AR": {"Hola Ana", "Hola Ana:\n\nBienvenida.\n"}, // no folder of its own: the closest
-		"fr":    {"Hello Ana", "Hi Ana,\n\nWelcome.\n"},
+		"":      {"Hello Alice", "Hi Alice,\n\nWelcome.\n"},
+		"es-MX": {"Hola Alice", "Hola Alice:\n\nBienvenida.\n"},
+		"es-AR": {"Hola Alice", "Hola Alice:\n\nBienvenida.\n"}, // no folder of its own: the closest
+		"fr":    {"Hello Alice", "Hi Alice,\n\nWelcome.\n"},
 	} {
-		subject, body, err := tmpl.Render(locale, "hello.txt", map[string]string{"Name": "Ana"})
+		subject, body, err := tmpl.Render(locale, "hello.txt", map[string]string{"Name": "Alice"})
 		if err != nil || subject != want[0] || body != want[1] {
 			t.Errorf("Render(%q) = %q, %q, %v", locale, subject, body, err)
 		}

@@ -30,7 +30,7 @@ func testBox(t *testing.T) *secretbox.Box {
 }
 
 var resetEmail = mail.Message{
-	To:      "ana@ejemplo.com",
+	To:      "alice@example.com",
 	Subject: "Recuperá tu contraseña",
 	Body:    "Abrí https://app.test/reset-password?token=token-secreto",
 }
@@ -52,7 +52,7 @@ func TestMailSenderEncryptsQueuedEmail(t *testing.T) {
 	if err := pool.QueryRow(t.Context(), "SELECT args::text FROM river_job WHERE kind = 'send_email'").Scan(&raw); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(raw, "token-secreto") || strings.Contains(raw, "ana@ejemplo.com") {
+	if strings.Contains(raw, "token-secreto") || strings.Contains(raw, "alice@example.com") {
 		t.Errorf("el correo encolado no está cifrado: %s", raw)
 	}
 
@@ -76,7 +76,7 @@ func workEmail(t *testing.T, sender mail.Sender, message string) (*rivertest.Wor
 	worker := rivertest.NewWorker(t, riverpgxv5.New(pool), &river.Config{}, &sendEmailWorker{sender: sender, box: box})
 
 	if message == "" {
-		plain := `{"To":"ana@ejemplo.com","Subject":"Recuperá tu contraseña","Body":"hola"}`
+		plain := `{"To":"alice@example.com","Subject":"Recuperá tu contraseña","Body":"hola"}`
 		enc, err := box.Encrypt([]byte(plain), emailAAD)
 		if err != nil {
 			t.Fatal(err)
@@ -101,7 +101,7 @@ func TestSendEmailWorker(t *testing.T) {
 	if res.Job.State != rivertype.JobStateCompleted {
 		t.Errorf("estado = %s", res.Job.State)
 	}
-	if msg, ok := recorder.Last("ana@ejemplo.com"); !ok || msg.Subject != "Recuperá tu contraseña" {
+	if msg, ok := recorder.Last("alice@example.com"); !ok || msg.Subject != "Recuperá tu contraseña" {
 		t.Errorf("no se envió el correo: %+v", recorder.Messages())
 	}
 }
@@ -155,7 +155,7 @@ func TestQueuedEmailKeys(t *testing.T) {
 		}
 	}
 	// Uno cancelado ya no está en la cola: no cuenta.
-	enc, err := boxA.Encrypt([]byte(`{"To":"ana@ejemplo.com","Subject":"Hola","Body":"hola"}`), emailAAD)
+	enc, err := boxA.Encrypt([]byte(`{"To":"alice@example.com","Subject":"Hola","Body":"hola"}`), emailAAD)
 	if err != nil {
 		t.Fatal(err)
 	}

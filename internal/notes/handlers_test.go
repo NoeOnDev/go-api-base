@@ -53,7 +53,7 @@ type testAPI struct {
 func newAPI(t *testing.T) *testAPI {
 	t.Helper()
 	pool := testutil.NewDB(t)
-	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	return &testAPI{
 		t:       t,
 		pool:    pool,
@@ -238,27 +238,27 @@ func TestNotesRequireSession(t *testing.T) {
 
 func TestNotesBelongToTheirOwner(t *testing.T) {
 	api := newAPI(t)
-	ana := createNote(t, api, "nota de Ana")
-	path := fmt.Sprintf("/notes/%d", ana.ID)
+	alice := createNote(t, api, "nota de Alice")
+	path := fmt.Sprintf("/notes/%d", alice.ID)
 
-	_, luis := testutil.Login(t, api.pool, "luis@ejemplo.com", auth.RoleUser)
+	_, bob := testutil.Login(t, api.pool, "bob@example.com", auth.RoleUser)
 
-	// Luis no ve la nota de Ana en su listado…
-	list := decode[noteList](t, api.doWith(luis, http.MethodGet, "/notes", ""), http.StatusOK)
+	// Bob no ve la nota de Alice en su listado…
+	list := decode[noteList](t, api.doWith(bob, http.MethodGet, "/notes", ""), http.StatusOK)
 	if len(list.Data) != 0 || list.Meta.Total != 0 {
-		t.Errorf("Luis ve notas ajenas: %+v", list)
+		t.Errorf("Bob ve notas ajenas: %+v", list)
 	}
 
 	// …ni puede leerla, editarla o borrarla: responde 404, como si no existiera.
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
 		t.Run(method, func(t *testing.T) {
-			decode[apiError](t, api.doWith(luis, method, path, `{"title":"hackeada"}`), http.StatusNotFound)
+			decode[apiError](t, api.doWith(bob, method, path, `{"title":"hackeada"}`), http.StatusNotFound)
 		})
 	}
 
-	// La nota de Ana sigue intacta.
+	// La nota de Alice sigue intacta.
 	got := decode[note](t, api.do(http.MethodGet, path, ""), http.StatusOK)
-	if got.Title != "nota de Ana" {
+	if got.Title != "nota de Alice" {
 		t.Errorf("la nota cambió: %+v", got)
 	}
 }

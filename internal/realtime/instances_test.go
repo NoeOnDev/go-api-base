@@ -32,14 +32,14 @@ func TestEventsReachOtherInstances(t *testing.T) {
 	brokerA, brokerB := listening(t, pool), listening(t, pool)
 	a := testutil.NewServer(t, pool, testutil.WithBroker(brokerA))
 	b := testutil.NewServer(t, pool, testutil.WithBroker(brokerB))
-	ana, anaCookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	_, luisCookie := testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
+	alice, aliceCookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	_, bobCookie := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
 
-	onA := testutil.OpenEvents(t, a, anaCookie, "")
-	onB := testutil.OpenEvents(t, b, anaCookie, "")
-	luisOnB := testutil.OpenEvents(t, b, luisCookie, "")
+	onA := testutil.OpenEvents(t, a, aliceCookie, "")
+	onB := testutil.OpenEvents(t, b, aliceCookie, "")
+	bobOnB := testutil.OpenEvents(t, b, bobCookie, "")
 
-	brokerA.PublishToUser(t.Context(), ana.ID, realtime.Event{Type: "notification", Data: map[string]any{"id": 1234567, "message": "hola"}})
+	brokerA.PublishToUser(t.Context(), alice.ID, realtime.Event{Type: "notification", Data: map[string]any{"id": 1234567, "message": "hola"}})
 	for name, r := range map[string]*ssetest.Reader{"A": onA, "B": onB} {
 		if ev := r.Next(t, 2*time.Second); ev.Type != "notification" || ev.Data != `{"id":1234567,"message":"hola"}` {
 			t.Errorf("evento en la instancia %s: %+v", name, ev)
@@ -50,13 +50,13 @@ func TestEventsReachOtherInstances(t *testing.T) {
 
 	// Un evento grande no entra en un NOTIFY: viaja guardado en la base, y llega igual.
 	big := strings.Repeat("ñ", 10000)
-	brokerA.PublishToUser(t.Context(), ana.ID, realtime.Event{Type: "note.updated", Data: map[string]string{"body": big}})
+	brokerA.PublishToUser(t.Context(), alice.ID, realtime.Event{Type: "note.updated", Data: map[string]string{"body": big}})
 	if ev := onB.Next(t, 2*time.Second); ev.Type != "note.updated" || ev.Data != `{"body":"`+big+`"}` {
 		t.Errorf("evento grande en la otra instancia: %q (%d bytes)", ev.Type, len(ev.Data))
 	}
 	onA.Next(t, 2*time.Second)
 
-	luisOnB.Nothing(t, 100*time.Millisecond)
+	bobOnB.Nothing(t, 100*time.Millisecond)
 }
 
 // Un logout o un cierre de sesiones en una instancia corta en el acto los streams de las otras,
@@ -66,10 +66,10 @@ func TestSessionsEndInAllInstances(t *testing.T) {
 	brokerA, brokerB := listening(t, pool), listening(t, pool)
 	apiA := testutil.NewAPI(pool, testutil.WithBroker(brokerA))
 	b := testutil.NewServer(t, pool, testutil.WithBroker(brokerB))
-	ana, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	alice, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	onB := testutil.OpenEvents(t, b, cookie, "")
-	brokerA.DisconnectUser(t.Context(), ana.ID)
+	brokerA.DisconnectUser(t.Context(), alice.ID)
 	if !onB.Closed(2 * time.Second) {
 		t.Error("DisconnectUser en una instancia debería cortar los streams de la otra")
 	}
@@ -89,7 +89,7 @@ func TestListenReconnects(t *testing.T) {
 	pool := testutil.NewDB(t)
 	brokerA, brokerB := listening(t, pool), listening(t, pool)
 	b := testutil.NewServer(t, pool, testutil.WithBroker(brokerB))
-	ana, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	alice, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	onB := testutil.OpenEvents(t, b, cookie, "")
 
 	// Se cae la conexión de LISTEN de las dos instancias, como si se reiniciara PostgreSQL.
@@ -103,7 +103,7 @@ func TestListenReconnects(t *testing.T) {
 
 	// Ya reconectado, los eventos vuelven a llegar.
 	onB = testutil.OpenEvents(t, b, cookie, "")
-	brokerA.PublishToUser(t.Context(), ana.ID, realtime.Event{Type: "notification"})
+	brokerA.PublishToUser(t.Context(), alice.ID, realtime.Event{Type: "notification"})
 	if ev := onB.Next(t, 2*time.Second); ev.Type != "notification" {
 		t.Errorf("después de reconectarse: %+v", ev)
 	}

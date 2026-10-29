@@ -34,38 +34,38 @@ func TestLimiter(t *testing.T) {
 	}
 
 	for i := range 3 {
-		if !allow("ana@ejemplo.com") {
+		if !allow("alice@example.com") {
 			t.Fatalf("intento %d rechazado: se permiten 3 seguidos", i+1)
 		}
 	}
-	if allow("ana@ejemplo.com") {
+	if allow("alice@example.com") {
 		t.Error("el cuarto intento seguido debería rechazarse")
 	}
-	if !allow("luis@ejemplo.com") {
+	if !allow("bob@example.com") {
 		t.Error("otra clave tiene sus propios intentos")
 	}
 
 	// Un intento rechazado no gasta nada: pasado every se recarga uno, y uno solo.
 	elapse(time.Hour)
-	if !allow("ana@ejemplo.com") {
+	if !allow("alice@example.com") {
 		t.Error("pasado every debería recargarse un intento")
 	}
-	if allow("ana@ejemplo.com") {
+	if allow("alice@example.com") {
 		t.Error("se recarga de a un intento")
 	}
 
 	// Otro limitador con la misma clave cuenta por separado.
 	other := ratelimit.New(store.New(pool), "email", time.Hour, 1)
-	if ok, err := other.Allow(t.Context(), "ana@ejemplo.com"); err != nil || !ok {
+	if ok, err := other.Allow(t.Context(), "alice@example.com"); err != nil || !ok {
 		t.Errorf("otro limitador: %v, %v", ok, err)
 	}
 
 	// Reset le devuelve todos los intentos.
-	if err := l.Reset(t.Context(), "ana@ejemplo.com"); err != nil {
+	if err := l.Reset(t.Context(), "alice@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 3 {
-		if !allow("ana@ejemplo.com") {
+		if !allow("alice@example.com") {
 			t.Fatalf("después de Reset, intento %d rechazado", i+1)
 		}
 	}
@@ -81,7 +81,7 @@ func TestLimiter(t *testing.T) {
 		if err := rows.Scan(&key); err != nil {
 			t.Fatal(err)
 		}
-		if len(key) != 32 || bytes.Contains(key, []byte("@ejemplo.com")) {
+		if len(key) != 32 || bytes.Contains(key, []byte("@example.com")) {
 			t.Errorf("clave guardada sin hashear: %q", key)
 		}
 	}
@@ -96,7 +96,7 @@ func TestLimiterConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Go(func() {
-			ok, err := l.Allow(t.Context(), "ana@ejemplo.com")
+			ok, err := l.Allow(t.Context(), "alice@example.com")
 			if err != nil {
 				t.Error(err)
 			}

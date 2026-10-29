@@ -28,7 +28,7 @@ import (
 
 // Message es un correo de texto plano.
 type Message struct {
-	To      string // solo la dirección, por ejemplo "ana@ejemplo.com"
+	To      string // solo la dirección, por ejemplo "alice@example.com"
 	Subject string
 	Body    string
 }

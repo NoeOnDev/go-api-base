@@ -101,7 +101,7 @@ func validateEmail(email string) i18n.Message {
 	if len(email) > maxEmailLen {
 		return i18n.M("validation.too_long", "max", maxEmailLen)
 	}
-	// net/mail acepta formas como "Ana <ana@x.com>"; se exige solo la dirección.
+	// net/mail acepta formas como "Alice <alice@x.com>"; se exige solo la dirección.
 	addr, err := mail.ParseAddress(email)
 	if err != nil || addr.Address != email || !strings.Contains(email[strings.LastIndex(email, "@"):], ".") {
 		return i18n.M("validation.invalid_email")

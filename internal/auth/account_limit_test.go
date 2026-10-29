@@ -14,12 +14,12 @@ import (
 func TestAccountLimitIsPerUser(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, ana := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	_, luis := testutil.Login(t, pool, "luis@ejemplo.com", auth.RoleUser)
+	_, alice := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	_, bob := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
 
-	wrong := fmt.Sprintf(`{"current_password":"incorrecta","password":%q}`, newPassword)
+	wrong := fmt.Sprintf(`{"current_password":"wrong-password","password":%q}`, newPassword)
 	for i := range 5 {
-		for name, cookie := range map[string]*http.Cookie{"Ana": ana, "Luis": luis} {
+		for name, cookie := range map[string]*http.Cookie{"Alice": alice, "Bob": bob} {
 			// Todos desde la misma IP (la de testutil.Do).
 			if w := testutil.Do(t, api, cookie, http.MethodPut, "/auth/password", wrong); w.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("%s, intento %d: status = %d, se esperaba 422", name, i+1, w.Code)
@@ -27,8 +27,8 @@ func TestAccountLimitIsPerUser(t *testing.T) {
 		}
 	}
 
-	// El sexto de Ana se rechaza.
-	resp := testutil.Decode[testutil.APIError](t, testutil.Do(t, api, ana, http.MethodPut, "/auth/password", wrong), http.StatusTooManyRequests)
+	// El sexto de Alice se rechaza.
+	resp := testutil.Decode[testutil.APIError](t, testutil.Do(t, api, alice, http.MethodPut, "/auth/password", wrong), http.StatusTooManyRequests)
 	if resp.Error.Code != "too_many_requests" {
 		t.Errorf("error inesperado: %+v", resp.Error)
 	}

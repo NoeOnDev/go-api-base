@@ -15,7 +15,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-const frontend = "https://app.ejemplo.com"
+const frontend = "https://app.example.com"
 
 func newAPI(t *testing.T) http.Handler {
 	t.Helper()
@@ -180,7 +180,7 @@ func TestEventsEndToEnd(t *testing.T) {
 	}
 
 	// Con sesión, a través de todos los middlewares de la API, el evento llega.
-	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", "user")
+	u, cookie := testutil.Login(t, pool, "alice@example.com", "user")
 	events := testutil.OpenEvents(t, srv, cookie, "")
 	broker.PublishToUser(t.Context(), u.ID, realtime.Event{Type: "notification", Data: "hola"})
 	if ev := events.Next(t, 2*time.Second); ev.Type != "notification" || ev.Data != `"hola"` {

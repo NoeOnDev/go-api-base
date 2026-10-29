@@ -20,7 +20,7 @@ import (
 
 // runCreateAdmin crea un usuario con rol admin:
 //
-//	api create-admin -email admin@ejemplo.com -name "Administrador"
+//	api create-admin -email admin@example.com -name "Administrador"
 //
 // La contraseña se toma de ADMIN_PASSWORD o se pide por la terminal sin mostrarla.
 func runCreateAdmin(args []string) error {

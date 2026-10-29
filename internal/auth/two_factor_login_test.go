@@ -47,7 +47,7 @@ func challenge(t *testing.T, api http.Handler, cookie *http.Cookie, body string)
 func TestLoginRequiresSecondFactor(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 
 	pending := loginWithTwoFactor(t, api)
@@ -60,7 +60,7 @@ func TestLoginRequiresSecondFactor(t *testing.T) {
 
 	w := challenge(t, api, pending, codeBody(tf.Code(t)))
 	u := testutil.Decode[auth.User](t, w, http.StatusOK)
-	if u.Email != "ana@ejemplo.com" || !u.TwoFactorEnabled {
+	if u.Email != "alice@example.com" || !u.TwoFactorEnabled {
 		t.Errorf("usuario inesperado: %+v", u)
 	}
 
@@ -85,7 +85,7 @@ func TestLoginRequiresSecondFactor(t *testing.T) {
 func TestTOTPCodeCannotBeReused(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 	code := tf.Code(t)
 
@@ -100,7 +100,7 @@ func TestTOTPCodeCannotBeReused(t *testing.T) {
 func TestRecoveryCodeLogin(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 
 	// Se acepta como lo escriba el usuario: en mayúsculas y sin guion.
@@ -121,7 +121,7 @@ func TestRecoveryCodeLogin(t *testing.T) {
 func TestTwoFactorChallengeErrors(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 
 	// Sin la cookie del desafío (no pasó por el login).
@@ -144,12 +144,12 @@ func TestPasswordResetDoesNotBypassTwoFactor(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	testutil.EnableTwoFactor(t, api, session, testutil.Password)
 
-	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
-	msg, _ := mails.Last("ana@ejemplo.com")
-	reset := fmt.Sprintf(`{"token":%q,"password":"contraseña-de-prueba"}`, testutil.TokenFromEmail(t, msg))
+	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
+	msg, _ := mails.Last("alice@example.com")
+	reset := fmt.Sprintf(`{"token":%q,"password":"test-password"}`, testutil.TokenFromEmail(t, msg))
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", reset); w.Code != http.StatusNoContent {
 		t.Fatalf("reset: status = %d", w.Code)
 	}
@@ -163,7 +163,7 @@ func TestPasswordResetDoesNotBypassTwoFactor(t *testing.T) {
 func TestTwoFactorChallengeHasItsOwnLimit(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	testutil.EnableTwoFactor(t, api, session, testutil.Password)
 
 	// 10 logins con su segundo paso (con un código incorrecto), todos desde la misma IP.
@@ -180,7 +180,7 @@ func TestChallengeCookieUsesHostPrefix(t *testing.T) {
 	pool := testutil.NewDB(t)
 	secure := testutil.WithConfig(func(c *config.Config) { c.CookieSecure = true })
 	api := testutil.NewAPI(pool, secure)
-	_, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser, secure)
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser, secure)
 	tf := testutil.EnableTwoFactor(t, api, session, testutil.Password)
 
 	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/login", loginBody)

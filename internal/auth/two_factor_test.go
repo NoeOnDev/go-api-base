@@ -33,14 +33,14 @@ func enableBody(code, password string) string {
 func TestEnableTwoFactor(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	user, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	user, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	other := newSession(t, pool, user.ID)
 
 	// Setup devuelve el secreto y la URL del QR, con el nombre de la app y el email.
 	setup := testutil.Decode[setupResponse](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
 	u, err := url.Parse(setup.OTPAuthURL)
 	if err != nil || u.Scheme != "otpauth" || u.Query().Get("secret") != setup.Secret || u.Query().Get("issuer") != "App de Prueba" ||
-		!strings.Contains(u.Path, "ana@ejemplo.com") {
+		!strings.Contains(u.Path, "alice@example.com") {
 		t.Fatalf("otpauth_url inesperada: %s", setup.OTPAuthURL)
 	}
 
@@ -66,7 +66,7 @@ func TestEnableTwoFactor(t *testing.T) {
 	for name, tt := range map[string]struct{ body, field string }{
 		"sin contraseña":        {codeBody(code), "password"},
 		"contraseña incorrecta": {enableBody(code, "incorrecta"), "password"},
-		"código incorrecto":     {enableBody("000000", "contraseña-de-prueba"), "code"},
+		"código incorrecto":     {enableBody("000000", "test-password"), "code"},
 	} {
 		resp := testutil.Decode[testutil.APIError](t,
 			testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", tt.body), http.StatusUnprocessableEntity)
@@ -80,7 +80,7 @@ func TestEnableTwoFactor(t *testing.T) {
 	}
 
 	codes := testutil.Decode[recoveryCodes](t,
-		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody(code, "contraseña-de-prueba")), http.StatusOK)
+		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody(code, "test-password")), http.StatusOK)
 
 	if len(codes.RecoveryCodes) != 10 {
 		t.Fatalf("se esperaban 10 códigos de recuperación: %v", codes.RecoveryCodes)
@@ -115,10 +115,10 @@ func TestEnableTwoFactor(t *testing.T) {
 func TestEnableTwoFactorRequiresSetup(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	testutil.Decode[testutil.APIError](t,
-		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody("123456", "contraseña-de-prueba")), http.StatusConflict)
+		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/enable", enableBody("123456", "test-password")), http.StatusConflict)
 	testutil.Decode[testutil.APIError](t,
 		testutil.Do(t, api, nil, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusUnauthorized)
 }
@@ -126,16 +126,16 @@ func TestEnableTwoFactorRequiresSetup(t *testing.T) {
 func TestDisableTwoFactor(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
 
 	resp := testutil.Decode[testutil.APIError](t,
-		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"incorrecta"}`), http.StatusUnprocessableEntity)
+		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"wrong-password"}`), http.StatusUnprocessableEntity)
 	if resp.Error.Fields["password"] == "" {
 		t.Errorf("se esperaba error en password: %+v", resp.Error)
 	}
 
-	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"contraseña-de-prueba"}`); w.Code != http.StatusNoContent {
+	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"test-password"}`); w.Code != http.StatusNoContent {
 		t.Fatalf("disable: status = %d; cuerpo: %s", w.Code, w.Body)
 	}
 
@@ -152,15 +152,15 @@ func TestDisableTwoFactor(t *testing.T) {
 func TestRegenerateRecoveryCodes(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	_, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	// Sin 2FA no hay códigos que regenerar.
 	testutil.Decode[testutil.APIError](t,
-		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/recovery-codes", `{"password":"contraseña-de-prueba"}`), http.StatusConflict)
+		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/recovery-codes", `{"password":"test-password"}`), http.StatusConflict)
 
 	first := testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
 	second := testutil.Decode[recoveryCodes](t,
-		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/recovery-codes", `{"password":"contraseña-de-prueba"}`), http.StatusOK)
+		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/recovery-codes", `{"password":"test-password"}`), http.StatusOK)
 
 	if len(second.RecoveryCodes) != 10 || second.RecoveryCodes[0] == first.RecoveryCodes[0] {
 		t.Errorf("códigos nuevos inesperados: %v", second.RecoveryCodes)
@@ -176,7 +176,7 @@ func TestRegenerateRecoveryCodes(t *testing.T) {
 func TestEnableTOTPRequiresVerifiedSecret(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	user, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	user, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	testutil.Decode[setupResponse](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusOK)
 
 	q := store.New(pool)
@@ -202,7 +202,7 @@ func TestEnableTOTPRequiresVerifiedSecret(t *testing.T) {
 func TestEnableTwoFactorIsAtomic(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	other := newSession(t, pool, u.ID) // otra sesión, que se cerraría
 
 	setup := testutil.Decode[struct {
@@ -242,7 +242,7 @@ func TestEnableTwoFactorIsAtomic(t *testing.T) {
 func TestDisableTwoFactorIsAtomic(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
-	u, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
 	other := newSession(t, pool, u.ID) // después de activarlo, que cierra las demás
 

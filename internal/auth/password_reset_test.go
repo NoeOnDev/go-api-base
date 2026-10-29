@@ -17,10 +17,10 @@ func TestForgotPasswordDoesNotRevealEmails(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
-	unknown := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"nadie@ejemplo.com"}`)
-	known := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":" ANA@ejemplo.com "}`)
+	unknown := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"nobody@example.com"}`)
+	known := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":" ALICE@example.com "}`)
 
 	if unknown.Code != http.StatusAccepted || known.Code != http.StatusAccepted {
 		t.Fatalf("status = %d y %d, se esperaba 202", unknown.Code, known.Code)
@@ -31,7 +31,7 @@ func TestForgotPasswordDoesNotRevealEmails(t *testing.T) {
 
 	// Solo se envió un correo, al email registrado, con el enlace al frontend.
 	msgs := mails.Messages()
-	if len(msgs) != 1 || msgs[0].To != "ana@ejemplo.com" {
+	if len(msgs) != 1 || msgs[0].To != "alice@example.com" {
 		t.Fatalf("correos enviados: %+v", msgs)
 	}
 	if !strings.Contains(msgs[0].Body, "https://app.test/reset-password?token=") {
@@ -50,10 +50,10 @@ func TestResetPassword(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	user, session := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	user, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
-	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
-	msg, _ := mails.Last("ana@ejemplo.com")
+	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
+	msg, _ := mails.Last("alice@example.com")
 	token := testutil.TokenFromEmail(t, msg)
 
 	t.Run("una contraseña inválida no gasta el token", func(t *testing.T) {
@@ -76,7 +76,7 @@ func TestResetPassword(t *testing.T) {
 
 	// La contraseña cambió y el email quedó verificado (el usuario recibió el correo).
 	service := auth.NewService(pool, auth.Options{})
-	u, err := service.Authenticate(t.Context(), "ana@ejemplo.com", newPassword)
+	u, err := service.Authenticate(t.Context(), "alice@example.com", newPassword)
 	if err != nil {
 		t.Fatalf("login con la contraseña nueva: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestResetPassword(t *testing.T) {
 
 	// El token sirve una sola vez.
 	resp := testutil.Decode[testutil.APIError](t,
-		testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(token, "otra-clave-larga")),
+		testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(token, "another-long-password")),
 		http.StatusUnprocessableEntity)
 	if resp.Error.Fields["token"] == "" {
 		t.Errorf("se esperaba error en token: %+v", resp.Error)
@@ -97,11 +97,11 @@ func TestResetPasswordInvalidTokens(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	forgot := func() string {
-		testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
-		msg, _ := mails.Last("ana@ejemplo.com")
+		testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
+		msg, _ := mails.Last("alice@example.com")
 		return testutil.TokenFromEmail(t, msg)
 	}
 
@@ -132,10 +132,10 @@ func TestResetPasswordIsAtomic(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser) // una sesión que cerrar
+	testutil.Login(t, pool, "alice@example.com", auth.RoleUser) // una sesión que cerrar
 
-	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
-	msg, _ := mails.Last("ana@ejemplo.com")
+	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
+	msg, _ := mails.Last("alice@example.com")
 	body := resetBody(testutil.TokenFromEmail(t, msg), newPassword)
 
 	exec := func(sql string) error { _, err := pool.Exec(context.Background(), sql); return err }
@@ -145,7 +145,7 @@ func TestResetPasswordIsAtomic(t *testing.T) {
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", body), http.StatusInternalServerError)
 
 	service := auth.NewService(pool, auth.Options{})
-	if _, err := service.Authenticate(t.Context(), "ana@ejemplo.com", "contraseña-de-prueba"); err != nil {
+	if _, err := service.Authenticate(t.Context(), "alice@example.com", "test-password"); err != nil {
 		t.Errorf("la contraseña no debería haber cambiado: %v", err)
 	}
 
@@ -156,7 +156,7 @@ func TestResetPasswordIsAtomic(t *testing.T) {
 	if w := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", body); w.Code != http.StatusNoContent {
 		t.Fatalf("el enlace debería seguir sirviendo: status = %d; cuerpo: %s", w.Code, w.Body)
 	}
-	if _, err := service.Authenticate(t.Context(), "ana@ejemplo.com", newPassword); err != nil {
+	if _, err := service.Authenticate(t.Context(), "alice@example.com", newPassword); err != nil {
 		t.Errorf("la contraseña nueva debería funcionar: %v", err)
 	}
 }
@@ -166,7 +166,7 @@ func TestResetPasswordIsAtomic(t *testing.T) {
 // tiempo; con el bloqueo pasa siempre.)
 func TestConcurrentForgotLeavesOneToken(t *testing.T) {
 	pool := testutil.NewDB(t)
-	testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	for round := range 5 {
 		api := testutil.NewAPI(pool) // límites nuevos en cada ronda
@@ -174,7 +174,7 @@ func TestConcurrentForgotLeavesOneToken(t *testing.T) {
 		for i := range 3 {
 			wg.Go(func() {
 				ip := fmt.Sprintf("198.51.%d.%d", round, i+1)
-				testutil.DoFromIP(t, api, ip, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
+				testutil.DoFromIP(t, api, ip, nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
 			})
 		}
 		wg.Wait()
@@ -195,11 +195,11 @@ func TestForgotPasswordRecipientLimit(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	for i := range 4 {
 		ip := fmt.Sprintf("198.51.100.%d", i+1)
-		w := testutil.DoFromIP(t, api, ip, nil, http.MethodPost, "/auth/password/forgot", `{"email":"ana@ejemplo.com"}`)
+		w := testutil.DoFromIP(t, api, ip, nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
 		// Siempre la misma respuesta, para no revelar nada.
 		testutil.Decode[map[string]string](t, w, http.StatusAccepted)
 	}
@@ -209,7 +209,7 @@ func TestForgotPasswordRecipientLimit(t *testing.T) {
 	}
 
 	// El cuarto pedido no invalidó el último enlace enviado.
-	last, _ := mails.Last("ana@ejemplo.com")
+	last, _ := mails.Last("alice@example.com")
 	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(testutil.TokenFromEmail(t, last), newPassword))
 	if w.Code != http.StatusNoContent {
 		t.Errorf("el último enlace debería seguir sirviendo: status = %d; cuerpo: %s", w.Code, w.Body)

@@ -44,8 +44,8 @@ func newCatalog(t *testing.T) *catalog {
 	t.Helper()
 	pool := testutil.NewDB(t)
 	c := &catalog{t: t, api: testutil.NewAPI(pool)}
-	_, c.admin = testutil.Login(t, pool, "admin@ejemplo.com", auth.RoleAdmin)
-	_, c.user = testutil.Login(t, pool, "user@ejemplo.com", auth.RoleUser)
+	_, c.admin = testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
+	_, c.user = testutil.Login(t, pool, "user@example.com", auth.RoleUser)
 	c.drinks = c.createCategory("Bebidas", "bebidas")
 	c.food = c.createCategory("Comida", "comida")
 	return c

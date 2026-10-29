@@ -19,7 +19,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-const registerBody = `{"name":"Ana","email":"Ana@Ejemplo.com","password":"una-clave-larga"}`
+const registerBody = `{"name":"Alice","email":"Alice@Example.com","password":"a-long-password"}`
 
 func TestRegisterLoginLogout(t *testing.T) {
 	api, _ := newAPI(t)
@@ -27,7 +27,7 @@ func TestRegisterLoginLogout(t *testing.T) {
 	// Registro: crea el usuario con rol user, email en minúsculas, e inicia la sesión.
 	w := do(t, api, http.MethodPost, "/auth/register", registerBody, nil)
 	u := decode[auth.User](t, w, http.StatusCreated)
-	if u.Email != "ana@ejemplo.com" || u.Role != auth.RoleUser || u.ID == 0 {
+	if u.Email != "alice@example.com" || u.Role != auth.RoleUser || u.ID == 0 {
 		t.Fatalf("usuario inesperado: %+v", u)
 	}
 	if strings.Contains(w.Body.String(), "password") {
@@ -58,7 +58,7 @@ func TestRegisterLoginLogout(t *testing.T) {
 	}
 
 	// Login con el email en otra combinación de mayúsculas.
-	w = do(t, api, http.MethodPost, "/auth/login", `{"email":"ANA@ejemplo.com","password":"una-clave-larga"}`, nil)
+	w = do(t, api, http.MethodPost, "/auth/login", `{"email":"ALICE@example.com","password":"a-long-password"}`, nil)
 	decode[auth.User](t, w, http.StatusOK)
 	if w := do(t, api, http.MethodGet, "/auth/me", "", sessionCookie(t, w)); w.Code != http.StatusOK {
 		t.Errorf("me después del login: status = %d", w.Code)
@@ -72,10 +72,10 @@ func TestRegisterValidation(t *testing.T) {
 		name, body, field string
 	}{
 		{"sin nombre", `{"name":" ","email":"a@b.com","password":"12345678"}`, "name"},
-		{"email inválido", `{"name":"Ana","email":"no-es-email","password":"12345678"}`, "email"},
-		{"email con nombre", `{"name":"Ana","email":"Ana <a@b.com>","password":"12345678"}`, "email"},
-		{"email sin dominio", `{"name":"Ana","email":"a@localhost","password":"12345678"}`, "email"},
-		{"contraseña corta", `{"name":"Ana","email":"a@b.com","password":"1234567"}`, "password"},
+		{"email inválido", `{"name":"Alice","email":"no-es-email","password":"12345678"}`, "email"},
+		{"email con nombre", `{"name":"Alice","email":"Alice <a@b.com>","password":"12345678"}`, "email"},
+		{"email sin dominio", `{"name":"Alice","email":"a@localhost","password":"12345678"}`, "email"},
+		{"contraseña corta", `{"name":"Alice","email":"a@b.com","password":"1234567"}`, "password"},
 	}
 
 	for _, tt := range tests {
@@ -93,7 +93,7 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 
 	decode[auth.User](t, do(t, api, http.MethodPost, "/auth/register", registerBody, nil), http.StatusCreated)
 
-	dup := `{"name":"Otra Ana","email":"ana@EJEMPLO.com","password":"otra-clave-larga"}`
+	dup := `{"name":"Another Alice","email":"alice@EXAMPLE.com","password":"another-long-password"}`
 	resp := decode[apiError](t, do(t, api, http.MethodPost, "/auth/register", dup, nil), http.StatusConflict)
 	if resp.Error.Code != "email_taken" || resp.Error.Fields["email"] == "" {
 		t.Errorf("error inesperado: %+v", resp.Error)
@@ -105,8 +105,8 @@ func TestLoginFailures(t *testing.T) {
 	decode[auth.User](t, do(t, api, http.MethodPost, "/auth/register", registerBody, nil), http.StatusCreated)
 
 	// Contraseña incorrecta y email inexistente responden exactamente igual.
-	wrongPass := do(t, api, http.MethodPost, "/auth/login", `{"email":"ana@ejemplo.com","password":"incorrecta"}`, nil)
-	unknown := do(t, api, http.MethodPost, "/auth/login", `{"email":"nadie@ejemplo.com","password":"incorrecta"}`, nil)
+	wrongPass := do(t, api, http.MethodPost, "/auth/login", `{"email":"alice@example.com","password":"wrong-password"}`, nil)
+	unknown := do(t, api, http.MethodPost, "/auth/login", `{"email":"nobody@example.com","password":"wrong-password"}`, nil)
 	if wrongPass.Code != http.StatusUnauthorized || unknown.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d y %d, se esperaba 401", wrongPass.Code, unknown.Code)
 	}
@@ -163,7 +163,7 @@ func TestRequireAdmin(t *testing.T) {
 	})))
 
 	loginAs := func(email, role string) *http.Cookie {
-		u, err := service.CreateUser(t.Context(), auth.RegisterInput{Name: "x", Email: email, Password: "una-clave-larga"}, role)
+		u, err := service.CreateUser(t.Context(), auth.RegisterInput{Name: "x", Email: email, Password: "a-long-password"}, role)
 		if err != nil {
 			t.Fatalf("crear usuario: %v", err)
 		}
@@ -180,8 +180,8 @@ func TestRequireAdmin(t *testing.T) {
 		want   int
 	}{
 		{"sin sesión", nil, http.StatusUnauthorized},
-		{"usuario común", loginAs("user@ejemplo.com", auth.RoleUser), http.StatusForbidden},
-		{"administrador", loginAs("admin@ejemplo.com", auth.RoleAdmin), http.StatusOK},
+		{"usuario común", loginAs("user@example.com", auth.RoleUser), http.StatusForbidden},
+		{"administrador", loginAs("admin@example.com", auth.RoleAdmin), http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -216,7 +216,7 @@ func TestLogoutAlwaysClearsCookie(t *testing.T) {
 // vuelve a hashear con los actuales al entrar, y sigue sirviendo.
 func TestLoginRehashesOldPassword(t *testing.T) {
 	api, pool := newAPI(t)
-	u, _ := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
+	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
 	salt := []byte("sal-de-16-bytes!")
 	key := argon2.IDKey([]byte(testutil.Password), salt, 1, 8*1024, 1, 32)
@@ -242,10 +242,10 @@ func TestLoginRehashesOldPassword(t *testing.T) {
 }
 
 // La base exige el email en minúsculas: UNIQUE solo evita duplicados si nadie guarda
-// "Ana@Ejemplo.com" junto a "ana@ejemplo.com", por ejemplo con un INSERT a mano.
+// "Alice@Example.com" junto a "alice@example.com", por ejemplo con un INSERT a mano.
 func TestEmailIsLowercaseInDatabase(t *testing.T) {
 	_, pool := newAPI(t)
-	_, err := pool.Exec(t.Context(), "INSERT INTO users (name, email, password_hash) VALUES ('Ana', 'Ana@Ejemplo.com', 'x')")
+	_, err := pool.Exec(t.Context(), "INSERT INTO users (name, email, password_hash) VALUES ('Alice', 'Alice@Example.com', 'x')")
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "users_email_lowercase" {
 		t.Fatalf("se esperaba la violación de users_email_lowercase, llegó %v", err)

@@ -21,25 +21,25 @@ func TestNotificationMessageLanguage(t *testing.T) {
 	svc := notifications.NewService(store.New(pool), broker, nil)
 	srv := testutil.NewServer(t, pool, testutil.WithBroker(broker))
 	api := testutil.NewAPI(pool, testutil.WithBroker(broker))
-	ana, cookie := testutil.Login(t, pool, "ana@ejemplo.com", auth.RoleUser)
-	testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodPut, "/auth/me", `{"name":"Ana","locale":"es-MX"}`), http.StatusOK)
+	alice, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodPut, "/auth/me", `{"name":"Alice","locale":"es-MX"}`), http.StatusOK)
 	events := testutil.OpenEvents(t, srv, cookie, "")
 
-	if err := svc.Notify(t.Context(), ana.ID, auth.NotifyEmailChanged, map[string]string{"email": "nuevo@ejemplo.com"}); err != nil {
+	if err := svc.Notify(t.Context(), alice.ID, auth.NotifyEmailChanged, map[string]string{"email": "new@example.com"}); err != nil {
 		t.Fatal(err)
 	}
-	if ev := events.Next(t, 2*time.Second); !strings.Contains(ev.Data, "El email de tu cuenta ahora es nuevo@ejemplo.com.") {
-		t.Errorf("el evento debería ir en el idioma de Ana: %s", ev.Data)
+	if ev := events.Next(t, 2*time.Second); !strings.Contains(ev.Data, "El email de tu cuenta ahora es new@example.com.") {
+		t.Errorf("el evento debería ir en el idioma de Alice: %s", ev.Data)
 	}
 
 	// Un tipo sin texto en los catálogos (uno propio del proyecto) llega con message vacío.
-	if err := svc.Notify(t.Context(), ana.ID, "task.assigned", map[string]int{"task_id": 7}); err != nil {
+	if err := svc.Notify(t.Context(), alice.ID, "task.assigned", map[string]int{"task_id": 7}); err != nil {
 		t.Fatal(err)
 	}
 
 	for lang, want := range map[string]string{
-		"en":    "Your account email is now nuevo@ejemplo.com.",
-		"es-MX": "El email de tu cuenta ahora es nuevo@ejemplo.com.",
+		"en":    "Your account email is now new@example.com.",
+		"es-MX": "El email de tu cuenta ahora es new@example.com.",
 	} {
 		w := testutil.DoWithLanguage(t, api, lang, cookie, http.MethodGet, "/notifications", "")
 		list := testutil.Decode[listResponse](t, w, http.StatusOK)

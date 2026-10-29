@@ -83,7 +83,7 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 }
 
 // Password es la contraseña de los usuarios que crea Login.
-const Password = "contraseña-de-prueba"
+const Password = "test-password"
 
 // Login crea un usuario con el rol indicado, le inicia una sesión y devuelve el usuario
 // y la cookie para enviar en las peticiones: r.AddCookie(cookie). Su contraseña es Password.
@@ -103,7 +103,7 @@ func Login(t *testing.T, pool *pgxpool.Pool, email, role string, opts ...Option)
 		CookieSecure: d.Config.CookieSecure,
 	})
 	u, err := service.CreateUser(t.Context(), auth.RegisterInput{
-		Name:     "Usuario de prueba",
+		Name:     "Test User",
 		Email:    email,
 		Password: Password,
 	}, role)

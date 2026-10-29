@@ -26,13 +26,13 @@ func TestDecode(t *testing.T) {
 		body       string
 		wantStatus int // 0 significa que no se espera error
 	}{
-		{"válido", `{"name":"Ana","age":30}`, 0},
+		{"válido", `{"name":"Alice","age":30}`, 0},
 		{"vacío", ``, http.StatusBadRequest},
 		{"mal formado", `{"name":`, http.StatusBadRequest},
-		{"sintaxis inválida", `{"name" "Ana"}`, http.StatusBadRequest},
+		{"sintaxis inválida", `{"name" "Alice"}`, http.StatusBadRequest},
 		{"tipo incorrecto", `{"age":"treinta"}`, http.StatusBadRequest},
-		{"campo desconocido", `{"name":"Ana","admin":true}`, http.StatusBadRequest},
-		{"dos objetos", `{"name":"Ana"}{"name":"Luis"}`, http.StatusBadRequest},
+		{"campo desconocido", `{"name":"Alice","admin":true}`, http.StatusBadRequest},
+		{"dos objetos", `{"name":"Alice"}{"name":"Bob"}`, http.StatusBadRequest},
 		{"demasiado grande", `{"name":"` + strings.Repeat("a", MaxBodyBytes) + `"}`, http.StatusRequestEntityTooLarge},
 	}
 

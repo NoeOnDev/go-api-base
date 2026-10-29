@@ -82,12 +82,12 @@ func TestGenerateSecret(t *testing.T) {
 }
 
 func TestURI(t *testing.T) {
-	uri := URI("Mi App", "ana@ejemplo.com", "JBSWY3DPEHPK3PXP")
+	uri := URI("Mi App", "alice@example.com", "JBSWY3DPEHPK3PXP")
 	u, err := url.Parse(uri)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Scheme != "otpauth" || u.Host != "totp" || !strings.HasPrefix(u.Path, "/Mi App:ana@ejemplo.com") {
+	if u.Scheme != "otpauth" || u.Host != "totp" || !strings.HasPrefix(u.Path, "/Mi App:alice@example.com") {
 		t.Errorf("URI inesperada: %s", uri)
 	}
 	if strings.Contains(uri, "+") {

@@ -20,11 +20,11 @@ func TestMessageValidate(t *testing.T) {
 		msg  Message
 		ok   bool
 	}{
-		{"válido", Message{To: "ana@ejemplo.com", Subject: "Hola", Body: "x"}, true},
-		{"inyección en el asunto", Message{To: "ana@ejemplo.com", Subject: "Hola\r\nBcc: otro@ejemplo.com"}, false},
-		{"inyección en el destinatario", Message{To: "ana@ejemplo.com\nBcc: otro@ejemplo.com", Subject: "Hola"}, false},
-		{"destinatario con nombre", Message{To: "Ana <ana@ejemplo.com>", Subject: "Hola"}, false},
-		{"sin asunto", Message{To: "ana@ejemplo.com"}, false},
+		{"válido", Message{To: "alice@example.com", Subject: "Hola", Body: "x"}, true},
+		{"inyección en el asunto", Message{To: "alice@example.com", Subject: "Hola\r\nBcc: other@example.com"}, false},
+		{"inyección en el destinatario", Message{To: "alice@example.com\nBcc: other@example.com", Subject: "Hola"}, false},
+		{"destinatario con nombre", Message{To: "Alice <alice@example.com>", Subject: "Hola"}, false},
+		{"sin asunto", Message{To: "alice@example.com"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -36,10 +36,10 @@ func TestMessageValidate(t *testing.T) {
 }
 
 func TestBuild(t *testing.T) {
-	from := &netmail.Address{Name: "Mi App", Address: "no-reply@miapp.com"}
-	body := "Hola Ana,\n\nTu código es: ñandú 123.\nUna línea muy larga " + strings.Repeat("x", 120)
+	from := &netmail.Address{Name: "Mi App", Address: "no-reply@myapp.com"}
+	body := "Hola Alice,\n\nTu código es: ñandú 123.\nUna línea muy larga " + strings.Repeat("x", 120)
 
-	raw, err := build(from, Message{To: "ana@ejemplo.com", Subject: "Recuperá tu contraseña", Body: body}, time.Now())
+	raw, err := build(from, Message{To: "alice@example.com", Subject: "Recuperá tu contraseña", Body: body}, time.Now())
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestBuild(t *testing.T) {
 	if err != nil || subject != "Recuperá tu contraseña" {
 		t.Errorf("asunto = %q (%v)", subject, err)
 	}
-	if !strings.HasSuffix(parsed.Header.Get("Message-ID"), "@miapp.com>") {
+	if !strings.HasSuffix(parsed.Header.Get("Message-ID"), "@myapp.com>") {
 		t.Errorf("Message-ID = %q", parsed.Header.Get("Message-ID"))
 	}
 
@@ -82,7 +82,7 @@ func TestSMTPSender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg := Message{To: "prueba@ejemplo.com", Subject: "Prueba de SMTP " + time.Now().Format(time.TimeOnly), Body: "Hola desde los tests.\nÑandú."}
+	msg := Message{To: "test@example.com", Subject: "Prueba de SMTP " + time.Now().Format(time.TimeOnly), Body: "Hola desde los tests.\nÑandú."}
 	if err := s.Send(t.Context(), msg); err != nil {
 		t.Fatalf("Send: %v", err)
 	}

@@ -75,7 +75,7 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 	if len(tables) > 0 {
 		sql := fmt.Sprintf("TRUNCATE %s RESTART IDENTITY CASCADE", strings.Join(tables, ", "))
 		if _, err := pool.Exec(ctx, sql); err != nil {
-			t.Fatalf("vaciar tablas: %v", err)
+			t.Fatalf("empty the tables: %v", err)
 		}
 	}
 

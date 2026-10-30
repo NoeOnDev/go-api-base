@@ -29,3 +29,26 @@ func TestPoolConfigMaxConns(t *testing.T) {
 		t.Error("want an error with an invalid pool_max_conns")
 	}
 }
+
+func TestPoolConfigStatementTimeout(t *testing.T) {
+	cfg, err := poolConfig("postgres://u:p@localhost:5432/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AfterConnect == nil {
+		t.Error("without statement_timeout in the URL, each connection must set the default one")
+	}
+
+	for _, url := range []string{
+		"postgres://u:p@localhost:5432/app?statement_timeout=30000",
+		"host=localhost user=u dbname=app statement_timeout=0",
+	} {
+		cfg, err := poolConfig(url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.AfterConnect != nil {
+			t.Errorf("%s: the URL's statement_timeout must be kept", url)
+		}
+	}
+}

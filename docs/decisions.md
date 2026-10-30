@@ -218,6 +218,8 @@ Each line of a request carries its `request_id`, which is also returned in the `
 `ReadHeaderTimeout` 5 s, `ReadTimeout` 15 s, `WriteTimeout` 30 s, `IdleTimeout` 60 s.
 Without them, a slow client can keep connections open indefinitely.
 
+**A statement is cancelled after 10 seconds** (`statement_timeout`), unless `DATABASE_URL` sets another limit. `WriteTimeout` cuts the response, but not the query behind it: without the limit, a slow query keeps its pool connection after the request is gone, and a few of them leave the API without connections. It is set with `SET` on each new connection, not as a startup parameter in the URL, because PgBouncer rejects the parameters it does not know. Whatever legitimately takes longer (a report, a job) raises it only for itself, inside its transaction: `SET LOCAL statement_timeout = '60s'`. The migrations use their own connections without the limit, because an index on a large table can take minutes.
+
 SSE streams have no `WriteTimeout` (it would cut them after 30 seconds), but **each write has a 10-second deadline**: a client that stops reading without closing the connection is disconnected, instead of blocking the handler and keeping its slot.
 
 **On shutdown**, the HTTP server and the background jobs stop at the same time, each one with `SHUTDOWN_TIMEOUT` (10 seconds by default). If a request did not finish in time, it is cut. The process manager must wait a bit longer than `SHUTDOWN_TIMEOUT` before killing the process; some wait only 10 seconds by default.

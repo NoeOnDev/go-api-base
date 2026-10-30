@@ -213,6 +213,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 - Optional filters in sqlc: `sqlc.narg('x')::type IS NULL OR column = sqlc.narg('x')`. Escape `%` and `_` in `ILIKE`
   searches. `ILIKE '%…%'` does not use indexes: if the table grows, `pg_trgm` (see `docs/adding-a-resource.md`).
 - Money in cents (`bigint`), never `float`.
+- A statement is cancelled after 10 seconds (`statement_timeout`, see "Server timeouts" in `docs/decisions.md`). A query or
+  job that legitimately takes longer raises it only for itself: `SET LOCAL statement_timeout = '60s'` inside its transaction.
 
 **Tests**
 - Integration tests with `testutil.NewDB(t)` (empties every table) and `testutil.Login(t, pool, email, role)` for the

@@ -145,7 +145,7 @@ Everything is configured with environment variables. [`.env.example`](.env.examp
 |---|---|---|
 | `APP_ENV` | `development` | `production` turns on JSON logs and the `Secure` cookie |
 | `HTTP_ADDR` | `:8080` | Server address |
-| `DATABASE_URL` | (required) | PostgreSQL connection. The pool has 10 connections unless the URL sets another size (`?pool_max_conns=20`) |
+| `DATABASE_URL` | (required) | PostgreSQL connection. The pool has 10 connections unless the URL sets another size (`?pool_max_conns=20`), and a statement is cancelled after 10 seconds unless the URL sets another limit (`?statement_timeout=30000`, in milliseconds; `0` turns it off) |
 | `TEST_DATABASE_URL` | | Database of the integration tests |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 | `SHUTDOWN_TIMEOUT` | `10s` | Maximum wait when the server shuts down |

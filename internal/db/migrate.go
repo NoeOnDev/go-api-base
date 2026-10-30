@@ -18,9 +18,13 @@ import (
 // goose records in the goose_db_version table which migrations were applied, so running it on
 // every start is safe: with nothing pending, it does nothing.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error {
-	// goose works with database/sql; this connection reuses the pgx pool.
-	// Closing it does not close the pool.
-	sqlDB := stdlib.OpenDBFromPool(pool)
+	// goose works with database/sql. It gets its own connections, with the pool's configuration
+	// but without statement_timeout: a migration can take longer than a request (an index on a
+	// large table). The pool sets it in AfterConnect, which these connections do not have, and a
+	// statement_timeout in the URL is removed here.
+	connConfig := pool.Config().ConnConfig.Copy()
+	delete(connConfig.RuntimeParams, "statement_timeout")
+	sqlDB := stdlib.OpenDB(*connConfig)
 	defer sqlDB.Close()
 
 	// The lock (a PostgreSQL advisory lock) keeps two processes from migrating at the same time,
@@ -49,6 +53,6 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error
 	if err != nil {
 		return fmt.Errorf("read the schema version: %w", err)
 	}
-	logger.Info("esquema actualizado", "version", version, "applied", len(results))
+	logger.Info("schema up to date", "version", version, "applied", len(results))
 	return nil
 }

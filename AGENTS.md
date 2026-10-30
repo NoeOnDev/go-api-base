@@ -155,6 +155,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 
 **Attempt limits and multiple instances** (see "Attempt limits" and "Multiple instances" in `docs/decisions.md`)
 - Per IP, in memory: `httpx.NewRateLimiter(every, burst).MiddlewareByIP(proxies)`. Each instance counts separately.
+  Every route already has a general one (200 in a row, then 10 per second, in `internal/server/routes.go`); a route that
+  needs a lower one adds its own.
 - Per account or per user, in PostgreSQL: `ratelimit.New(queries, "name", every, burst)`, with `Allow(ctx, key)` or
   `Middleware(key)`. It applies to every instance: what stops brute force against an account always goes here.
 - Nothing that must apply to every instance (a counter, a cache, an "already done") is kept in memory: it goes in

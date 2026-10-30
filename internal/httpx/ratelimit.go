@@ -18,9 +18,10 @@ import (
 // why it is used for the per-IP limits, a first coarse and cheap barrier. The limits that stop
 // brute force against an account are in PostgreSQL (internal/ratelimit) and hold for every instance.
 type RateLimiter struct {
-	every time.Duration
-	burst int
-	ttl   time.Duration // how long an idle key is remembered
+	every   time.Duration
+	burst   int
+	ttl     time.Duration // how long an idle key is remembered
+	maxKeys int           // how many keys it remembers at most (maxVisitors)
 
 	mu          sync.Mutex
 	visitors    map[string]*visitor
@@ -37,6 +38,10 @@ type visitor struct {
 // forgetting it earlier would give back all its attempts at once.
 const visitorTTL = 10 * time.Minute
 
+// maxVisitors is how many keys a limiter remembers at most, about 10 MB. The cleanup forgets the
+// idle ones every minute, but in that minute an attack from many IPs could fill memory.
+const maxVisitors = 50_000
+
 // NewRateLimiter creates a limiter that allows burst requests in a row per key and refills one
 // every every. For example, NewRateLimiter(12*time.Second, 5) allows 5 attempts in a row and
 // then one every 12 seconds (5 per minute). The middleware chooses the key: the IP
@@ -46,6 +51,7 @@ func NewRateLimiter(every time.Duration, burst int) *RateLimiter {
 		every:       every,
 		burst:       burst,
 		ttl:         max(visitorTTL, every*time.Duration(burst)),
+		maxKeys:     maxVisitors,
 		visitors:    map[string]*visitor{},
 		lastCleanup: time.Now(),
 	}
@@ -71,6 +77,14 @@ func (rl *RateLimiter) Allow(ip string) bool {
 
 	v, ok := rl.visitors[ip]
 	if !ok {
+		if len(rl.visitors) >= rl.maxKeys {
+			// Full: forget any key to make room. Go walks a map from a random point, so it costs the
+			// same with any size; the forgotten key only gets its attempts back.
+			for k := range rl.visitors {
+				delete(rl.visitors, k)
+				break
+			}
+		}
 		v = &visitor{limiter: rate.NewLimiter(rate.Every(rl.every), rl.burst)}
 		rl.visitors[ip] = v
 	}

@@ -142,6 +142,30 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 }
 
+func TestGeneralRateLimit(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+
+	// 200 in a row per IP, on any route: number 201 is rejected.
+	for i := range 200 {
+		if w := testutil.Do(t, api, nil, http.MethodGet, "/categories", ""); w.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d", i+1, w.Code)
+		}
+	}
+	w := testutil.Do(t, api, nil, http.MethodGet, "/categories", "")
+	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") == "" {
+		t.Errorf("request 201: status = %d, Retry-After = %q; want 429 with Retry-After", w.Code, w.Header().Get("Retry-After"))
+	}
+
+	// Another IP has its own attempts, and /healthz is not limited.
+	if w := testutil.DoFromIP(t, api, "198.51.100.7", nil, http.MethodGet, "/categories", ""); w.Code != http.StatusOK {
+		t.Errorf("another IP: status = %d", w.Code)
+	}
+	if w := testutil.Do(t, api, nil, http.MethodGet, "/healthz", ""); w.Code != http.StatusOK {
+		t.Errorf("/healthz: status = %d", w.Code)
+	}
+}
+
 func TestSecurityHeaders(t *testing.T) {
 	api := newAPI(t)
 

@@ -114,6 +114,22 @@ func NewHandler(d Deps) http.Handler {
 		Account: ratelimit.New(queries, "account", 12*time.Second, 5),
 	})
 
+	// General per-IP limit, on every route except /healthz (a monitor or a load balancer calls it
+	// often from the same IP). It is a first barrier, like the auth ones: an expensive search
+	// repeated, or any new route, does not depend only on the proxy. It is generous because many
+	// people can share an IP; the auth routes add their own, lower ones.
+	general := byIP(100*time.Millisecond, 200) // 200 in a row, then 10 per second
+	limitAll := func(next http.Handler) http.Handler {
+		limited := general(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/healthz" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			limited.ServeHTTP(w, r)
+		})
+	}
+
 	// Real time: an SSE stream with the events of the user and of the topics they ask for.
 	mux.Handle("GET /events", authService.RequireUser(broker.Handler(authService)))
 
@@ -137,6 +153,7 @@ func NewHandler(d Deps) http.Handler {
 	//     only in production with Secure cookies, which is when there is HTTPS in front.
 	//   - Recover inside Logger, so the 500 response of a panic is logged too.
 	//   - CORS before the CSRF protection, to answer the preflights of the allowed origins.
+	//   - The general limit inside CORS, so the preflights do not count.
 	return httpx.Chain(csrfProtection(mux, d.Config.CORSAllowedOrigins),
 		httpx.RequestID(d.Logger),
 		catalog.Middleware,
@@ -144,6 +161,7 @@ func NewHandler(d Deps) http.Handler {
 		httpx.Logger,
 		httpx.Recover,
 		httpx.CORS(d.Config.CORSAllowedOrigins),
+		limitAll,
 	)
 }
 

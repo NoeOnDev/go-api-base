@@ -243,6 +243,7 @@ If they turn it off, they lose the admin permissions until they turn it on again
 
   | Group | Routes | Per | Limit |
   |---|---|---|---|
+  | General | every route except `/healthz` (also the ones outside `/auth`) | IP | 200 in a row, then 10 per second |
   | Login | `POST /auth/login` | IP | 20 in a row, then 1 every 3 s |
   | Registration | `POST /auth/register` | IP | 10 in a row, then 1 every 10 s |
   | 2FA | `POST /auth/two-factor/challenge` | IP | 20 in a row, then 1 every 3 s |

@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -228,6 +229,19 @@ func TestRateLimiterRemembersUntilRefilled(t *testing.T) {
 
 	if rl := NewRateLimiter(12*time.Second, 5); rl.ttl != visitorTTL {
 		t.Errorf("with a fast refill it should use visitorTTL: %v", rl.ttl)
+	}
+}
+
+func TestRateLimiterKeepsAtMostMaxKeys(t *testing.T) {
+	rl := NewRateLimiter(time.Hour, 1)
+	rl.maxKeys = 3
+	for i := range 10 {
+		if !rl.Allow(fmt.Sprintf("203.0.113.%d", i)) {
+			t.Fatalf("key %d: a new key should be allowed", i)
+		}
+	}
+	if n := len(rl.visitors); n != 3 {
+		t.Errorf("%d keys remembered, want 3", n)
 	}
 }
 

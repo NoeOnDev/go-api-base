@@ -300,5 +300,10 @@ A rule for new code: **nothing that must apply to every instance is kept in memo
 - Login with Google or other providers (OAuth).
 - Permissions finer than `user`/`admin`.
 - WebSockets (see "Real time with SSE").
+- Checking passwords against breaches (Have I Been Pwned): it needs an external call on each registration and password change. The most common ones are already rejected (see "argon2id for passwords").
+- A persistent audit log: the security events go to the logs and to the user's notifications. What to keep, and for how long, depends on each project.
+- Metrics (Prometheus or OpenTelemetry): they add dependencies, and each project uses its own monitoring.
+- An OpenAPI contract: written by hand it falls out of date. The endpoints are in the README and in `docs/auth.md`.
+- Deployment files (Dockerfile, systemd units, proxy configuration): each project deploys differently. "Before production" in the README lists what to check, whatever the server.
 
 It is not a to-do list: they are features that depend on each project, and they are added in the project that needs them.

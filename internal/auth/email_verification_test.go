@@ -100,7 +100,7 @@ func TestAdminsAreVerified(t *testing.T) {
 	if !admin.EmailVerified() {
 		t.Error("an admin should be verified when created")
 	}
-	if w := testutil.Do(t, api, cookie, http.MethodPost, "/categories", `{"name":"Bebidas","slug":"bebidas"}`); w.Code != http.StatusCreated {
+	if w := testutil.Do(t, api, cookie, http.MethodPost, "/categories", `{"name":"Drinks","slug":"drinks"}`); w.Code != http.StatusCreated {
 		t.Errorf("the admin cannot use protected routes: status = %d", w.Code)
 	}
 }

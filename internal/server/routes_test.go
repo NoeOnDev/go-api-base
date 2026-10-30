@@ -56,7 +56,7 @@ func TestHealthz(t *testing.T) {
 func TestUnknownRoute(t *testing.T) {
 	api := newAPI(t)
 	w := httptest.NewRecorder()
-	api.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/no-existe", nil))
+	api.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/missing", nil))
 
 	if w.Code != http.StatusNotFound || errorCode(t, w) != "route_not_found" {
 		t.Errorf("status = %d", w.Code)
@@ -230,8 +230,8 @@ func TestEventsEndToEnd(t *testing.T) {
 	// With a session, through every middleware of the API, the event arrives.
 	u, cookie := testutil.Login(t, pool, "alice@example.com", "user")
 	events := testutil.OpenEvents(t, srv, cookie, "")
-	broker.PublishToUser(t.Context(), u.ID, realtime.Event{Type: "notification", Data: "hola"})
-	if ev := events.Next(t, 2*time.Second); ev.Type != "notification" || ev.Data != `"hola"` {
+	broker.PublishToUser(t.Context(), u.ID, realtime.Event{Type: "notification", Data: "hello"})
+	if ev := events.Next(t, 2*time.Second); ev.Type != "notification" || ev.Data != `"hello"` {
 		t.Errorf("event: %+v", ev)
 	}
 }

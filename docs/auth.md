@@ -365,3 +365,5 @@ Each recipe was tested separately, on a copy of the project: it compiles, passes
 - Physical security keys or passkeys (WebAuthn).
 - Login with Google or other providers (OAuth).
 - Permissions finer than `user`/`admin`.
+- Checking passwords against breaches (Have I Been Pwned), which needs an external call. The 10,000 most common ones are rejected.
+- A persistent audit log: the security events go to the logs and to the user's notifications.

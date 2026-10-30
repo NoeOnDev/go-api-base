@@ -13,6 +13,8 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 
 ## [Unreleased]
 
+Security and robustness: common passwords are rejected, statements have a time limit, HSTS goes out in production, every route has a per-IP limit, turning off 2FA asks for a code, and administrators can be required to use 2FA. There are no schema changes. The frontend has to send the code to turn off 2FA (see **Changed**).
+
 ### Added
 
 - **Common passwords are rejected** (ASVS 6.2.4): registration, password change and reset reject the 10,000 most common passwords of 8 to 128 characters, ignoring letter case, with `422` and `validation.common_password` on `password`. The list comes from SecLists (`100k-most-used-passwords-NCSC.txt`, MIT license) and is embedded in the binary: `internal/auth/passwords/common.txt`, with its license next to it. To bring it to a project, copy that folder, `internal/auth/common_passwords.go`, the new case of `validatePassword` and the catalog key.
@@ -24,10 +26,15 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 
 ### Changed
 
+- **Turning off 2FA asks for a second factor:** `POST /auth/two-factor/disable` takes `{password, code}` or `{password, recovery_code}`, and responds `409 two_factor_not_enabled` if it is not on. With only the password, whoever had a stolen session and the password could turn it off and log in later without the phone. The wrong codes count toward the per-user 2FA limit of the login. **The frontend has to send the code.**
 - **`User.IsAdmin()` means "can act as an administrator":** the admin role and, with `REQUIRE_ADMIN_TWO_FACTOR`, 2FA. Check admin permissions with it, never by comparing `Role`.
 - **The `internal/notes` tests use `testutil.NewAPI`, `Do` and `Decode`**, like the other resources and as `AGENTS.md` asks. `notes` is the model for each user's data, so whoever copies it now copies that style.
-- **Turning off 2FA asks for a second factor:** `POST /auth/two-factor/disable` takes `{password, code}` or `{password, recovery_code}`, and responds `409 two_factor_not_enabled` if it is not on. With only the password, whoever had a stolen session and the password could turn it off and log in later without the phone. The wrong codes count toward the per-user 2FA limit of the login. **The frontend has to send the code.**
 - **`httpx.SecurityHeaders` takes whether to send HSTS:** `httpx.SecurityHeaders(d.Config.IsProduction() && d.Config.CookieSecure)` in `internal/server/routes.go`.
+- **"What it does not include" lists more of what the template leaves out on purpose** (`docs/decisions.md` and `docs/auth.md`): checking passwords against breaches (Have I Been Pwned), a persistent audit log, metrics, an OpenAPI contract and deployment files, each with its reason. That way an agent does not propose them as if they were missing.
+
+### Fixed
+
+- **Text left in Spanish after v0.6.0:** the log line when migrating (`esquema actualizado` is now `schema up to date`), a test error message and a few test literals.
 
 ## [v0.6.0] - 2026-10-29
 

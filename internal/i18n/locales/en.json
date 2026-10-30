@@ -53,6 +53,7 @@
 
   "validation.boolean": "Must be true or false.",
   "validation.code_required": "Send the code from your app or a recovery code.",
+  "validation.common_password": "This password is too common; choose another one.",
   "validation.current_session": "This is the session of this device; to close it, use POST /auth/logout.",
   "validation.integer_range": "Must be a number between {min} and {max}.",
   "validation.invalid_email": "Must be a valid email address.",

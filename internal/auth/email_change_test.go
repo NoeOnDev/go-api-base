@@ -77,7 +77,7 @@ func TestChangeEmailRejects(t *testing.T) {
 	}{
 		"without a password":       {`{"email":"new@example.com"}`, http.StatusUnprocessableEntity},
 		"wrong password":           {`{"email":"new@example.com","password":"other"}`, http.StatusUnprocessableEntity},
-		"invalid email":            {`{"email":"no-es-email","password":"test-password"}`, http.StatusUnprocessableEntity},
+		"invalid email":            {`{"email":"not-an-email","password":"test-password"}`, http.StatusUnprocessableEntity},
 		"the same email":           {`{"email":"ALICE@example.com","password":"test-password"}`, http.StatusUnprocessableEntity},
 		"email of another account": {`{"email":"bob@example.com","password":"test-password"}`, http.StatusConflict},
 	} {

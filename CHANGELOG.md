@@ -11,6 +11,12 @@ The template edits its original migrations, because they represent the initial s
 deployed, do not edit its migrations: the versions with schema changes include, in **Updating an existing project**,
 the SQL to put in a new migration (`make migrate-new name=…`).
 
+## [Unreleased]
+
+### Added
+
+- **Common passwords are rejected** (ASVS 6.2.4): registration, password change and reset reject the 10,000 most common passwords of 8 to 128 characters, ignoring letter case, with `422` and `validation.common_password` on `password`. The list comes from SecLists (`100k-most-used-passwords-NCSC.txt`, MIT license) and is embedded in the binary: `internal/auth/passwords/common.txt`, with its license next to it. To bring it to a project, copy that folder, `internal/auth/common_passwords.go`, the new case of `validatePassword` and the catalog key.
+
 ## [v0.6.0] - 2026-10-29
 
 The API works with multiple instances, user-facing text comes in English or Mexican Spanish depending on the request's language, each error has a specific code, everything internal and the documentation are in English, and the documentation has an index for agents. The schema changes: see **Updating an existing project**.

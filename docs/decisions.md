@@ -131,6 +131,8 @@ It is the algorithm OWASP recommends. The parameters (19 MiB, 2 iterations, 1 th
 
 They are stored inside each hash (PHC format), so they can be raised later without invalidating the existing passwords. Each one is hashed again with the new parameters the next time its user logs in (the only moment the API has the password): that login computes one more hash, once.
 
+**Common passwords are rejected** with a list embedded in the binary: the 10,000 most common ones of 8 to 128 characters from SecLists' `100k-most-used-passwords-NCSC.txt` (MIT license), built from real breaches. ASVS asks for at least 3,000 (6.2.4). Checking every password against a breach database, like Have I Been Pwned, needs an external call on each registration, so it is left to each project (see "What it does not include").
+
 **At most one hash per core at a time** (a semaphore in `password.go`). Each hash reserves 19 MiB: without a cap, 200 simultaneous logins took the process from 16 MiB to 2.5 GiB on 2 cores, and on a small VPS the system would have killed it. With the cap, the peak stays around 120 MiB and the logins even finish sooner, because the CPU is no longer split among 200 hashes. If the client leaves while waiting for its turn, nothing is computed.
 
 ## CSRF protection with the standard library

@@ -53,6 +53,7 @@
 
   "validation.boolean": "Debe ser true o false.",
   "validation.code_required": "Envía el código de tu app o un código de recuperación.",
+  "validation.common_password": "Esta contraseña es muy común; elige otra.",
   "validation.current_session": "Es la sesión de este dispositivo; para cerrarla, usa POST /auth/logout.",
   "validation.integer_range": "Debe ser un número entre {min} y {max}.",
   "validation.invalid_email": "Debe ser un email válido.",

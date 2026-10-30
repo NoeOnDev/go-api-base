@@ -33,8 +33,8 @@ func TestHashAndVerifyPassword(t *testing.T) {
 }
 
 func TestHashPasswordUsesRandomSalt(t *testing.T) {
-	a, _ := HashPassword(t.Context(), "misma")
-	b, _ := HashPassword(t.Context(), "misma")
+	a, _ := HashPassword(t.Context(), "same")
+	b, _ := HashPassword(t.Context(), "same")
 	if a == b {
 		t.Error("two hashes of the same password should not be equal")
 	}

@@ -173,7 +173,7 @@ func TestRateLimitKey(t *testing.T) {
 		"2001:db8:aaaa:bbbb::1":      "2001:db8:aaaa:bbbb::/64",
 		"2001:db8:aaaa:bbbb:ffff::9": "2001:db8:aaaa:bbbb::/64",
 		"2001:db8:aaaa:cccc::1":      "2001:db8:aaaa:cccc::/64",
-		"no-es-ip":                   "no-es-ip",
+		"not-an-ip":                  "not-an-ip",
 	}
 	for ip, want := range tests {
 		if got := rateLimitKey(ip); got != want {

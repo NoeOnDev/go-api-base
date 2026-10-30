@@ -70,7 +70,7 @@ The user is returned like this (it never includes the password):
 **Rules:**
 - Required name, up to 100 characters.
 - Valid email, stored in lowercase.
-- Password from 8 to 128 characters.
+- Password from 8 to 128 characters, and not one of the 10,000 most common ones (`validation.common_password`). The list compares without letter case, so `Password1` is rejected too.
 
 ## Profile and password change
 
@@ -226,6 +226,7 @@ In the routes, `RequireAdmin` responds `401` if there is no session and `403` if
 ## Built-in security
 
 - **Passwords with argon2id** (19 MiB, 2 iterations, 1 thread, as OWASP recommends), with a random salt.
+- **Common passwords rejected** on registration, password change and reset: the 10,000 most common ones of 8 or more characters, from real breaches (ASVS 6.2.4). The list is embedded in the binary (`internal/auth/passwords/common.txt`), so it needs no external call.
 - **Login without leaks:** it always responds the same `401` and takes the same time whether the email exists or not. "Forgot my password" also always responds the same. Registration does say whether an email is in use (`409`), because otherwise the user would not know why it fails.
 - **Single-use tokens** to reset the password and verify the email: only their SHA-256 is stored in the database, they expire, and they are validated and deleted in a single operation, so they cannot be used twice.
 - **Sessions are closed on a password change or reset**, in case someone had logged in with the previous one.

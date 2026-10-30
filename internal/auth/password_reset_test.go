@@ -39,7 +39,7 @@ func TestForgotPasswordDoesNotRevealEmails(t *testing.T) {
 	}
 
 	resp := testutil.Decode[testutil.APIError](t,
-		testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"no-es-email"}`),
+		testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"not-an-email"}`),
 		http.StatusUnprocessableEntity)
 	if resp.Error.Fields["email"] == "" {
 		t.Errorf("want an error on email: %+v", resp.Error)

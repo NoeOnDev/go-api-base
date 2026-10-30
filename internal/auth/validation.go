@@ -82,13 +82,16 @@ func (in loginInput) validate() error {
 	return nil
 }
 
-// validatePassword applies the rules of a new password. It is not trimmed: spaces count too.
+// validatePassword applies the rules of a new password: its length, and that it is not one of
+// the most common ones (see isCommonPassword). It is not trimmed: spaces count too.
 func validatePassword(password string) i18n.Message {
 	switch n := utf8.RuneCountInString(password); {
 	case n < minPasswordLen:
 		return i18n.M("validation.too_short", "min", minPasswordLen)
 	case n > maxPasswordLen:
 		return i18n.M("validation.too_long", "max", maxPasswordLen)
+	case isCommonPassword(password):
+		return i18n.M("validation.common_password")
 	}
 	return i18n.Message{}
 }

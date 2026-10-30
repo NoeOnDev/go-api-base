@@ -71,11 +71,12 @@ func TestRegisterValidation(t *testing.T) {
 	tests := []struct {
 		name, body, field string
 	}{
-		{"without a name", `{"name":" ","email":"a@b.com","password":"12345678"}`, "name"},
-		{"invalid email", `{"name":"Alice","email":"no-es-email","password":"12345678"}`, "email"},
-		{"email with a name", `{"name":"Alice","email":"Alice <a@b.com>","password":"12345678"}`, "email"},
-		{"email without a domain", `{"name":"Alice","email":"a@localhost","password":"12345678"}`, "email"},
+		{"without a name", `{"name":" ","email":"a@b.com","password":"a-long-password"}`, "name"},
+		{"invalid email", `{"name":"Alice","email":"not-an-email","password":"a-long-password"}`, "email"},
+		{"email with a name", `{"name":"Alice","email":"Alice <a@b.com>","password":"a-long-password"}`, "email"},
+		{"email without a domain", `{"name":"Alice","email":"a@localhost","password":"a-long-password"}`, "email"},
 		{"short password", `{"name":"Alice","email":"a@b.com","password":"1234567"}`, "password"},
+		{"common password", `{"name":"Alice","email":"a@b.com","password":"Password1"}`, "password"},
 	}
 
 	for _, tt := range tests {

@@ -18,11 +18,13 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 - **User management for administrators** (`internal/auth/admin_users.go`, see "Managing users" in `docs/auth.md`): `GET /admin/users` with search, role and status filters; `GET /admin/users/{id}`; `PUT /admin/users/{id}/role`; `POST /admin/users/{id}/suspend` and `/unsuspend`; and `DELETE /admin/users/{id}`. Changing the role and deleting ask for the admin's password. An admin cannot act on their own account (`409 own_account`), and the last active admin cannot be demoted, suspended or deleted (`409 last_admin`).
 - **Suspended accounts:** the new `users.suspended_at` column. A suspended account cannot log in (`403 account_suspended`, only after the right password), its sessions, streams and pending links are cut, its session cookie stops working even if one is left, and "forgot my password" sends it nothing.
 - **New codes:** `user_not_found`, `account_suspended`, `own_account`, and the validation key `validation.one_of`.
+- **HTML emails** (see "Emails" in `docs/auth.md`): every email goes out as `multipart/alternative`, with its plain-text version and its HTML one. Each email has `<name>.txt` (with the subject) and `<name>.html` (`preheader` and `content`) per language. The HTML goes inside a shared layout, `internal/mail/layout/`: the "Basic" layout of Postmark's transactional templates (MIT, with its license next to it), with the app name on top, a button that works in every client, a footer and dark mode. `mail.Templates` checks that every email has both versions in every language, and the layout texts come from the catalogs (`email.button_help`).
 
 ### Changed
 
 - **The last-admin check counts only active admins** (not suspended), and is shared by `DELETE /auth/me` and the admins' actions (`checkNotLastAdmin` and `deleteUser`, in `internal/auth/account.go`).
 - **`db.EscapeLike`** escapes the `ILIKE` wildcards for every package; `internal/products` used its own copy.
+- **`mail.NewTemplates` takes the brand** (`mail.Brand`, the app name and its URL), and **`Render` takes the email's name without extension** (`"password_reset"`) and returns its subject, text and HTML (`mail.Rendered`). `mail.Message` has an `HTML` field. The `make check` key scan also reads the HTML templates.
 
 ### Fixed
 

@@ -207,7 +207,16 @@ SMTP_HOST=localhost
 SMTP_PORT=1025
 ```
 
-The templates are in `internal/auth/emails/<language>/*.txt` (`en` and `es-MX`), in plain text, and each one defines its subject with `{{define "subject"}}`. Each email goes out in the user's language. To change the texts, edit those files; to add a language, see [languages](i18n.md).
+**Templates.** Each email goes out in HTML and in plain text, in the user's language. They are in `internal/auth/emails/<language>/` (`en` and `es-MX`), two files per email:
+
+- `<name>.txt`: the plain-text version, for the clients without HTML (it also helps against spam filters). It defines the subject with `{{define "subject"}}`.
+- `<name>.html`: the HTML version. It defines `preheader` (the line the inbox shows next to the subject) and `content`, written with plain `<h1>` and `<p>` tags, and uses the blocks `{{template "button" (button .Link "Label")}}` and `{{template "link_help" .Link}}`.
+
+The HTML goes inside a shared layout, `internal/mail/layout/` (the "Basic" layout of [Postmark's templates](https://github.com/ActiveCampaign/postmark-templates), MIT license): the app name (`APP_NAME`) on top, linked to `FRONTEND_URL`, the white box with the content, and the footer. It works in the usual clients, Outlook on Windows included, and in dark mode. To adapt it to a project, change the colors in `layout.html` and `blocks.html`, and the styles of `<h1>` and `<p>` in `contentStyles` (`internal/mail/templates.go`): email clients ignore part of the `<style>` of the head, so every element carries its styles inline.
+
+The user's data is escaped (`html/template`): a name like `<b>Alice</b>` shows up as text. To change the texts, edit both files of the email; to add a language, see [languages](i18n.md).
+
+**Check how they look** in Mailpit: each email has the HTML and Text tabs, and **HTML Check** estimates how well each client supports it (with the data of [caniemail.com](https://www.caniemail.com)).
 
 ## Roles
 
@@ -370,12 +379,12 @@ All the routes are in `internal/auth/routes.go`. To remove a feature, delete its
 | Open registration (only admins with `create-admin`) | `POST /auth/register` | The `register` function of `handlers.go`, and the `TestRegister…` tests of `handlers_test.go` | Several tests create the user with `POST /auth/register`: move them to `testutil.Login` |
 | Profile and password change | `PUT /auth/me`, `PUT /auth/password` | `profile.go`, `account_test.go` | |
 | Sessions per device | `/auth/sessions…` | `sessions.go`, `sessions_test.go` | |
-| Changing the email | `PUT /auth/email`, `/auth/email/confirm` | `email_change.go`, `email_change_test.go`, `emails/*/email_change*.txt` | |
-| Deleting the account | `DELETE /auth/me` | `delete_account.go`, `delete_account_test.go`, `emails/*/account_deleted.txt` | |
-| Resetting the password | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go`, `password_reset_test.go`, `emails/*/password_reset.txt` | |
-| Verifying the email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go`, `email_verification_test.go`, `emails/*/verify_email.txt` | In `register` (`handlers.go`), the `if s.opts.RequireVerifiedEmail` block. Leave `REQUIRE_EMAIL_VERIFICATION=false` |
+| Changing the email | `PUT /auth/email`, `/auth/email/confirm` | `email_change.go`, `email_change_test.go`, `emails/*/email_change*.*` | |
+| Deleting the account | `DELETE /auth/me` | `delete_account.go`, `delete_account_test.go`, `emails/*/account_deleted.*` | |
+| Resetting the password | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go`, `password_reset_test.go`, `emails/*/password_reset.*` | |
+| Verifying the email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go`, `email_verification_test.go`, `emails/*/verify_email.*` | In `register` (`handlers.go`), the `if s.opts.RequireVerifiedEmail` block. Leave `REQUIRE_EMAIL_VERIFICATION=false` |
 | Managing users | `/admin/users…` | `admin_users.go`, `admin_users_test.go` | Optionally, the suspension: the `SuspendedAt` checks of `Authenticate` (`auth.go`) and `forgotPassword` (`password_reset.go`), the `suspended_at` column (migration `00001`, `users.sql` and the `GetSessionUser` filter of `sessions.sql`) and the user queries of the list, the role and the suspension (then, `make sqlc`) |
-| 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/*/two_factor_locked.txt` | In `handlers.go`, the login's `if u.TwoFactorEnabled` block; in `auth.go`, `twoFactorLimiter`; in `password_reset.go`, its `resetLimit`; in `keys.go`, the call to `rotateTwoFactorKeys`. Optionally, also `internal/totp`, `testutil/twofactor.go` (with `TestTwoFactorChangesNotify` of `internal/notifications`) and migration `00007` with `recovery_codes.sql` (then, `make sqlc`) |
+| 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/*/two_factor_locked.*` | In `handlers.go`, the login's `if u.TwoFactorEnabled` block; in `auth.go`, `twoFactorLimiter`; in `password_reset.go`, its `resetLimit`; in `keys.go`, the call to `rotateTwoFactorKeys`. Optionally, also `internal/totp`, `testutil/twofactor.go` (with `TestTwoFactorChangesNotify` of `internal/notifications`) and migration `00007` with `recovery_codes.sql` (then, `make sqlc`) |
 
 Finally, `make check`. If a test of another feature fails, it is one that used the feature you removed: to set up the case, or to test how the two combine (for example, that changing the password cancels a pending email change). Delete that case, or move its setup to `testutil.Login`.
 

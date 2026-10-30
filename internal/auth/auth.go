@@ -93,7 +93,8 @@ type Options struct {
 	RequireAdminTwoFactor bool
 	// Box encrypts the two-factor secret and protects the recovery codes. Without it, two-factor authentication is not available.
 	Box *secretbox.Box
-	// Issuer is the application name that the authenticator app shows.
+	// Issuer is the application name: the authenticator app shows it, and the HTML emails carry
+	// it on top, linked to FrontendURL.
 	Issuer string
 	// TrustedProxies are the proxies whose X-Forwarded-For is accepted (see httpx.ClientIP).
 	// They are used to record the real client IP (for example, in the email that warns about wrong
@@ -198,7 +199,7 @@ func NewService(pool *pgxpool.Pool, opts Options) *Service {
 		q:                q,
 		opts:             opts,
 		catalog:          opts.I18n,
-		emails:           newEmailTemplates(opts.I18n),
+		emails:           newEmailTemplates(opts.I18n, mail.Brand{AppName: opts.Issuer, URL: opts.FrontendURL}),
 		loginLimiter:     ratelimit.New(q, "login", loginLimitEvery, loginLimitBurst),
 		twoFactorLimiter: ratelimit.New(q, "two_factor", twoFactorLimitEvery, twoFactorLimitBurst),
 		emailLimiter:     ratelimit.New(q, "email", emailLimitEvery, emailLimitBurst),

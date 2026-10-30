@@ -1,0 +1,10 @@
+{{define "preheader"}}Confirma el nuevo email de tu cuenta. El enlace vence en {{.Expires}}.{{end}}
+
+{{define "content"}}
+<h1>Hola {{.Name}}:</h1>
+<p>Pediste usar esta dirección como el nuevo email de tu cuenta. Para confirmarlo, usa este botón:</p>
+{{template "button" (button .Link "Confirmar el nuevo email")}}
+<p>El enlace vence en {{.Expires}} y sirve una sola vez. Hasta que lo abras, tu email sigue siendo el anterior.</p>
+<p>Si no lo pediste tú, ignora este correo.</p>
+{{template "link_help" .Link}}
+{{end}}

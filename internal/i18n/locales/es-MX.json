@@ -1,6 +1,8 @@
 {
   "duration.hours": {"one": "1 hora", "other": "{count} horas"},
 
+  "email.button_help": "Si el botón no funciona, copia este enlace en tu navegador:",
+
   "errors.account_has_data": "La cuenta tiene datos que impiden borrarla; contacta al equipo.",
   "errors.account_suspended": "Tu cuenta está suspendida; contacta al administrador.",
   "errors.admin_two_factor_required": "Como administrador, primero tienes que activar la verificación en dos pasos.",

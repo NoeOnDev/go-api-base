@@ -15,7 +15,7 @@ func (s *Service) sendVerificationEmail(ctx context.Context, u User) error {
 	if err != nil {
 		return err
 	}
-	return s.sendEmail(ctx, u.Email, u.Locale, "verify_email.txt", emailData{
+	return s.sendEmail(ctx, u.Email, u.Locale, "verify_email", emailData{
 		Name:    u.Name,
 		Link:    s.frontendLink("/verify-email", token),
 		Expires: s.expiresIn(u.Locale, emailVerificationTTL),

@@ -1,0 +1,10 @@
+{{define "preheader"}}Confirm the new email of your account. The link expires in {{.Expires}}.{{end}}
+
+{{define "content"}}
+<h1>Hi {{.Name}},</h1>
+<p>You asked to use this address as the new email of your account. To confirm it, use this button:</p>
+{{template "button" (button .Link "Confirm the new email")}}
+<p>The link expires in {{.Expires}} and works only once. Until you open it, your email stays the previous one.</p>
+<p>If you didn't ask for this, ignore this email.</p>
+{{template "link_help" .Link}}
+{{end}}

@@ -19,18 +19,23 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net/mail"
+	"net/textproto"
 	"strings"
 	"time"
 )
 
-// Message is a plain-text email.
+// Message is an email: its plain-text body and, optionally, the HTML one. With both, clients
+// show the HTML, and the text is for the ones without HTML (and helps against spam filters).
 type Message struct {
 	To      string // only the address, for example "alice@example.com"
 	Subject string
-	Body    string
+	Body    string // plain text
+	HTML    string // optional
 }
 
 // Sender sends an email.
@@ -55,7 +60,8 @@ func (m Message) Validate() error {
 }
 
 // build assembles the email in RFC 5322 format: headers with the subject encoded in UTF-8,
-// quoted-printable body and CRLF line endings.
+// quoted-printable body and CRLF line endings. With HTML, the body is multipart/alternative: the
+// plain text first and the HTML after, so clients show the last one they understand.
 func build(from *mail.Address, msg Message, now time.Time) ([]byte, error) {
 	if err := msg.Validate(); err != nil {
 		return nil, err
@@ -70,20 +76,49 @@ func build(from *mail.Address, msg Message, now time.Time) ([]byte, error) {
 	header("Date", now.Format(time.RFC1123Z))
 	header("Message-ID", messageID(from.Address))
 	header("MIME-Version", "1.0")
-	header("Content-Type", "text/plain; charset=utf-8")
-	header("Content-Transfer-Encoding", "quoted-printable")
+
+	if msg.HTML == "" {
+		header("Content-Type", "text/plain; charset=utf-8")
+		header("Content-Transfer-Encoding", "quoted-printable")
+		buf.WriteString("\r\n")
+		if err := writeQuotedPrintable(&buf, msg.Body); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+
+	mw := multipart.NewWriter(&buf)
+	header("Content-Type", mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": mw.Boundary()}))
 	buf.WriteString("\r\n")
-
-	qp := quotedprintable.NewWriter(&buf)
-	body := strings.ReplaceAll(msg.Body, "\r\n", "\n")
-	if _, err := qp.Write([]byte(strings.ReplaceAll(body, "\n", "\r\n"))); err != nil {
+	for _, part := range []struct{ contentType, body string }{
+		{"text/plain; charset=utf-8", msg.Body},
+		{"text/html; charset=utf-8", msg.HTML},
+	} {
+		w, err := mw.CreatePart(textproto.MIMEHeader{
+			"Content-Type":              {part.contentType},
+			"Content-Transfer-Encoding": {"quoted-printable"},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := writeQuotedPrintable(w, part.body); err != nil {
+			return nil, err
+		}
+	}
+	if err := mw.Close(); err != nil {
 		return nil, err
 	}
-	if err := qp.Close(); err != nil {
-		return nil, err
-	}
-
 	return buf.Bytes(), nil
+}
+
+// writeQuotedPrintable writes body in quoted-printable, with CRLF line endings.
+func writeQuotedPrintable(w io.Writer, body string) error {
+	qp := quotedprintable.NewWriter(w)
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	if _, err := qp.Write([]byte(strings.ReplaceAll(body, "\n", "\r\n"))); err != nil {
+		return err
+	}
+	return qp.Close()
 }
 
 // messageID generates a unique identifier for the Message-ID header, with the sender's domain.

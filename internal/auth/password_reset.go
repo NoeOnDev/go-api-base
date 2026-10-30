@@ -68,7 +68,7 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	if err := s.sendEmail(r.Context(), u.Email, u.Locale, "password_reset.txt", emailData{
+	if err := s.sendEmail(r.Context(), u.Email, u.Locale, "password_reset", emailData{
 		Name:    u.Name,
 		Link:    s.frontendLink("/reset-password", token),
 		Expires: s.expiresIn(u.Locale, passwordResetTTL),

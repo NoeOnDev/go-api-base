@@ -24,6 +24,8 @@ var (
 	messageKey = regexp.MustCompile(`(?:\bi18n\.M|\.T|\.Plural)\("([a-z_]+(?:\.[a-z_]+)+)"`)
 	// NotifyEmailChanged = "email_changed" (the kinds of the account notifications in auth)
 	notifyKind = regexp.MustCompile(`\bNotify\w+\s*=\s*"([a-z_.]+)"`)
+	// {{t "email.button_help"}} in the HTML templates of the emails (see internal/mail)
+	templateKey = regexp.MustCompile(`\bt\s+"([a-z_]+(?:\.[a-z_]+)+)"`)
 )
 
 func TestCatalogMatchesCode(t *testing.T) {
@@ -42,7 +44,8 @@ func TestCatalogMatchesCode(t *testing.T) {
 			if d.IsDir() && d.Name() == "store" {
 				return filepath.SkipDir
 			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			isHTML := strings.HasSuffix(path, ".html")
+			if d.IsDir() || !(strings.HasSuffix(path, ".go") || isHTML) || strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
 			data, err := os.ReadFile(path)
@@ -56,6 +59,10 @@ func TestCatalogMatchesCode(t *testing.T) {
 						used[prefix+m[1]] = path
 					}
 				}
+			}
+			if isHTML {
+				add("", templateKey)
+				return nil
 			}
 			add("errors.", errorHelper)
 			add("errors.", errorLiteral)

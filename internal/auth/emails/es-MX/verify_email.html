@@ -1,0 +1,10 @@
+{{define "preheader"}}Confirma tu dirección de correo. El enlace vence en {{.Expires}}.{{end}}
+
+{{define "content"}}
+<h1>Hola {{.Name}}:</h1>
+<p>Para confirmar tu dirección de correo, usa este botón:</p>
+{{template "button" (button .Link "Confirmar mi email")}}
+<p>El enlace vence en {{.Expires}} y sirve una sola vez.</p>
+<p>Si no creaste una cuenta, ignora este correo.</p>
+{{template "link_help" .Link}}
+{{end}}

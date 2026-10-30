@@ -76,7 +76,8 @@ JWT makes sense when several services validate sessions without access to the da
 - **They go through the job queue** (`jobs.MailSender`): the response does not wait for the mail server, and if SMTP fails or the API restarts, the email is not lost. It is retried up to 5 times, with a longer wait each time.
 - **The queued email is encrypted** with `secretbox`: the reset ones carry a link with a token, and the queue table keeps finished jobs for 24 hours.
 - **At most 4 sendings at once** (the `email` queue): each one opens its own SMTP connection, and providers reject many simultaneous connections.
-- **Plain-text templates**, embedded in the binary, one folder per language. They read well in any client and have no HTML compatibility problems.
+- **HTML and plain text**, embedded in the binary, one folder per language. HTML email is its own world: tables for the layout, inline styles, and Outlook on Windows, which renders with Word's engine. That is why the layout is not written from scratch: it is the "Basic" one of Postmark's transactional templates (MIT), tested in the usual clients. MJML would make it easier to redesign, but it needs Node to compile and CI to check the output; React Email or Maizzle would bring React or Tailwind only for the emails. The plain-text version goes along, for the clients without HTML and because it helps against spam filters.
+- **`html/template` for the HTML**, which escapes the user's data. It removes HTML comments, including Outlook's conditional ones (`<!--[if mso]>`), so the only one the layout needs comes from a function. The `<h1>` and `<p>` of each email get their inline styles after rendering, so the emails are written with plain tags.
 
 ## One-time tokens by email
 

@@ -15,20 +15,21 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 )
 
-// The email templates are in emails/<language>/*.txt and are embedded in the binary. Each one
-// sets its subject with {{define "subject"}}. To customize them, edit those files; to add a
-// language, see docs/i18n.md.
+// The email templates are in emails/<language>/, embedded in the binary: each email has its
+// plain-text version (.txt, with the subject in {{define "subject"}}) and its HTML one (.html,
+// which goes inside the shared layout of internal/mail). To customize them, edit those files;
+// to add a language, see docs/i18n.md.
 //
 //go:embed emails
 var emailFiles embed.FS
 
 // newEmailTemplates loads the templates. They are embedded, so an error is a code error (the
 // tests catch it), not a configuration one.
-func newEmailTemplates(catalog *i18n.Catalog) *mail.Templates {
+func newEmailTemplates(catalog *i18n.Catalog, brand mail.Brand) *mail.Templates {
 	root, err := fs.Sub(emailFiles, "emails")
 	if err == nil {
 		var t *mail.Templates
-		if t, err = mail.NewTemplates(root, catalog); err == nil {
+		if t, err = mail.NewTemplates(root, catalog, brand); err == nil {
 			return t
 		}
 	}
@@ -63,17 +64,18 @@ func (s *Service) allowEmail(ctx context.Context, kind string, userID int64) (bo
 	return s.emailLimiter.Allow(ctx, kind+":"+strconv.FormatInt(userID, 10))
 }
 
-// sendEmail builds the email with the given template, in the user's language (locale; nil is
-// the default language), and sends it. It goes in the language of the account owner and not in
+// sendEmail builds the email tmpl (for example "password_reset"), in the user's language (locale;
+// nil is the default language), and sends it. It goes in the language of the account owner and not in
 // that of the request: a security notice must be understood by the owner, even if someone else
 // made the change. With jobs.MailSender the sending happens in the background, so this does not
 // delay the response.
 func (s *Service) sendEmail(ctx context.Context, to string, locale *string, tmpl string, data emailData) error {
-	subject, body, err := s.emails.Render(deref(locale), tmpl, data)
+	email, err := s.emails.Render(deref(locale), tmpl, data)
 	if err != nil {
 		return fmt.Errorf("build the email %s: %w", tmpl, err)
 	}
-	if err := s.opts.Mailer.Send(ctx, mail.Message{To: to, Subject: subject, Body: body}); err != nil {
+	msg := mail.Message{To: to, Subject: email.Subject, Body: email.Text, HTML: email.HTML}
+	if err := s.opts.Mailer.Send(ctx, msg); err != nil {
 		return fmt.Errorf("send the email %s: %w", tmpl, err)
 	}
 	return nil

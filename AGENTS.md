@@ -97,10 +97,11 @@ internal/httpx/       JSON, errors, pagination, middlewares, CORS, per-IP reques
 internal/server/      http.Server with timeouts, routes, CSRF and middleware order (routes.go)
 internal/auth/        users, passwords (argon2id), sessions, RequireUser/RequireAdmin and one file per feature
                       (profile, password reset, verification, 2FA…; see "Removing features" in docs/auth.md). What
-                      several share, in account.go, session.go and tokens.go; email templates in emails/<language>/*.txt
+                      several share, in account.go, session.go and tokens.go; email templates in emails/<language>/ (.txt and .html)
 internal/ratelimit/   attempt limits per account or user, stored in PostgreSQL (shared by every instance)
 internal/i18n/        user-facing text by language: catalogs locales/*.json (en, es-MX), Accept-Language, translator
-internal/mail/        email sending: LogSender, SMTPSender, Recorder (tests) and templates by language (Templates)
+internal/mail/        email sending: LogSender, SMTPSender, Recorder (tests), templates by language (Templates) and
+                      the HTML layout (layout/, from Postmark)
 internal/jobs/        background jobs with River: client, workers (workers.go), periodic jobs, MailSender
 internal/realtime/    real time with SSE: Stream, Broker (channels and topics), GET /events and LISTEN/NOTIFY between instances
 internal/notifications/ notifications stored and sent live; auth uses them for the security notices
@@ -179,6 +180,9 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 **Emails**
 - Send them with a `mail.Sender` (in `auth`, with `s.sendEmail` and a template from `internal/auth/emails`). Never block
   the response waiting for the sending: in production the sender is a `jobs.MailSender`, which queues them with retries.
+- Each email has two files per language: `<name>.txt` (plain text, with the subject) and `<name>.html` (`preheader` and
+  `content`, with plain `<h1>`/`<p>` and the `button` and `link_help` blocks). The HTML goes inside the shared layout of
+  `internal/mail/layout/`. See "Emails" in `docs/auth.md`.
 - The links in the emails point to the frontend (`FRONTEND_URL`). Tokens that travel by email are single-use, expire
   and are stored hashed (see `internal/auth/tokens.go`).
 

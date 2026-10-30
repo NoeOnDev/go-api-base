@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net"
 	netmail "net/mail"
@@ -67,6 +68,43 @@ func TestBuild(t *testing.T) {
 	}
 }
 
+func TestBuildWithHTML(t *testing.T) {
+	from := &netmail.Address{Name: "My App", Address: "no-reply@myapp.com"}
+	msg := Message{To: "alice@example.com", Subject: "Hello", Body: "Hi Alice,\nñandú", HTML: "<p>Hi Alice,<br>ñandú</p>"}
+	raw, err := build(from, msg, time.Now())
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	parsed, err := netmail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("the email cannot be read: %v", err)
+	}
+	mediaType, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/alternative" {
+		t.Fatalf("Content-Type = %q (%v)", parsed.Header.Get("Content-Type"), err)
+	}
+
+	// The plain text first and the HTML after: clients show the last one they understand.
+	reader := multipart.NewReader(parsed.Body, params["boundary"])
+	for _, want := range []struct{ contentType, body string }{
+		{"text/plain; charset=utf-8", "Hi Alice,\r\nñandú"},
+		{"text/html; charset=utf-8", msg.HTML},
+	} {
+		part, err := reader.NextRawPart()
+		if err != nil {
+			t.Fatalf("part %s: %v", want.contentType, err)
+		}
+		decoded, _ := io.ReadAll(quotedprintable.NewReader(part))
+		if part.Header.Get("Content-Type") != want.contentType || string(decoded) != want.body {
+			t.Errorf("part %q = %q", part.Header.Get("Content-Type"), decoded)
+		}
+	}
+	if _, err := reader.NextPart(); err != io.EOF {
+		t.Errorf("want only two parts: %v", err)
+	}
+}
+
 func TestSMTPSender(t *testing.T) {
 	addr := os.Getenv("SMTP_TEST_ADDR")
 	if addr == "" {
@@ -82,7 +120,12 @@ func TestSMTPSender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg := Message{To: "test@example.com", Subject: "SMTP test " + time.Now().Format(time.TimeOnly), Body: "Hello from the tests.\nÑandú."}
+	msg := Message{
+		To:      "test@example.com",
+		Subject: "SMTP test " + time.Now().Format(time.TimeOnly),
+		Body:    "Hello from the tests.\nÑandú.",
+		HTML:    "<p>Hello from the <strong>tests</strong>.<br>Ñandú.</p>",
+	}
 	if err := s.Send(t.Context(), msg); err != nil {
 		t.Fatalf("Send: %v", err)
 	}

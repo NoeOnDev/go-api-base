@@ -1,0 +1,11 @@
+{{define "preheader"}}Bloqueamos un intento de inicio de sesión con la contraseña correcta y códigos equivocados.{{end}}
+
+{{define "content"}}
+<h1>Hola {{.Name}}:</h1>
+<p>Alguien ingresó la contraseña correcta de tu cuenta, pero escribió mal varias veces el código de la verificación en dos pasos. Bloqueamos ese intento de inicio de sesión.</p>
+<p><strong>Fecha:</strong> {{.When}}<br><strong>IP:</strong> {{.IP}}</p>
+<p>Si fuiste tú, no tienes que hacer nada: vuelve a iniciar sesión con el código de tu app.</p>
+<p>Si no fuiste tú, alguien conoce tu contraseña. Cámbiala cuanto antes desde tu perfil, o con "Olvidé mi contraseña" en la app.</p>
+{{template "button" (button .Link "Ir a la app")}}
+{{template "link_help" .Link}}
+{{end}}

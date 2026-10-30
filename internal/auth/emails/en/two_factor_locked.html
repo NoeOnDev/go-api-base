@@ -1,0 +1,11 @@
+{{define "preheader"}}We blocked a sign-in attempt with the right password and wrong two-factor codes.{{end}}
+
+{{define "content"}}
+<h1>Hi {{.Name}},</h1>
+<p>Someone entered the correct password of your account, but typed the two-factor code wrong several times. We blocked that sign-in attempt.</p>
+<p><strong>Date:</strong> {{.When}}<br><strong>IP:</strong> {{.IP}}</p>
+<p>If it was you, there is nothing to do: sign in again with the code from your app.</p>
+<p>If it wasn't you, someone knows your password. Change it right away from your profile, or with "Forgot password" in the app.</p>
+{{template "button" (button .Link "Go to the app")}}
+{{template "link_help" .Link}}
+{{end}}

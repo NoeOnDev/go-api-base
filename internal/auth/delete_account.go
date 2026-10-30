@@ -32,7 +32,7 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 	s.clearSessionCookie(w)
 
 	// The last email, in case it was not the owner. If it is not sent, the account is still deleted.
-	if err := s.sendEmail(r.Context(), user.Email, user.Locale, "account_deleted.txt", emailData{Name: user.Name}); err != nil {
+	if err := s.sendEmail(r.Context(), user.Email, user.Locale, "account_deleted", emailData{Name: user.Name}); err != nil {
 		httpx.LoggerFrom(r.Context()).Error("could not send the account deleted email", "user_id", user.ID, "error", err)
 	}
 	httpx.LoggerFrom(r.Context()).Info("account deleted", "user_id", user.ID)

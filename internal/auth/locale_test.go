@@ -39,6 +39,13 @@ func TestUserLocale(t *testing.T) {
 	if !ok || msg.Subject != "Recupera tu contraseña" || !strings.Contains(msg.Body, "vence en 1 hora") {
 		t.Errorf("email in Spanish: %+v", msg)
 	}
+	// The HTML version goes in the same language, with the same link.
+	link := "https://app.test/reset-password?token=" + testutil.TokenFromEmail(t, msg)
+	for _, want := range []string{`lang="es-MX"`, "Elegir una nueva contraseña", `href="` + link + `"`, "Si el botón no funciona"} {
+		if !strings.Contains(msg.HTML, want) {
+			t.Errorf("the HTML in Spanish does not contain %q", want)
+		}
+	}
 	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"bob@example.com"}`)
 	if msg, ok := mails.Last("bob@example.com"); !ok || msg.Subject != "Reset your password" || !strings.Contains(msg.Body, "expires in 1 hour") {
 		t.Errorf("email in the default language: %+v", msg)

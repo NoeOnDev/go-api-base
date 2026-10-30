@@ -66,14 +66,14 @@ func (s *Service) requestEmailChange(w http.ResponseWriter, r *http.Request) err
 	if err != nil {
 		return err
 	}
-	if err := s.sendEmail(r.Context(), newEmail, user.Locale, "email_change.txt", emailData{
+	if err := s.sendEmail(r.Context(), newEmail, user.Locale, "email_change", emailData{
 		Name:    user.Name,
 		Link:    s.frontendLink("/confirm-email", token),
 		Expires: s.expiresIn(user.Locale, emailChangeTTL),
 	}); err != nil {
 		return err
 	}
-	if err := s.sendEmail(r.Context(), user.Email, user.Locale, "email_change_notice.txt", emailData{
+	if err := s.sendEmail(r.Context(), user.Email, user.Locale, "email_change_notice", emailData{
 		Name:  user.Name,
 		Email: newEmail,
 	}); err != nil {

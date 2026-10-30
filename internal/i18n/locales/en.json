@@ -1,6 +1,8 @@
 {
   "duration.hours": {"one": "1 hour", "other": "{count} hours"},
 
+  "email.button_help": "If the button doesn't work, copy this link into your browser:",
+
   "errors.account_has_data": "The account has data that prevents deleting it; contact the team.",
   "errors.account_suspended": "Your account is suspended; contact the administrator.",
   "errors.admin_two_factor_required": "Administrators must turn on two-factor authentication first.",

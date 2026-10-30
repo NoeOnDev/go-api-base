@@ -13,6 +13,8 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 
 ## [Unreleased]
 
+Administrators can manage users (list, change the role, suspend, delete) and invite them, so a project can work without open registration. Emails go out in HTML, with Postmark's Basic layout, besides plain text. Notifications are paginated by cursor, with helpers for any list. The schema changes: `users.suspended_at`, `users.password_hash` accepts `NULL`, and `user_tokens` has the `invitation` purpose.
+
 ### Added
 
 - **User management for administrators** (`internal/auth/admin_users.go`, see "Managing users" in `docs/auth.md`): `GET /admin/users` with search, role and status filters; `GET /admin/users/{id}`; `PUT /admin/users/{id}/role`; `POST /admin/users/{id}/suspend` and `/unsuspend`; and `DELETE /admin/users/{id}`. Changing the role and deleting ask for the admin's password. An admin cannot act on their own account (`409 own_account`), and the last active admin cannot be demoted, suspended or deleted (`409 last_admin`).

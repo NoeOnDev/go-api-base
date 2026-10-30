@@ -163,11 +163,23 @@ func (s *Service) enableTwoFactor(w http.ResponseWriter, r *http.Request) error 
 	return nil
 }
 
-// disableTwoFactor answers POST /auth/two-factor/disable. It asks for the password, deletes the
-// secret and the recovery codes, and closes the other sessions.
+// disableInput is the body of POST /auth/two-factor/disable: the password and a second factor.
+type disableInput struct {
+	Password string `json:"password"`
+	challengeInput
+}
+
+// disableTwoFactor answers POST /auth/two-factor/disable. It asks for the password and a second
+// factor (the app code or a recovery code): with only the password, whoever has a stolen session
+// and the password could turn it off and then log in without the phone. It deletes the secret and
+// the recovery codes, and closes the other sessions.
 func (s *Service) disableTwoFactor(w http.ResponseWriter, r *http.Request) error {
-	var in passwordInput
+	var in disableInput
 	if err := httpx.Decode(w, r, &in); err != nil {
+		return err
+	}
+	in.normalize()
+	if err := in.validate(); err != nil {
 		return err
 	}
 
@@ -176,9 +188,32 @@ func (s *Service) disableTwoFactor(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
+	stored, err := s.q.GetUserByID(r.Context(), user.ID)
+	if err != nil {
+		return fmt.Errorf("find user %d: %w", user.ID, err)
+	}
+	if stored.TOTPEnabledAt == nil {
+		return errTwoFactorNotEnabled
+	}
+
+	// The codes share the per-user limit of the login's second step: guessing here does not give
+	// more attempts.
+	allowed, err := s.twoFactorLimiter.Allow(r.Context(), twoFactorLimitKey(user.ID))
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		httpx.LoggerFrom(r.Context()).Warn("the user's two-factor attempt limit exceeded", "user_id", user.ID)
+		w.Header().Set("Retry-After", s.twoFactorLimiter.RetryAfter())
+		return httpx.TooManyRequests()
+	}
+	if err := s.checkSecondFactor(r, stored, in.challengeInput); err != nil {
+		return err
+	}
+
 	// All or nothing: if a step fails, two-factor authentication stays on with its codes and sessions.
 	var keep string
-	err := pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 		if err := q.DisableTOTP(r.Context(), user.ID); err != nil {
 			return fmt.Errorf("disable two-factor authentication: %w", err)

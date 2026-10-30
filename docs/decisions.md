@@ -111,6 +111,7 @@ When on, it blocks the protected routes with a `403 email_not_verified` instead 
 - **The secret is encrypted with `secretbox`:** AES-256-GCM with a key derived from `ENCRYPTION_KEY` through HKDF. That way, a leaked database backup is not enough to generate codes. The user's id goes as associated data: a secret copied to another row cannot be decrypted.
 - **The recovery codes are stored as HMACs** with another derived key, over the code and the user's id. They are random, about 50 bits, so a fast hash is enough if it is keyed: without `ENCRYPTION_KEY` they cannot be brute-forced.
 - **Reusing a code is rejected** by storing the last step used, with an atomic `UPDATE … WHERE totp_last_step < $2`.
+- **Turning it off asks for a code too**, not only the password: otherwise, with a stolen session and the password, an attacker could remove it and log in later without the phone. A recovery code also works, for whoever lost the phone.
 - **The two-step login uses a challenge** in `user_tokens` and an `HttpOnly` cookie, not a token in the response body. The frontend handles no secrets, and the challenge expires in 5 minutes.
 - **2FA is opt-in.** Making it mandatory for certain roles is easy to add in a project (a check in `RequireAdmin`), but each project decides.
 

@@ -54,7 +54,7 @@ The 2FA challenge uses a cookie with the same attributes: `two_factor_challenge`
 | `POST` | `/auth/two-factor/challenge` | challenge cookie | `{code}` or `{recovery_code}` | `200` with the user and the session cookie; `422` if the code is wrong; `401` if the challenge expired; `503` if the secret cannot be decrypted |
 | `POST` | `/auth/two-factor/setup` | user | | `200 {secret, otpauth_url}`; `409` if it is already on |
 | `POST` | `/auth/two-factor/enable` | user | `{code, password}` | `200 {recovery_codes}`; `422` if the code or the password are wrong |
-| `POST` | `/auth/two-factor/disable` | user | `{password}` | `204` |
+| `POST` | `/auth/two-factor/disable` | user | `{password, code}` or `{password, recovery_code}` | `204`; `422` if the password or the code are wrong; `409` if it is not on |
 | `POST` | `/auth/two-factor/recovery-codes` | user | `{password}` | `200 {recovery_codes}`, new ones |
 
 In the access column:
@@ -162,7 +162,7 @@ A wrong code responds `422` and allows retrying. Each challenge allows **5 attem
 
 ### Turning it off and regenerating codes
 
-- **`POST /auth/two-factor/disable`** with `{password}`: turns off 2FA, deletes the recovery codes and closes the other sessions.
+- **`POST /auth/two-factor/disable`** with the password and a second factor, `{password, code}` or `{password, recovery_code}`: turns off 2FA, deletes the recovery codes and closes the other sessions. With only the password, whoever had a stolen session and the password could turn it off and then log in without the phone. Whoever lost the phone uses a recovery code. The wrong codes count toward the same per-user limit as the login's second step.
 - **`POST /auth/two-factor/recovery-codes`** with `{password}`: generates 10 new codes; the previous ones stop working.
 
 ### 2FA security

@@ -163,8 +163,9 @@ func TestTwoFactorChangesNotify(t *testing.T) {
 	api := testutil.NewAPI(pool)
 	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 
-	testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
-	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"test-password"}`); w.Code != http.StatusNoContent {
+	tf := testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
+	body := fmt.Sprintf(`{"password":%q,"code":%q}`, testutil.Password, tf.Code(t))
+	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", body); w.Code != http.StatusNoContent {
 		t.Fatalf("disable: status = %d", w.Code)
 	}
 

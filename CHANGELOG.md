@@ -22,6 +22,7 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 ### Changed
 
 - **The `internal/notes` tests use `testutil.NewAPI`, `Do` and `Decode`**, like the other resources and as `AGENTS.md` asks. `notes` is the model for each user's data, so whoever copies it now copies that style.
+- **Turning off 2FA asks for a second factor:** `POST /auth/two-factor/disable` takes `{password, code}` or `{password, recovery_code}`, and responds `409 two_factor_not_enabled` if it is not on. With only the password, whoever had a stolen session and the password could turn it off and log in later without the phone. The wrong codes count toward the per-user 2FA limit of the login. **The frontend has to send the code.**
 - **`httpx.SecurityHeaders` takes whether to send HSTS:** `httpx.SecurityHeaders(d.Config.IsProduction() && d.Config.CookieSecure)` in `internal/server/routes.go`.
 
 ## [v0.6.0] - 2026-10-29

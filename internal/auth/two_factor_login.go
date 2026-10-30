@@ -59,9 +59,22 @@ func twoFactorLimitKey(userID int64) string {
 	return strconv.FormatInt(userID, 10)
 }
 
+// challengeInput is a second factor: the app code or a recovery code, only one of them.
 type challengeInput struct {
 	Code         string `json:"code"`
 	RecoveryCode string `json:"recovery_code"`
+}
+
+func (in *challengeInput) normalize() {
+	in.Code = strings.TrimSpace(in.Code)
+	in.RecoveryCode = strings.TrimSpace(in.RecoveryCode)
+}
+
+func (in challengeInput) validate() error {
+	if (in.Code == "") == (in.RecoveryCode == "") {
+		return httpx.Validation(httpx.Fields{"code": i18n.M("validation.code_required")})
+	}
+	return nil
 }
 
 // twoFactorChallenge answers POST /auth/two-factor/challenge with the app code ({"code"}) or a
@@ -80,10 +93,9 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 	if err := httpx.Decode(w, r, &in); err != nil {
 		return err
 	}
-	in.Code = strings.TrimSpace(in.Code)
-	in.RecoveryCode = strings.TrimSpace(in.RecoveryCode)
-	if (in.Code == "") == (in.RecoveryCode == "") {
-		return httpx.Validation(httpx.Fields{"code": i18n.M("validation.code_required")})
+	in.normalize()
+	if err := in.validate(); err != nil {
+		return err
 	}
 
 	challenge := store.GetUserTokenUserParams{TokenHash: tokenHash, Purpose: purposeTwoFactorLogin, MaxAttempts: maxChallengeAttempts}

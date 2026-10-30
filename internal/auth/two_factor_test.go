@@ -123,19 +123,24 @@ func TestEnableTwoFactorRequiresSetup(t *testing.T) {
 		testutil.Do(t, api, nil, http.MethodPost, "/auth/two-factor/setup", ""), http.StatusUnauthorized)
 }
 
+func disableBody(password, field, code string) string {
+	return fmt.Sprintf(`{"password":%q,%q:%q}`, password, field, code)
+}
+
 func TestDisableTwoFactor(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
 	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
-	testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
+	tf := testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
 
-	resp := testutil.Decode[testutil.APIError](t,
-		testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"wrong-password"}`), http.StatusUnprocessableEntity)
-	if resp.Error.Fields["password"] == "" {
-		t.Errorf("want an error on password: %+v", resp.Error)
+	// A wrong code leaves it on.
+	w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", disableBody(testutil.Password, "code", "000000"))
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields["code"] == "" {
+		t.Errorf("want an error on code: %+v", resp.Error)
 	}
 
-	if w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", `{"password":"test-password"}`); w.Code != http.StatusNoContent {
+	w = testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", disableBody(testutil.Password, "code", tf.Code(t)))
+	if w.Code != http.StatusNoContent {
 		t.Fatalf("disable: status = %d; body: %s", w.Code, w.Body)
 	}
 
@@ -146,6 +151,54 @@ func TestDisableTwoFactor(t *testing.T) {
 	var codes int
 	if err := pool.QueryRow(t.Context(), "SELECT count(*) FROM user_recovery_codes").Scan(&codes); err != nil || codes != 0 {
 		t.Errorf("%d recovery codes left (%v)", codes, err)
+	}
+
+	// Already off: 409.
+	w = testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", disableBody(testutil.Password, "code", "123456"))
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusConflict); resp.Error.Code != "two_factor_not_enabled" {
+		t.Errorf("code = %q, want two_factor_not_enabled", resp.Error.Code)
+	}
+}
+
+// It asks for the password and exactly one second factor. The account actions allow 5 in a row
+// per user, and enabling it already spent one: hence a test of its own.
+func TestDisableTwoFactorValidation(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	tf := testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
+
+	for name, tt := range map[string]struct{ body, field string }{
+		"wrong password":      {disableBody("wrong-password", "code", tf.Code(t)), "password"},
+		"without a code":      {fmt.Sprintf(`{"password":%q}`, testutil.Password), "code"},
+		"both kinds of code":  {fmt.Sprintf(`{"password":%q,"code":"000000","recovery_code":"AAAAA-BBBBB"}`, testutil.Password), "code"},
+		"wrong recovery code": {disableBody(testutil.Password, "recovery_code", "AAAAA-BBBBB"), "recovery_code"},
+	} {
+		w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", tt.body)
+		resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity)
+		if resp.Error.Fields[tt.field] == "" {
+			t.Errorf("%s: want an error on %s: %+v", name, tt.field, resp.Error)
+		}
+	}
+
+	if me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK); !me.TwoFactorEnabled {
+		t.Error("two-factor authentication should stay on")
+	}
+}
+
+// Whoever lost their phone turns it off with a recovery code.
+func TestDisableTwoFactorWithRecoveryCode(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	tf := testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
+
+	w := testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", disableBody(testutil.Password, "recovery_code", tf.RecoveryCodes[0]))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("disable: status = %d; body: %s", w.Code, w.Body)
+	}
+	if me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK); me.TwoFactorEnabled {
+		t.Error("two-factor authentication should be off")
 	}
 }
 
@@ -244,13 +297,13 @@ func TestDisableTwoFactorIsAtomic(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool)
 	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
-	testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
+	tf := testutil.EnableTwoFactor(t, api, cookie, testutil.Password)
 	other := newSession(t, pool, u.ID) // after enabling it, which closes the others
 
 	exec := func(sql string) error { _, err := pool.Exec(context.Background(), sql); return err }
 	failSessionDeletes(t, exec)
 
-	body := fmt.Sprintf(`{"password":%q}`, testutil.Password)
+	body := disableBody(testutil.Password, "code", tf.Code(t))
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodPost, "/auth/two-factor/disable", body), http.StatusInternalServerError)
 
 	if me := testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodGet, "/auth/me", ""), http.StatusOK); !me.TwoFactorEnabled {

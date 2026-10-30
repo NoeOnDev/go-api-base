@@ -13,7 +13,7 @@ const (
 	MaxLimit     = 100
 	// MaxOffset is the highest accepted offset. PostgreSQL reads and discards every row before the
 	// offset, so a huge one makes the query slow. To go further than this (an export, a long
-	// infinite scroll), paginate with a cursor: WHERE id < $last.
+	// infinite scroll), paginate by cursor (ParseCursorPage).
 	MaxOffset = 10_000
 )
 
@@ -42,12 +42,10 @@ func ParsePage(r *http.Request) (Page, error) {
 	page := Page{Limit: DefaultLimit}
 	fields := Fields{}
 
-	if v := r.URL.Query().Get("limit"); v != "" {
-		n, err := strconv.ParseInt(v, 10, 32)
-		if err != nil || n < 1 || n > MaxLimit {
-			fields["limit"] = i18n.M("validation.integer_range", "min", 1, "max", MaxLimit)
-		}
-		page.Limit = int32(n)
+	if limit, msg := parseLimit(r); !msg.IsZero() {
+		fields["limit"] = msg
+	} else if limit > 0 {
+		page.Limit = limit
 	}
 
 	if v := r.URL.Query().Get("offset"); v != "" {
@@ -62,6 +60,19 @@ func ParsePage(r *http.Request) (Page, error) {
 		return Page{}, Validation(fields)
 	}
 	return page, nil
+}
+
+// parseLimit reads ?limit= (from 1 to MaxLimit). Without it, 0 and no message.
+func parseLimit(r *http.Request) (int32, i18n.Message) {
+	v := r.URL.Query().Get("limit")
+	if v == "" {
+		return 0, i18n.Message{}
+	}
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil || n < 1 || n > MaxLimit {
+		return 0, i18n.M("validation.integer_range", "min", 1, "max", MaxLimit)
+	}
+	return int32(n), i18n.Message{}
 }
 
 // PathID reads a numeric ID from the path, for example {id} in "GET /notes/{id}".

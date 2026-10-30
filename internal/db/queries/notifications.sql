@@ -3,16 +3,16 @@ INSERT INTO notifications (user_id, kind, data)
 VALUES ($1, $2, $3)
 RETURNING id, user_id, kind, data, read_at, created_at;
 
+-- ListNotifications returns a page from the newest, by cursor: after is the id of the last one
+-- already shown (NULL for the first page). It uses the (user_id, id DESC) index, so every page
+-- is just as fast.
 -- name: ListNotifications :many
 SELECT id, user_id, kind, data, read_at, created_at
 FROM notifications
 WHERE user_id = sqlc.arg('user_id') AND (NOT sqlc.arg('unread_only')::bool OR read_at IS NULL)
+  AND (sqlc.narg('after')::bigint IS NULL OR id < sqlc.narg('after'))
 ORDER BY id DESC
-LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
-
--- name: CountNotifications :one
-SELECT count(*) FROM notifications
-WHERE user_id = sqlc.arg('user_id') AND (NOT sqlc.arg('unread_only')::bool OR read_at IS NULL);
+LIMIT sqlc.arg('limit');
 
 -- name: CountUnreadNotifications :one
 SELECT count(*) FROM notifications

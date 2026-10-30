@@ -137,7 +137,9 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   A new code goes in every catalog and in the table of `docs/i18n.md` (`make check` requires it).
   Any other error is answered as a 500 without exposing details.
 - The rules of `internal/validate` return `i18n.Message` (empty if the value is valid: `!msg.IsZero()`).
-- Pagination with `httpx.ParsePage` and the `httpx.List[T]` response (`{data, meta}`). Route IDs with `httpx.PathID(r, "id")`.
+- Pagination with `httpx.ParsePage` and the `httpx.List[T]` response (`{data, meta}`), or by cursor for a "load more" or a
+  long list: `httpx.ParseCursorPage`, `DecodeCursor` and `NewCursorList` (see `internal/notifications` and "Lists by page
+  or by cursor" in `docs/adding-a-resource.md`). Route IDs with `httpx.PathID(r, "id")`.
 - Each resource defines its own response struct; do not return the `internal/store` structs directly.
 - Logs with `httpx.LoggerFrom(r.Context())` (it already includes `request_id` and, with a session, `user_id`). To add a
   value to every line of the request, including the final one, use `httpx.AddLogAttrs(ctx, "key", value)`. Do not log

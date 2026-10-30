@@ -118,7 +118,9 @@ It includes:
 | `GET` | `/products?category_id=&q=&active=`, `/products/{id}` | Public: visitors only see active products; the admin sees all |
 | `POST`, `PUT`, `DELETE` | `/products…` | Admin only |
 
-Lists accept `?limit=` (from 1 to 100, 20 by default) and `?offset=` (up to 10000), and respond `{"data": [...], "meta": {"limit", "offset", "total"}}`. A huge offset makes the query slow, because PostgreSQL reads and discards the previous rows; to go further, paginate by cursor (`WHERE id < $last`).
+Lists accept `?limit=` (from 1 to 100, 20 by default) and `?offset=` (up to 10000), and respond `{"data": [...], "meta": {"limit", "offset", "total"}}`. A huge offset makes the query slow, because PostgreSQL reads and discards the previous rows.
+
+`/notifications` is paginated **by cursor**, like a "load more": it responds `{"data": [...], "meta": {"limit", "next"}}`, and the next page is `?after=` with the value of `next` (`null` on the last one). There is no total, and every page is just as fast. See when to use each one in [docs/adding-a-resource.md](docs/adding-a-resource.md#lists-by-page-or-by-cursor).
 
 All errors have the same shape:
 

@@ -35,6 +35,8 @@ It covers the most common cases:
 
 The security notifications (`password_changed`, `two_factor_enabled`, `two_factor_disabled`) are sent by auth.
 
+`GET /notifications?unread=&limit=` lists them from the newest, **by cursor**: the response has `meta.next`, and the next page (a "load more") is `?after=` with that value, until it comes `null`. It also has `unread`, for the counter. A notification that arrives live while the list is open goes on top; it does not shift the pages already loaded.
+
 ## From the frontend (React)
 
 ```js

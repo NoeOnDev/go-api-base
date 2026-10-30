@@ -16,17 +16,31 @@ import (
 
 var errNotFound = httpx.NotFound("notification_not_found")
 
-// listResponse is the paginated list, with the unread count for the frontend's counter.
+// listResponse is the page of the list, with the unread count for the frontend's counter.
 type listResponse struct {
-	httpx.List[Response]
+	httpx.CursorList[Response]
 	Unread int64 `json:"unread"`
 }
 
-// list answers GET /notifications?unread=true&limit=20&offset=0, from the newest to the oldest.
+// listCursor is the position in the list: the id of the last notification shown.
+type listCursor struct {
+	ID int64 `json:"id"`
+}
+
+// list answers GET /notifications?unread=true&limit=20&after=…, from the newest to the oldest.
+// It is paginated by cursor, like a "load more": the next page is ?after= with meta.next.
 func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
-	page, err := httpx.ParsePage(r)
+	page, err := httpx.ParseCursorPage(r)
 	if err != nil {
 		return err
+	}
+	cursor, err := httpx.DecodeCursor[listCursor](page.After)
+	if err != nil {
+		return err
+	}
+	var after *int64
+	if cursor != nil {
+		after = &cursor.ID
 	}
 	var unreadOnly bool
 	switch r.URL.Query().Get("unread") {
@@ -38,15 +52,12 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	user := auth.MustUser(r.Context())
+	// One more than the page: if it comes, there is a next page.
 	rows, err := s.q.ListNotifications(r.Context(), store.ListNotificationsParams{
-		UserID: user.ID, UnreadOnly: unreadOnly, Limit: page.Limit, Offset: page.Offset,
+		UserID: user.ID, UnreadOnly: unreadOnly, After: after, Limit: page.Limit + 1,
 	})
 	if err != nil {
 		return fmt.Errorf("list notifications: %w", err)
-	}
-	total, err := s.q.CountNotifications(r.Context(), store.CountNotificationsParams{UserID: user.ID, UnreadOnly: unreadOnly})
-	if err != nil {
-		return fmt.Errorf("count notifications: %w", err)
 	}
 	unread, err := s.q.CountUnreadNotifications(r.Context(), user.ID)
 	if err != nil {
@@ -59,8 +70,8 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) error {
 		data[i] = toResponse(n, t)
 	}
 	httpx.Write(w, http.StatusOK, listResponse{
-		List:   httpx.List[Response]{Data: data, Meta: httpx.PageMeta{Limit: page.Limit, Offset: page.Offset, Total: total}},
-		Unread: unread,
+		CursorList: httpx.NewCursorList(data, page.Limit, func(n Response) any { return listCursor{ID: n.ID} }),
+		Unread:     unread,
 	})
 	return nil
 }

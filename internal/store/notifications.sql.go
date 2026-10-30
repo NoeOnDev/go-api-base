@@ -11,23 +11,6 @@ import (
 	"time"
 )
 
-const countNotifications = `-- name: CountNotifications :one
-SELECT count(*) FROM notifications
-WHERE user_id = $1 AND (NOT $2::bool OR read_at IS NULL)
-`
-
-type CountNotificationsParams struct {
-	UserID     int64
-	UnreadOnly bool
-}
-
-func (q *Queries) CountNotifications(ctx context.Context, arg CountNotificationsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countNotifications, arg.UserID, arg.UnreadOnly)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countUnreadNotifications = `-- name: CountUnreadNotifications :one
 SELECT count(*) FROM notifications
 WHERE user_id = $1 AND read_at IS NULL
@@ -84,22 +67,26 @@ const listNotifications = `-- name: ListNotifications :many
 SELECT id, user_id, kind, data, read_at, created_at
 FROM notifications
 WHERE user_id = $1 AND (NOT $2::bool OR read_at IS NULL)
+  AND ($3::bigint IS NULL OR id < $3)
 ORDER BY id DESC
-LIMIT $4 OFFSET $3
+LIMIT $4
 `
 
 type ListNotificationsParams struct {
 	UserID     int64
 	UnreadOnly bool
-	Offset     int32
+	After      *int64
 	Limit      int32
 }
 
+// ListNotifications returns a page from the newest, by cursor: after is the id of the last one
+// already shown (NULL for the first page). It uses the (user_id, id DESC) index, so every page
+// is just as fast.
 func (q *Queries) ListNotifications(ctx context.Context, arg ListNotificationsParams) ([]Notification, error) {
 	rows, err := q.db.Query(ctx, listNotifications,
 		arg.UserID,
 		arg.UnreadOnly,
-		arg.Offset,
+		arg.After,
 		arg.Limit,
 	)
 	if err != nil {

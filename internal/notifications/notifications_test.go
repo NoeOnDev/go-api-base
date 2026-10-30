@@ -1,10 +1,12 @@
 package notifications_test
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,9 +21,54 @@ import (
 type listResponse struct {
 	Data []notifications.Response `json:"data"`
 	Meta struct {
-		Total int64 `json:"total"`
+		Limit int32   `json:"limit"`
+		Next  *string `json:"next"`
 	} `json:"meta"`
 	Unread int64 `json:"unread"`
+}
+
+// The list goes by cursor: following meta.next it goes through every notification once, from
+// the newest, and the last page has next null.
+func TestNotificationsPagination(t *testing.T) {
+	pool := testutil.NewDB(t)
+	svc := notifications.NewService(store.New(pool), realtime.NewBroker(), nil)
+	api := testutil.NewAPI(pool)
+	alice, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	for i := range 5 {
+		if err := svc.Notify(t.Context(), alice.ID, "task.assigned", map[string]int{"task_id": i + 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var ids []int64
+	path := "/notifications?limit=2"
+	for pages := 0; ; pages++ {
+		if pages > 5 {
+			t.Fatal("the pages do not end")
+		}
+		page := testutil.Decode[listResponse](t, testutil.Do(t, api, cookie, http.MethodGet, path, ""), http.StatusOK)
+		for _, n := range page.Data {
+			ids = append(ids, n.ID)
+		}
+		if page.Meta.Next == nil {
+			break
+		}
+		path = "/notifications?limit=2&after=" + *page.Meta.Next
+	}
+	if len(ids) != 5 || !slices.IsSortedFunc(ids, func(a, b int64) int { return cmp.Compare(b, a) }) {
+		t.Errorf("ids = %v, want the 5, from the newest", ids)
+	}
+
+	// After marking the newest one as read, the unread ones are 4, also by cursor.
+	testutil.Do(t, api, cookie, http.MethodPost, fmt.Sprintf("/notifications/%d/read", ids[0]), "")
+	unread := testutil.Decode[listResponse](t, testutil.Do(t, api, cookie, http.MethodGet, "/notifications?unread=true&limit=3", ""), http.StatusOK)
+	if len(unread.Data) != 3 || unread.Data[0].ID != ids[1] || unread.Meta.Next == nil || unread.Unread != 4 {
+		t.Errorf("unread, first page: %+v", unread)
+	}
+
+	for _, query := range []string{"?after=not-a-cursor", "?after=" + strings.Repeat("a", 201), "?limit=0"} {
+		testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodGet, "/notifications"+query, ""), http.StatusUnprocessableEntity)
+	}
 }
 
 func TestNotificationsOwnership(t *testing.T) {
@@ -43,7 +90,7 @@ func TestNotificationsOwnership(t *testing.T) {
 
 	// Each one sees only their own, from the newest to the oldest.
 	list := testutil.Decode[listResponse](t, testutil.Do(t, api, aliceCookie, http.MethodGet, "/notifications", ""), http.StatusOK)
-	if len(list.Data) != 2 || list.Meta.Total != 2 || list.Unread != 2 || string(list.Data[0].Data) != `{"task_id":2}` {
+	if len(list.Data) != 2 || list.Meta.Next != nil || list.Unread != 2 || string(list.Data[0].Data) != `{"task_id":2}` {
 		t.Fatalf("Alice's list: %+v", list)
 	}
 	bobList := testutil.Decode[listResponse](t, testutil.Do(t, api, bobCookie, http.MethodGet, "/notifications", ""), http.StatusOK)

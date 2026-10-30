@@ -73,6 +73,54 @@ The `-- name: Name :kind` comment defines the function that will be generated:
   ```
 - **Data from another table:** a `JOIN`, naming the columns with `AS` (`c.name AS category_name`).
 
+### Lists by page or by cursor
+
+| | By page (`offset`) | By cursor (`after`) |
+|---|---|---|
+| For | Tables with page numbers and a total: an admin panel, a catalog | A "load more" or infinite scroll, a feed, a long list or an export |
+| Request | `?limit=20&offset=40` | `?limit=20&after=<meta.next>` |
+| Response | `meta: {limit, offset, total}` | `meta: {limit, next}`, `next` is `null` on the last page |
+| Cost | Grows with the offset (PostgreSQL reads and discards the previous rows), up to `MaxOffset`; plus a `count(*)` | The same on every page: it starts after the last row, with the index |
+| Example | `internal/notes`, `categories`, `products`, `/admin/users` | `internal/notifications` |
+
+**By cursor**, the query filters after the last row shown and asks for one more than the page, to know whether there is a next one:
+
+```sql
+-- name: ListOrders :many
+SELECT id, status, total_cents, created_at
+FROM orders
+WHERE user_id = sqlc.arg('user_id')
+  AND (sqlc.narg('after')::bigint IS NULL OR id < sqlc.narg('after'))
+ORDER BY id DESC
+LIMIT sqlc.arg('limit');
+```
+
+```go
+type orderCursor struct {
+	ID int64 `json:"id"`
+}
+
+page, err := httpx.ParseCursorPage(r) // ?limit= and ?after=
+if err != nil {
+	return err
+}
+cursor, err := httpx.DecodeCursor[orderCursor](page.After) // nil on the first page; 422 if it is not valid
+if err != nil {
+	return err
+}
+var after *int64
+if cursor != nil {
+	after = &cursor.ID
+}
+rows, err := h.q.ListOrders(r.Context(), store.ListOrdersParams{UserID: user.ID, After: after, Limit: page.Limit + 1})
+// … turn rows into []orderResponse …
+httpx.Write(w, http.StatusOK, httpx.NewCursorList(data, page.Limit, func(o orderResponse) any {
+	return orderCursor{ID: o.ID}
+}))
+```
+
+The cursor is opaque for the frontend (JSON in base64url): to sort by another column, add it to the struct and to the query (`WHERE (created_at, id) < ($1, $2)`), and the frontend does not change. Sort always by something unique (the `id`, or the column plus the `id`), so no row is repeated or skipped between pages.
+
 ## 3. Generate the code
 
 ```bash

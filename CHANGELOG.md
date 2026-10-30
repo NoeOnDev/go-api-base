@@ -11,7 +11,7 @@ The template edits its original migrations, because they represent the initial s
 deployed, do not edit its migrations: the versions with schema changes include, in **Updating an existing project**,
 the SQL to put in a new migration (`make migrate-new name=…`).
 
-## [Unreleased]
+## [v0.7.0] - 2026-10-29
 
 Security and robustness: common passwords are rejected, statements have a time limit, HSTS goes out in production, every route has a per-IP limit, turning off 2FA asks for a code, and administrators can be required to use 2FA. There are no schema changes. The frontend has to send the code to turn off 2FA (see **Changed**).
 

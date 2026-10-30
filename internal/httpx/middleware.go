@@ -244,11 +244,21 @@ func (w *startedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 // SecurityHeaders adds X-Content-Type-Options: nosniff to every response, which stops the
 // browser from reading a response as another type of content (for example, a JSON as HTML or
 // JavaScript).
-func SecurityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		next.ServeHTTP(w, r)
-	})
+//
+// With hsts it also adds Strict-Transport-Security for one year: once the browser has seen it,
+// it only talks to this domain over HTTPS, even if someone types or links http://. Use it only
+// when the API is served over HTTPS (over HTTP the browser ignores it). It does not include
+// subdomains: whether all of them have HTTPS is decided in the proxy.
+func SecurityHeaders(hsts bool) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			if hsts {
+				w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // NoStore adds Cache-Control: no-store, so neither the browser nor a proxy keeps the response.

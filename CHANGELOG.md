@@ -17,6 +17,11 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 
 - **Common passwords are rejected** (ASVS 6.2.4): registration, password change and reset reject the 10,000 most common passwords of 8 to 128 characters, ignoring letter case, with `422` and `validation.common_password` on `password`. The list comes from SecLists (`100k-most-used-passwords-NCSC.txt`, MIT license) and is embedded in the binary: `internal/auth/passwords/common.txt`, with its license next to it. To bring it to a project, copy that folder, `internal/auth/common_passwords.go`, the new case of `validatePassword` and the catalog key.
 - **A statement is cancelled after 10 seconds** (`statement_timeout`), so a slow query does not keep its pool connection after the request gave up. `db.Open` sets it on each new connection with `SET` (it works with PgBouncer), unless `DATABASE_URL` sets another limit (`?statement_timeout=30000`, or `0` to turn it off). Whatever needs longer raises it in its own transaction with `SET LOCAL statement_timeout`. The migrations open their own connections without the limit. To bring it to a project: `poolConfig` in `internal/db/db.go` and `Migrate` in `internal/db/migrate.go`.
+- **HSTS:** in production with `COOKIE_SECURE=true`, every response carries `Strict-Transport-Security: max-age=31536000`, so the browser only talks to the API over HTTPS. It does not include subdomains; the proxy can add it for the whole domain (see "Before production" in the README).
+
+### Changed
+
+- **`httpx.SecurityHeaders` takes whether to send HSTS:** `httpx.SecurityHeaders(d.Config.IsProduction() && d.Config.CookieSecure)` in `internal/server/routes.go`.
 
 ## [v0.6.0] - 2026-10-29
 

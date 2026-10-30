@@ -132,13 +132,14 @@ func NewHandler(d Deps) http.Handler {
 	//   - RequestID first, so everything else already has the logger with the request_id.
 	//   - The language (i18n) before anything that can answer an error, so the message comes out in
 	//     the language of the request.
-	//   - SecurityHeaders outside everything that can answer, so errors carry them too.
+	//   - SecurityHeaders outside everything that can answer, so errors carry them too. HSTS goes
+	//     only in production with Secure cookies, which is when there is HTTPS in front.
 	//   - Recover inside Logger, so the 500 response of a panic is logged too.
 	//   - CORS before the CSRF protection, to answer the preflights of the allowed origins.
 	return httpx.Chain(csrfProtection(mux, d.Config.CORSAllowedOrigins),
 		httpx.RequestID(d.Logger),
 		catalog.Middleware,
-		httpx.SecurityHeaders,
+		httpx.SecurityHeaders(d.Config.IsProduction() && d.Config.CookieSecure),
 		httpx.Logger,
 		httpx.Recover,
 		httpx.CORS(d.Config.CORSAllowedOrigins),

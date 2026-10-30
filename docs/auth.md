@@ -249,7 +249,7 @@ In the routes, `RequireAdmin` responds `401` if there is no session and `403` if
   - **Emails to the same person:** 3 in a row of each kind (reset, verification, notice) and then one every 20 minutes. In `forgot`, past the limit nothing is sent and the response is the usual one, so as not to reveal whether the email exists; the last link sent still works. `resend` responds `429`.
 - **Where they are counted:** the IP ones, in memory, in each instance of the API. The user, account and recipient ones (those in this list and the Account group) are in PostgreSQL (`internal/ratelimit`): they apply to every instance and are not reset on a deploy.
 - **At most one argon2 hash per core at a time**, so many simultaneous logins do not exhaust the server's memory. The rest wait their turn.
-- **Headers:** `X-Content-Type-Options: nosniff` on every response and `Cache-Control: no-store` on every `/auth` one.
+- **Headers:** `X-Content-Type-Options: nosniff` on every response, `Cache-Control: no-store` on every `/auth` one and, in production with `COOKIE_SECURE=true`, `Strict-Transport-Security` (HSTS, one year) on every response.
 - **2FA**, optional for each user (see the [2FA](#2fa-two-factor-authentication) section).
 - **CSRF protection** (Go's `http.CrossOriginProtection`): it rejects with `403` the `POST`/`PUT`/`DELETE` requests the browser sends from another site. Requests without browser headers (`curl`, mobile apps) are not affected.
 - **Cleanup:** an hourly job deletes the expired sessions and tokens, and the keys of the limits that already refilled (see [jobs](jobs.md)).

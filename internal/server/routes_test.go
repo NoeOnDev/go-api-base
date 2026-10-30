@@ -151,7 +151,7 @@ func TestSecurityHeaders(t *testing.T) {
 	}{
 		{"/auth/me", true}, // 401 without a session: still not cached
 		{"/products", false},
-		{"/no-existe", false},
+		{"/missing", false},
 	} {
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tt.path, nil))
@@ -160,6 +160,30 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 		if got := w.Header().Get("Cache-Control") == "no-store"; got != tt.noStore {
 			t.Errorf("%s: Cache-Control = %q", tt.path, w.Header().Get("Cache-Control"))
+		}
+	}
+}
+
+func TestHSTSOnlyInProduction(t *testing.T) {
+	pool := testutil.NewDB(t)
+	production := func(secure bool) testutil.Option {
+		return testutil.WithConfig(func(c *config.Config) {
+			c.Env = config.EnvProduction
+			c.CookieSecure = secure
+		})
+	}
+
+	for name, tt := range map[string]struct {
+		api  http.Handler
+		want string
+	}{
+		"production with HTTPS":    {testutil.NewAPI(pool, production(true)), "max-age=31536000"},
+		"production without HTTPS": {testutil.NewAPI(pool, production(false)), ""},
+		"development":              {testutil.NewAPI(pool), ""},
+	} {
+		w := testutil.Do(t, tt.api, nil, http.MethodGet, "/missing", "")
+		if got := w.Header().Get("Strict-Transport-Security"); got != tt.want {
+			t.Errorf("%s: Strict-Transport-Security = %q, want %q", name, got, tt.want)
 		}
 	}
 }

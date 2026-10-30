@@ -175,6 +175,7 @@ What to check in the configuration, whatever the server. If `COOKIE_SECURE` or `
 
 - **`APP_ENV=production`:** JSON logs and `Secure` cookies with the `__Host-` prefix.
 - **HTTPS in front of the API:** the API speaks HTTP, and the proxy or load balancer terminates TLS. Without HTTPS, `Secure` cookies do not travel and nobody can log in.
+- **HSTS:** in production with `COOKIE_SECURE=true` the API sends `Strict-Transport-Security: max-age=31536000` on its own responses. The frontend's domain needs it too: set it in the proxy, and add `includeSubDomains` only if every subdomain has HTTPS.
 - **`TRUST_PROXY=true` only if there is a proxy in front, and with the API port closed to the internet.**
   - With the proxy on the same server, make the API listen only there: `HTTP_ADDR=127.0.0.1:8080`, and also `TRUSTED_PROXIES=127.0.0.1`.
   - If your provider has a private network shared between customers, always set the exact IP of the proxy with `TRUSTED_PROXIES`.

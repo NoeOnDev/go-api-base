@@ -174,7 +174,9 @@ func (s *Service) sessionFromRequest(r *http.Request) (session, error) {
 	if err != nil {
 		return session{}, fmt.Errorf("find session: %w", err)
 	}
-	return session{id: row.SessionID, tokenHash: hash, user: toUser(row.User), lastSeen: row.LastSeenAt}, nil
+	user := toUser(row.User)
+	user.adminNeedsTwoFactor = s.opts.RequireAdminTwoFactor && user.Role == RoleAdmin && !user.TwoFactorEnabled
+	return session{id: row.SessionID, tokenHash: hash, user: user, lastSeen: row.LastSeenAt}, nil
 }
 
 // userFromRequest finds the user of the session sent in the cookie.

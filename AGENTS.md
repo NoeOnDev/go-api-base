@@ -144,7 +144,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 **Authentication and permissions**
 - Protect routes in the resource's `routes.go`: `authn.RequireUser(...)` (any user), `authn.RequireAdmin(...)`
   or `authn.OptionalUser(...)` (a public route that shows more to some users; in the handler, `auth.UserFrom`).
-- In a protected handler, the user is `auth.MustUser(r.Context())`.
+- In a protected handler, the user is `auth.MustUser(r.Context())`. Check admin permissions with `user.IsAdmin()`, never by
+  comparing `Role`: with `REQUIRE_ADMIN_TWO_FACTOR=true`, an admin without 2FA is not one yet.
 - **Each user's data:** the table references `users (id)` with `ON DELETE CASCADE` (or `SET NULL` if it must stay
   without an owner); with `RESTRICT`, deleting the account (`DELETE /auth/me`) fails.
 - **Ownership:** if the data belongs to each user, the table has `user_id` and **every** query filters by it

@@ -53,6 +53,9 @@ type Config struct {
 	FrontendURL string
 	// RequireEmailVerification requires users to verify their email to use the protected routes.
 	RequireEmailVerification bool
+	// RequireAdminTwoFactor requires administrators to have two-factor authentication on to use
+	// the admin routes.
+	RequireAdminTwoFactor bool
 
 	// Mail configures sending emails.
 	Mail Mail
@@ -208,6 +211,9 @@ func load(rawGetenv func(string) string) (Config, error) {
 
 	if cfg.RequireEmailVerification, err = boolOr(getenv("REQUIRE_EMAIL_VERIFICATION"), false); err != nil {
 		errs = append(errs, fmt.Errorf("REQUIRE_EMAIL_VERIFICATION %w", err))
+	}
+	if cfg.RequireAdminTwoFactor, err = boolOr(getenv("REQUIRE_ADMIN_TWO_FACTOR"), false); err != nil {
+		errs = append(errs, fmt.Errorf("REQUIRE_ADMIN_TWO_FACTOR %w", err))
 	}
 
 	cfg.Mail, err = loadMail(getenv)

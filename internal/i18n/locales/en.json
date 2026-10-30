@@ -2,6 +2,7 @@
   "duration.hours": {"one": "1 hour", "other": "{count} hours"},
 
   "errors.account_has_data": "The account has data that prevents deleting it; contact the team.",
+  "errors.admin_two_factor_required": "Administrators must turn on two-factor authentication first.",
   "errors.category_in_use": "The category has products; delete them or move them to another category first.",
   "errors.category_not_found": "The category does not exist.",
   "errors.cross_origin_rejected": "Request from another origin rejected.",

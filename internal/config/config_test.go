@@ -60,8 +60,9 @@ func TestLoadDefaults(t *testing.T) {
 	if len(cfg.TrustedProxies) != 0 || len(cfg.CORSAllowedOrigins) != 0 {
 		t.Errorf("TrustedProxies = %v, CORSAllowedOrigins = %v", cfg.TrustedProxies, cfg.CORSAllowedOrigins)
 	}
-	if cfg.FrontendURL != "http://localhost:5173" || cfg.RequireEmailVerification {
-		t.Errorf("FrontendURL = %q, RequireEmailVerification = %v", cfg.FrontendURL, cfg.RequireEmailVerification)
+	if cfg.FrontendURL != "http://localhost:5173" || cfg.RequireEmailVerification || cfg.RequireAdminTwoFactor {
+		t.Errorf("FrontendURL = %q, RequireEmailVerification = %v, RequireAdminTwoFactor = %v",
+			cfg.FrontendURL, cfg.RequireEmailVerification, cfg.RequireAdminTwoFactor)
 	}
 	if cfg.Mail.Driver != MailDriverLog || cfg.Mail.SMTPPort != 587 || cfg.Mail.From != "no-reply@localhost" {
 		t.Errorf("Mail = %+v", cfg.Mail)
@@ -76,6 +77,7 @@ func TestLoadMailSMTP(t *testing.T) {
 		"DATABASE_URL":               "x",
 		"FRONTEND_URL":               "https://app.example.com/",
 		"REQUIRE_EMAIL_VERIFICATION": "true",
+		"REQUIRE_ADMIN_TWO_FACTOR":   "true",
 		"MAIL_DRIVER":                "smtp",
 		"MAIL_FROM":                  "My App <no-reply@example.com>",
 		"SMTP_HOST":                  "smtp.example.com",
@@ -86,8 +88,9 @@ func TestLoadMailSMTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.FrontendURL != "https://app.example.com" || !cfg.RequireEmailVerification {
-		t.Errorf("FrontendURL = %q, RequireEmailVerification = %v", cfg.FrontendURL, cfg.RequireEmailVerification)
+	if cfg.FrontendURL != "https://app.example.com" || !cfg.RequireEmailVerification || !cfg.RequireAdminTwoFactor {
+		t.Errorf("FrontendURL = %q, RequireEmailVerification = %v, RequireAdminTwoFactor = %v",
+			cfg.FrontendURL, cfg.RequireEmailVerification, cfg.RequireAdminTwoFactor)
 	}
 	want := Mail{Driver: "smtp", From: "My App <no-reply@example.com>", SMTPHost: "smtp.example.com", SMTPPort: 465, SMTPUser: "user", SMTPPass: "secret"}
 	if cfg.Mail != want {

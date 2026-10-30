@@ -46,13 +46,19 @@ type User struct {
 	// null is the default language (DEFAULT_LOCALE). See docs/i18n.md.
 	Locale    *string   `json:"locale"`
 	CreatedAt time.Time `json:"created_at"`
+
+	// adminNeedsTwoFactor marks an admin without two-factor authentication when
+	// RequireAdminTwoFactor is on. The session sets it (see sessionFromRequest).
+	adminNeedsTwoFactor bool
 }
 
 // EmailVerified reports whether the user confirmed their email.
 func (u User) EmailVerified() bool { return u.EmailVerifiedAt != nil }
 
-// IsAdmin reports whether the user has the administrator role.
-func (u User) IsAdmin() bool { return u.Role == RoleAdmin }
+// IsAdmin reports whether the user can act as an administrator: they have the admin role and,
+// if RequireAdminTwoFactor (REQUIRE_ADMIN_TWO_FACTOR) is on, two-factor authentication. Check
+// admin permissions with it, never by comparing Role.
+func (u User) IsAdmin() bool { return u.Role == RoleAdmin && !u.adminNeedsTwoFactor }
 
 func toUser(u store.User) User {
 	return User{
@@ -82,6 +88,9 @@ type Options struct {
 	FrontendURL string
 	// RequireVerifiedEmail requires a verified email in RequireUser and RequireAdmin.
 	RequireVerifiedEmail bool
+	// RequireAdminTwoFactor requires administrators to have two-factor authentication on: without
+	// it, User.IsAdmin is false and RequireAdmin answers 403 admin_two_factor_required.
+	RequireAdminTwoFactor bool
 	// Box encrypts the two-factor secret and protects the recovery codes. Without it, two-factor authentication is not available.
 	Box *secretbox.Box
 	// Issuer is the application name that the authenticator app shows.

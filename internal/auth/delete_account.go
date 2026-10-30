@@ -31,7 +31,7 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 
 	err := pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		if user.IsAdmin() {
+		if user.Role == RoleAdmin { // by role: an admin who still lacks two-factor authentication counts too
 			// Lock the admin rows: two admins deleting themselves at the same time cannot leave the API
 			// without any.
 			admins, err := q.LockAdmins(r.Context())

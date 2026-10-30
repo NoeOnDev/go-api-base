@@ -2,6 +2,7 @@
   "duration.hours": {"one": "1 hora", "other": "{count} horas"},
 
   "errors.account_has_data": "La cuenta tiene datos que impiden borrarla; contacta al equipo.",
+  "errors.admin_two_factor_required": "Como administrador, primero tienes que activar la verificación en dos pasos.",
   "errors.category_in_use": "La categoría tiene productos; bórralos o cámbialos de categoría antes.",
   "errors.category_not_found": "La categoría no existe.",
   "errors.cross_origin_rejected": "Se rechazó una petición de otro origen.",

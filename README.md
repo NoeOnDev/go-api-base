@@ -157,6 +157,7 @@ Everything is configured with environment variables. [`.env.example`](.env.examp
 | `TRUSTED_PROXIES` | | With `TRUST_PROXY=true`, the exact IPs or CIDR ranges of the proxy (for example `127.0.0.1`), instead of every private network. With a CDN in front, like Cloudflare, its ranges too (see "Before production") |
 | `FRONTEND_URL` | `http://localhost:5173` | Base of the links in the emails |
 | `REQUIRE_EMAIL_VERIFICATION` | `false` | Require a verified email to use the protected routes |
+| `REQUIRE_ADMIN_TWO_FACTOR` | `false` | Require administrators to turn on 2FA to use the admin routes (see "Roles" in [docs/auth.md](docs/auth.md#roles)) |
 | `MAIL_DRIVER` | `log` | `log` (writes the emails to the log) or `smtp` |
 | `MAIL_FROM` | `no-reply@localhost` | Sender |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | — / `587` | SMTP server details |
@@ -181,6 +182,7 @@ What to check in the configuration, whatever the server. If `COOKIE_SECURE` or `
   - If your provider has a private network shared between customers, always set the exact IP of the proxy with `TRUSTED_PROXIES`.
   - With a CDN in front of the proxy, add the CDN ranges (for example, [Cloudflare's](https://www.cloudflare.com/ips/)) to `TRUSTED_PROXIES` besides the proxy. The proxy must append its IP to the `X-Forwarded-For` the CDN sends, not replace it. Otherwise, every user going through the same CDN node shares the attempt limits.
 - **`MAIL_DRIVER=smtp`** with a real provider, and **`FRONTEND_URL`** with the frontend's domain (the links in the emails point there). With the frontend on another domain, `CORS_ALLOWED_ORIGINS` too.
+- **`REQUIRE_ADMIN_TWO_FACTOR=true`**, unless the project has a reason not to: an administrator account with only a password is the most valuable one to steal.
 - **`ENCRYPTION_KEY` stored as a secret and backed up apart from the database:** if it is lost, users have to set up 2FA again (see [docs/encryption.md](docs/encryption.md)).
 - **`GOMEMLIMIT`** around 70% of the server's RAM.
 - **A direct connection to PostgreSQL**, or PgBouncer in `session` mode. Real time and River listen with `LISTEN`, which does not work with PgBouncer in `transaction` mode.

@@ -31,7 +31,10 @@ func (s *Service) RequireUser(next http.Handler) http.Handler {
 	}))
 }
 
-var errEmailNotVerified = &httpx.Error{Status: http.StatusForbidden, Code: "email_not_verified"}
+var (
+	errEmailNotVerified       = &httpx.Error{Status: http.StatusForbidden, Code: "email_not_verified"}
+	errAdminTwoFactorRequired = &httpx.Error{Status: http.StatusForbidden, Code: "admin_two_factor_required"}
+)
 
 // requireSession requires a valid session, but not a verified email. The routes of the
 // account itself use it (see the profile, sign out, resend the verification), which must work
@@ -79,10 +82,15 @@ func (s *Service) OptionalUser(next http.Handler) http.Handler {
 }
 
 // RequireAdmin lets through only users with the admin role: 401 without a session, 403 with
-// another role.
+// another role. With RequireAdminTwoFactor, an admin without two-factor authentication gets 403
+// admin_two_factor_required: the /auth routes only ask for a session, so they can turn it on.
 func (s *Service) RequireAdmin(next http.Handler) http.Handler {
 	return s.RequireUser(httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		if !MustUser(r.Context()).IsAdmin() {
+		user := MustUser(r.Context())
+		if user.adminNeedsTwoFactor {
+			return errAdminTwoFactorRequired
+		}
+		if !user.IsAdmin() {
 			return httpx.Forbidden("forbidden")
 		}
 		next.ServeHTTP(w, r)

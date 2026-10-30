@@ -64,6 +64,9 @@ func runCreateAdmin(args []string) error {
 	}
 
 	fmt.Printf("Administrator created: %s (id %d)\n", u.Email, u.ID)
+	if cfg.RequireAdminTwoFactor {
+		fmt.Println("REQUIRE_ADMIN_TWO_FACTOR is on: log in and turn on two-factor authentication to use the admin routes.")
+	}
 	return nil
 }
 

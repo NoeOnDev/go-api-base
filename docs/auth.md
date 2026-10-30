@@ -133,7 +133,7 @@ With the option set to `false` (the default) no email is sent on registration an
 
 ## 2FA (two-factor authentication)
 
-Each user can turn it on if they want. It works with any authenticator app: Google Authenticator, Microsoft Authenticator, Authy, 1Password, Bitwarden, etc.
+Each user can turn it on if they want; administrators can be required to, with `REQUIRE_ADMIN_TWO_FACTOR=true` (see [roles](#roles)). It works with any authenticator app: Google Authenticator, Microsoft Authenticator, Authy, 1Password, Bitwarden, etc.
 
 ### Turning it on
 
@@ -221,7 +221,15 @@ The templates are in `internal/auth/emails/<language>/*.txt` (`en` and `es-MX`),
 
   The password is asked for in the terminal without being shown, or taken from the `ADMIN_PASSWORD` variable.
 
-In the routes, `RequireAdmin` responds `401` if there is no session and `403` if the user is not an admin.
+In the routes, `RequireAdmin` responds `401` if there is no session and `403` if the user is not an admin. In a handler, check admin permissions with `user.IsAdmin()`, never by comparing `Role` (see below).
+
+**Mandatory 2FA for administrators:** with `REQUIRE_ADMIN_TWO_FACTOR=true`, an admin acts as one only once they turn on 2FA. Until then:
+
+- the admin routes respond `403 admin_two_factor_required`, so the frontend can send them to set it up;
+- `user.IsAdmin()` is `false`, so a route with `OptionalUser` does not show them what only admins see (like inactive products);
+- the account routes (`/auth/...`) work as usual: they can log in and turn on 2FA. Their `role` is still `admin`.
+
+If they turn it off, they lose the admin permissions until they turn it on again. `create-admin` reminds it when the option is on. It is off by default; it is recommended in production (see "Before production" in the README).
 
 ## Built-in security
 
@@ -250,7 +258,7 @@ In the routes, `RequireAdmin` responds `401` if there is no session and `403` if
 - **Where they are counted:** the IP ones, in memory, in each instance of the API. The user, account and recipient ones (those in this list and the Account group) are in PostgreSQL (`internal/ratelimit`): they apply to every instance and are not reset on a deploy.
 - **At most one argon2 hash per core at a time**, so many simultaneous logins do not exhaust the server's memory. The rest wait their turn.
 - **Headers:** `X-Content-Type-Options: nosniff` on every response, `Cache-Control: no-store` on every `/auth` one and, in production with `COOKIE_SECURE=true`, `Strict-Transport-Security` (HSTS, one year) on every response.
-- **2FA**, optional for each user (see the [2FA](#2fa-two-factor-authentication) section).
+- **2FA**, optional for each user and, with `REQUIRE_ADMIN_TWO_FACTOR=true`, mandatory for administrators (see the [2FA](#2fa-two-factor-authentication) section).
 - **CSRF protection** (Go's `http.CrossOriginProtection`): it rejects with `403` the `POST`/`PUT`/`DELETE` requests the browser sends from another site. Requests without browser headers (`curl`, mobile apps) are not affected.
 - **Cleanup:** an hourly job deletes the expired sessions and tokens, and the keys of the limits that already refilled (see [jobs](jobs.md)).
 
@@ -328,6 +336,7 @@ Inside the handler:
 
 ```go
 user := auth.MustUser(r.Context())
+if user.IsAdmin() { … } // admin permissions: never compare user.Role
 ```
 
 ## Removing features
@@ -351,7 +360,7 @@ Each recipe was tested separately, on a copy of the project: it compiles, passes
 
 ## What it does not include
 
-- Mandatory 2FA (per role or for everyone).
+- Mandatory 2FA for every user (for administrators, see `REQUIRE_ADMIN_TWO_FACTOR` in [roles](#roles)).
 - Physical security keys or passkeys (WebAuthn).
 - Login with Google or other providers (OAuth).
 - Permissions finer than `user`/`admin`.

@@ -113,7 +113,7 @@ When on, it blocks the protected routes with a `403 email_not_verified` instead 
 - **Reusing a code is rejected** by storing the last step used, with an atomic `UPDATE … WHERE totp_last_step < $2`.
 - **Turning it off asks for a code too**, not only the password: otherwise, with a stolen session and the password, an attacker could remove it and log in later without the phone. A recovery code also works, for whoever lost the phone.
 - **The two-step login uses a challenge** in `user_tokens` and an `HttpOnly` cookie, not a token in the response body. The frontend handles no secrets, and the challenge expires in 5 minutes.
-- **2FA is opt-in.** Making it mandatory for certain roles is easy to add in a project (a check in `RequireAdmin`), but each project decides.
+- **2FA is opt-in for users, and can be required of administrators** with `REQUIRE_ADMIN_TWO_FACTOR=true`. An admin account with only a password is the most valuable one to steal, but each project decides (ASVS asks for it at level 2), so it is off by default. It is checked in a single place, `User.IsAdmin()`, which the session computes: `RequireAdmin`, the routes with `OptionalUser` and any new check go through it. The last-admin protection counts admins by role, so an admin without 2FA still counts.
 
 ## Rotatable keys with an identifier
 
@@ -296,7 +296,7 @@ A rule for new code: **nothing that must apply to every instance is kept in memo
 
 ## What it does not include
 
-- Mandatory 2FA, and passkeys or WebAuthn.
+- Mandatory 2FA for every user (for administrators there is `REQUIRE_ADMIN_TWO_FACTOR`), and passkeys or WebAuthn.
 - Login with Google or other providers (OAuth).
 - Permissions finer than `user`/`admin`.
 - WebSockets (see "Real time with SSE").

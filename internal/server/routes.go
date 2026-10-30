@@ -77,18 +77,19 @@ func NewHandler(d Deps) http.Handler {
 	notificationsService := notifications.NewService(queries, broker, catalog)
 
 	authService := auth.NewService(d.DB, auth.Options{
-		SessionTTL:           d.Config.SessionTTL,
-		SessionIdleTimeout:   d.Config.SessionIdleTimeout,
-		CookieSecure:         d.Config.CookieSecure,
-		Mailer:               d.Mailer,
-		FrontendURL:          d.Config.FrontendURL,
-		RequireVerifiedEmail: d.Config.RequireEmailVerification,
-		Box:                  d.Box,
-		Issuer:               d.Config.AppName,
-		TrustedProxies:       d.Config.TrustedProxies,
-		Notifier:             notificationsService,
-		I18n:                 catalog,
-		SessionWatcher:       broker,
+		SessionTTL:            d.Config.SessionTTL,
+		SessionIdleTimeout:    d.Config.SessionIdleTimeout,
+		CookieSecure:          d.Config.CookieSecure,
+		Mailer:                d.Mailer,
+		FrontendURL:           d.Config.FrontendURL,
+		RequireVerifiedEmail:  d.Config.RequireEmailVerification,
+		RequireAdminTwoFactor: d.Config.RequireAdminTwoFactor,
+		Box:                   d.Box,
+		Issuer:                d.Config.AppName,
+		TrustedProxies:        d.Config.TrustedProxies,
+		Notifier:              notificationsService,
+		I18n:                  catalog,
+		SessionWatcher:        broker,
 	})
 	// Limits of the auth routes: "in a row" is how many requests are allowed at once, and then one
 	// is refilled every the given time. Tune them here for each project.

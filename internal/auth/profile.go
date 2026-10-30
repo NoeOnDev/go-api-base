@@ -33,11 +33,11 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) error {
 		fields["name"] = msg
 	}
 	if in.Locale != nil {
-		if locale, ok := s.catalog.Lookup(*in.Locale); ok {
-			in.Locale = &locale // written as in the catalog ("es-mx" is "es-MX")
-		} else {
-			fields["locale"] = i18n.M("validation.unsupported_locale", "locales", strings.Join(s.catalog.Locales(), ", "))
+		locale, msg := s.lookupLocale(*in.Locale)
+		if !msg.IsZero() {
+			fields["locale"] = msg
 		}
+		in.Locale = &locale
 	}
 	if len(fields) > 0 {
 		return httpx.Validation(fields)

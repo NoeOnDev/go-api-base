@@ -44,6 +44,8 @@ type emailData struct {
 	When    string // date and time of the event, in UTC
 	IP      string // IP the request came from
 	Email   string // another email mentioned (for example, the new one in an email change)
+	App     string // the application's name (APP_NAME)
+	Inviter string // name of the administrator who sent an invitation
 }
 
 // Limit of emails per recipient and kind: 3 in a row and then one every 20 minutes. It
@@ -81,9 +83,15 @@ func (s *Service) sendEmail(ctx context.Context, to string, locale *string, tmpl
 	return nil
 }
 
-// expiresIn is how long a link lasts, in the user's language, for example "24 hours".
+// expiresIn is how long a link lasts, in the user's language, for example "24 hours" or, from
+// two whole days on, "7 days".
 func (s *Service) expiresIn(locale *string, ttl time.Duration) string {
-	return s.catalog.Translator(deref(locale)).Plural("duration.hours", int(ttl.Hours()))
+	t := s.catalog.Translator(deref(locale))
+	const day = 24 * time.Hour
+	if ttl >= 2*day && ttl%day == 0 {
+		return t.Plural("duration.days", int(ttl/day))
+	}
+	return t.Plural("duration.hours", int(ttl.Hours()))
 }
 
 func deref(s *string) string {

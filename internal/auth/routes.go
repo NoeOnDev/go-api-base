@@ -84,4 +84,10 @@ func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	handle("POST /admin/users/{id}/suspend", s.RequireAdmin(httpx.Handle(s.suspendUser)))
 	handle("POST /admin/users/{id}/unsuspend", s.RequireAdmin(httpx.Handle(s.unsuspendUser)))
 	handle("DELETE /admin/users/{id}", s.RequireAdmin(account(httpx.Handle(s.deleteUserByAdmin))))
+
+	// Invitations: an admin creates the account, and the person chooses their password from the
+	// link. Inviting another admin asks for the admin's password, with the per-user limit.
+	handle("POST /admin/users", s.RequireAdmin(httpx.Handle(s.inviteUser(limits.Account))))
+	handle("POST /admin/users/{id}/invitation", s.RequireAdmin(httpx.Handle(s.resendInvitation)))
+	handle("POST /auth/invitation/accept", limits.Tokens(httpx.Handle(s.acceptInvitation)))
 }

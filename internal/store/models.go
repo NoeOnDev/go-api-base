@@ -169,7 +169,7 @@ type User struct {
 	ID              int64
 	Name            string
 	Email           string
-	PasswordHash    string
+	PasswordHash    *string
 	Role            string
 	EmailVerifiedAt *time.Time
 	TOTPSecret      *string

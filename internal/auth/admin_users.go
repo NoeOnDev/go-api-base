@@ -20,15 +20,17 @@ import (
 // User management for administrators: list, see, change the role, suspend and delete. See
 // "Managing users" in docs/auth.md.
 
-// Statuses of an account, as the administrators see them.
+// Statuses of an account, as the administrators see them. An invited user has not accepted the
+// invitation yet: they have no password (see invitations.go).
 const (
 	StatusActive    = "active"
+	StatusInvited   = "invited"
 	StatusSuspended = "suspended"
 )
 
 var (
 	roles    = []string{RoleUser, RoleAdmin}
-	statuses = []string{StatusActive, StatusSuspended}
+	statuses = []string{StatusActive, StatusInvited, StatusSuspended}
 )
 
 // errOwnAccount: an admin does not manage their own account from here, but from /auth/me, which
@@ -44,8 +46,11 @@ type AdminUser struct {
 
 func toAdminUser(u store.User) AdminUser {
 	status := StatusActive
-	if u.SuspendedAt != nil {
+	switch {
+	case u.SuspendedAt != nil:
 		status = StatusSuspended
+	case u.PasswordHash == nil:
+		status = StatusInvited
 	}
 	return AdminUser{User: toUser(u), Status: status, SuspendedAt: u.SuspendedAt}
 }

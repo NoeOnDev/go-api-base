@@ -1,4 +1,5 @@
 {
+  "duration.days": {"one": "1 day", "other": "{count} days"},
   "duration.hours": {"one": "1 hour", "other": "{count} hours"},
 
   "email.button_help": "If the button doesn't work, copy this link into your browser:",
@@ -16,6 +17,7 @@
   "errors.internal_error": "Internal server error.",
   "errors.invalid_credentials": "Incorrect email or password.",
   "errors.invalid_path_id": "The {name} must be a positive whole number.",
+  "errors.invitation_accepted": "This user already accepted the invitation.",
   "errors.last_admin": "You can't delete the only administrator account; make someone else an administrator first.",
   "errors.malformed_json": "The request body is not valid JSON.",
   "errors.multiple_json_values": "The request body must contain a single JSON value.",

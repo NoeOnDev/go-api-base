@@ -1,0 +1,10 @@
+{{define "subject"}}You're invited to {{.App}}{{end -}}
+Hi {{.Name}},
+
+{{.Inviter}} invited you to join {{.App}}. To accept the invitation and choose your password, open this link:
+
+{{.Link}}
+
+The link expires in {{.Expires}} and works only once.
+
+If you weren't expecting this invitation, ignore this email.

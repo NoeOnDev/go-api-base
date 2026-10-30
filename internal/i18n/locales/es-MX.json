@@ -1,4 +1,5 @@
 {
+  "duration.days": {"one": "1 día", "other": "{count} días"},
   "duration.hours": {"one": "1 hora", "other": "{count} horas"},
 
   "email.button_help": "Si el botón no funciona, copia este enlace en tu navegador:",
@@ -16,6 +17,7 @@
   "errors.internal_error": "Error interno del servidor.",
   "errors.invalid_credentials": "Email o contraseña incorrectos.",
   "errors.invalid_path_id": "El {name} debe ser un número entero positivo.",
+  "errors.invitation_accepted": "Este usuario ya aceptó la invitación.",
   "errors.last_admin": "No puedes borrar la única cuenta de administrador; nombra a otro administrador antes.",
   "errors.malformed_json": "El cuerpo de la petición no es un JSON válido.",
   "errors.multiple_json_values": "El cuerpo de la petición debe tener un solo valor JSON.",

@@ -1,0 +1,10 @@
+{{define "subject"}}Te invitaron a {{.App}}{{end -}}
+Hola {{.Name}}:
+
+{{.Inviter}} te invitó a unirte a {{.App}}. Para aceptar la invitación y elegir tu contraseña, abre este enlace:
+
+{{.Link}}
+
+El enlace vence en {{.Expires}} y sirve una sola vez.
+
+Si no esperabas esta invitación, ignora este correo.

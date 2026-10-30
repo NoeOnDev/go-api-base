@@ -16,7 +16,8 @@ FROM users
 WHERE ($1::text IS NULL OR name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
   AND ($2::text IS NULL OR role = $2)
   AND ($3::text IS NULL
-       OR ($3 = 'active' AND suspended_at IS NULL)
+       OR ($3 = 'active' AND suspended_at IS NULL AND password_hash IS NOT NULL)
+       OR ($3 = 'invited' AND suspended_at IS NULL AND password_hash IS NULL)
        OR ($3 = 'suspended' AND suspended_at IS NOT NULL))
 `
 
@@ -42,7 +43,7 @@ RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, 
 type CreateUserParams struct {
 	Name            string
 	Email           string
-	PasswordHash    string
+	PasswordHash    *string
 	Role            string
 	EmailVerifiedAt *time.Time
 	Locale          *string
@@ -196,7 +197,8 @@ FROM users
 WHERE ($1::text IS NULL OR name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
   AND ($2::text IS NULL OR role = $2)
   AND ($3::text IS NULL
-       OR ($3 = 'active' AND suspended_at IS NULL)
+       OR ($3 = 'active' AND suspended_at IS NULL AND password_hash IS NOT NULL)
+       OR ($3 = 'invited' AND suspended_at IS NULL AND password_hash IS NULL)
        OR ($3 = 'suspended' AND suspended_at IS NOT NULL))
 ORDER BY id DESC
 LIMIT $5 OFFSET $4
@@ -211,7 +213,7 @@ type ListUsersParams struct {
 }
 
 // ListUsers is the administrators' list, with optional filters: search (in the name or the
-// email, already escaped for ILIKE), role and status (active or suspended). The ILIKE '%…%'
+// email, already escaped for ILIKE), role and status (active, invited or suspended). The ILIKE '%…%'
 // search does not use indexes; if the table grows, see pg_trgm in docs/adding-a-resource.md.
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error) {
 	rows, err := q.db.Query(ctx, listUsers,
@@ -287,14 +289,14 @@ func (q *Queries) ListUsersWithTOTPSecret(ctx context.Context) ([]ListUsersWithT
 
 const lockAdmins = `-- name: LockAdmins :many
 SELECT id FROM users
-WHERE role = 'admin' AND suspended_at IS NULL
+WHERE role = 'admin' AND suspended_at IS NULL AND password_hash IS NOT NULL
 ORDER BY id
 FOR UPDATE
 `
 
-// LockAdmins returns the active admins (not suspended) and locks their rows until the end of the
-// transaction: that way two admins deleting their accounts, or demoting each other, at once cannot
-// leave the API without any.
+// LockAdmins returns the active admins (not suspended, and with a password: an invitation not
+// accepted yet does not count) and locks their rows until the end of the transaction: that way two
+// admins deleting their accounts, or demoting each other, at once cannot leave the API without any.
 func (q *Queries) LockAdmins(ctx context.Context) ([]int64, error) {
 	rows, err := q.db.Query(ctx, lockAdmins)
 	if err != nil {
@@ -346,9 +348,9 @@ WHERE id = $2 AND password_hash = $3
 `
 
 type RehashPasswordParams struct {
-	NewHash string
+	NewHash *string
 	ID      int64
-	OldHash string
+	OldHash *string
 }
 
 // RehashPassword stores the same password with a hash of new parameters. It only changes it if it
@@ -356,6 +358,33 @@ type RehashPasswordParams struct {
 // It does not touch updated_at: for the user, nothing changed.
 func (q *Queries) RehashPassword(ctx context.Context, arg RehashPasswordParams) (int64, error) {
 	result, err := q.db.Exec(ctx, rehashPassword, arg.NewHash, arg.ID, arg.OldHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setInitialPassword = `-- name: SetInitialPassword :execrows
+UPDATE users
+SET password_hash = $1,
+    email_verified_at = coalesce(email_verified_at, now()),
+    locale = coalesce(locale, $2),
+    updated_at = now()
+WHERE id = $3 AND password_hash IS NULL
+`
+
+type SetInitialPasswordParams struct {
+	PasswordHash *string
+	Locale       *string
+	ID           int64
+}
+
+// SetInitialPassword sets the password of an invited user, and marks the email as verified (the
+// link reached it) and the language if it has none. It only changes it if the user still has no
+// password: an invitation that was already accepted, or a password set with a reset, cannot be
+// overwritten with an old link.
+func (q *Queries) SetInitialPassword(ctx context.Context, arg SetInitialPasswordParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setInitialPassword, arg.PasswordHash, arg.Locale, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -474,7 +503,7 @@ WHERE id = $1
 
 type UpdateUserPasswordParams struct {
 	ID           int64
-	PasswordHash string
+	PasswordHash *string
 }
 
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {

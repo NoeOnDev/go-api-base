@@ -5,7 +5,9 @@ CREATE TABLE users (
     -- The application stores the email in lowercase and the database demands it, so UNIQUE is enough to
     -- prevent duplicates even if someone inserts by hand (Alice@x.com and alice@x.com would be two accounts).
     email         text        NOT NULL UNIQUE CONSTRAINT users_email_lowercase CHECK (email = lower(email)),
-    password_hash text        NOT NULL,
+    -- NULL while an invitation is pending: the user chooses their password when accepting it
+    -- (see "Invitations" in docs/auth.md). Nobody can log in without one.
+    password_hash text,
     role          text        NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     -- NULL until the user confirms their email with the link sent to them.
     email_verified_at timestamptz,

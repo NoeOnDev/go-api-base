@@ -57,6 +57,9 @@ The 2FA challenge uses a cookie with the same attributes: `two_factor_challenge`
 | `POST` | `/auth/two-factor/disable` | user | `{password, code}` or `{password, recovery_code}` | `204`; `422` if the password or the code are wrong; `409` if it is not on |
 | `POST` | `/auth/two-factor/recovery-codes` | user | `{password}` | `200 {recovery_codes}`, new ones |
 | `GET` | `/admin/users` | admin | `?q=&role=&status=&limit=&offset=` | `200 {data, meta}` (see [managing users](#managing-users)) |
+| `POST` | `/admin/users` | admin | `{name, email, role, locale?, password?}` | `201` with the invited user; `409` if the email already exists; `422` (see [invitations](#invitations)) |
+| `POST` | `/admin/users/{id}/invitation` | admin | | `204`, sends a new link; `409` if it was already accepted; `429` |
+| `POST` | `/auth/invitation/accept` | public | `{token, password}` | `200` with the user and the cookie; `422` if the link is not valid or expired |
 | `GET` | `/admin/users/{id}` | admin | | `200` with the user; `404` |
 | `PUT` | `/admin/users/{id}/role` | admin | `{role, password}` | `200` with the user; `422` if the role or the admin's password are wrong; `409` |
 | `POST` | `/admin/users/{id}/suspend`, `/unsuspend` | admin | | `200` with the user; `409` |
@@ -247,9 +250,10 @@ If they turn it off, they lose the admin permissions until they turn it on again
 
 ## Managing users
 
-The administrators manage the accounts from `/admin/users` (`internal/auth/admin_users.go`). Each user comes as the account (the same fields as `/auth/me`) plus `status` (`active` or `suspended`) and `suspended_at`:
+The administrators manage the accounts from `/admin/users` (`internal/auth/admin_users.go`). Each user comes as the account (the same fields as `/auth/me`) plus `status` (`active`, `invited` or `suspended`) and `suspended_at`:
 
-- **List:** `GET /admin/users`, from the newest, with `?q=` (searches the name and the email), `?role=user|admin` and `?status=active|suspended`, paginated like the other lists, with `total`.
+- **List:** `GET /admin/users`, from the newest, with `?q=` (searches the name and the email), `?role=user|admin` and `?status=active|invited|suspended`, paginated like the other lists, with `total`.
+- **Invite:** `POST /admin/users` (see [invitations](#invitations)).
 - **Change the role:** `PUT /admin/users/{id}/role` with `{role, password}`. It asks for the admin's password: with a stolen session, making another account an admin would leave the attacker with access even after that session is closed. It applies at once, and the user's real-time streams are cut so their topics are authorized again with the new role.
 - **Suspend:** `POST /admin/users/{id}/suspend`. The account cannot log in (`403 account_suspended`, and only after the right password, so nobody learns it exists), its sessions and real-time streams are cut, and its pending links and two-factor challenge are deleted. "Forgot my password" sends it nothing. `POST /admin/users/{id}/unsuspend` undoes it.
 - **Delete:** `DELETE /admin/users/{id}` with `{password}`, the same as when the user deletes their own account (`ON DELETE CASCADE`, `409 account_has_data`). It asks for the password because it cannot be undone: if in doubt, suspend.
@@ -257,9 +261,26 @@ The administrators manage the accounts from `/admin/users` (`internal/auth/admin
 **Protections**, with `409`:
 
 - `own_account`: an admin does not change their own role, suspend or delete themselves from here; their account is managed from `/auth/me`.
-- `last_admin`: the last **active** admin (not suspended) cannot be demoted, suspended or deleted. A suspended admin does not count.
+- `last_admin`: the last **active** admin cannot be demoted, suspended or deleted. A suspended admin, or one who has not accepted their invitation, does not count.
 
 Changing the role and deleting have the per-user limit of the account actions, because they check the password. The actions are logged with the admin's `user_id` and the `target_user_id`.
+
+## Invitations
+
+For systems without open registration (an internal tool, a client's team), an admin creates the account and the person chooses their password (`internal/auth/invitations.go`):
+
+1. **The admin invites:** `POST /admin/users` with `{name, email, role}`, and optionally `locale` (the language of the email and of the account). Inviting another admin also asks for the admin's `password`, like changing a role. The user is created **without a password** (`status: "invited"`) and with the email not verified, and gets an email with a link to `FRONTEND_URL/accept-invitation?token=…`, valid for **7 days**.
+2. **The person accepts:** the frontend reads the token from the URL and sends `POST /auth/invitation/accept` with `{token, password}`. The password follows the usual rules. The email is marked as verified (the link reached it), the language is the browser's if the admin did not choose one, and the session starts, as in the registration.
+
+**To keep in mind:**
+
+- **Until they accept, nobody can log in to the account:** the login answers the usual `401`, without revealing that the invitation is pending.
+- **Sending it again:** `POST /admin/users/{id}/invitation` sends a new link, and the previous one stops working. It has the per-recipient email limit (`429 too_many_emails`), and answers `409 invitation_accepted` if the account is already active.
+- **"Forgot my password" also works:** an invited user can set their password from there, which also activates the account. After that, the invitation link no longer works, so it cannot overwrite that password.
+- **Withdrawing an invitation:** delete the user (`DELETE /admin/users/{id}`), or suspend them, which also deletes the link.
+- **The email is reserved** from the invitation on: registering with it answers `409`.
+
+With invitations, open registration can be removed (see [removing features](#removing-features)): the first admin is created with `create-admin`, and the rest of the accounts are invited.
 
 ## Built-in security
 
@@ -376,13 +397,14 @@ All the routes are in `internal/auth/routes.go`. To remove a feature, delete its
 
 | Feature | Routes | Files to delete | Also |
 |---|---|---|---|
-| Open registration (only admins with `create-admin`) | `POST /auth/register` | The `register` function of `handlers.go`, and the `TestRegister…` tests of `handlers_test.go` | Several tests create the user with `POST /auth/register`: move them to `testutil.Login` |
+| Open registration (only invited users and admins created with `create-admin`) | `POST /auth/register` | The `register` function of `handlers.go`, and the `TestRegister…` tests of `handlers_test.go` | Several tests create the user with `POST /auth/register`: move them to `testutil.Login` |
 | Profile and password change | `PUT /auth/me`, `PUT /auth/password` | `profile.go`, `account_test.go` | |
 | Sessions per device | `/auth/sessions…` | `sessions.go`, `sessions_test.go` | |
 | Changing the email | `PUT /auth/email`, `/auth/email/confirm` | `email_change.go`, `email_change_test.go`, `emails/*/email_change*.*` | |
 | Deleting the account | `DELETE /auth/me` | `delete_account.go`, `delete_account_test.go`, `emails/*/account_deleted.*` | |
 | Resetting the password | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go`, `password_reset_test.go`, `emails/*/password_reset.*` | |
 | Verifying the email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go`, `email_verification_test.go`, `emails/*/verify_email.*` | In `register` (`handlers.go`), the `if s.opts.RequireVerifiedEmail` block. Leave `REQUIRE_EMAIL_VERIFICATION=false` |
+| Invitations | `POST /admin/users`, `/admin/users/{id}/invitation`, `/auth/invitation/accept` | `invitations.go`, `invitations_test.go`, `emails/*/invitation.*` | Optionally, the `invitation` purpose (`tokens.go` and the CHECK of migration `00006`) and the `SetInitialPassword` query (then, `make sqlc`). `password_hash` can stay nullable: a user without a password cannot log in |
 | Managing users | `/admin/users…` | `admin_users.go`, `admin_users_test.go` | Optionally, the suspension: the `SuspendedAt` checks of `Authenticate` (`auth.go`) and `forgotPassword` (`password_reset.go`), the `suspended_at` column (migration `00001`, `users.sql` and the `GetSessionUser` filter of `sessions.sql`) and the user queries of the list, the role and the suspension (then, `make sqlc`) |
 | 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/*/two_factor_locked.*` | In `handlers.go`, the login's `if u.TwoFactorEnabled` block; in `auth.go`, `twoFactorLimiter`; in `password_reset.go`, its `resetLimit`; in `keys.go`, the call to `rotateTwoFactorKeys`. Optionally, also `internal/totp`, `testutil/twofactor.go` (with `TestTwoFactorChangesNotify` of `internal/notifications`) and migration `00007` with `recovery_codes.sql` (then, `make sqlc`) |
 

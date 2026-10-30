@@ -93,12 +93,12 @@ SET email = $2, email_verified_at = now(), updated_at = now()
 WHERE id = $1
 RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at;
 
--- LockAdmins returns the active admins (not suspended) and locks their rows until the end of the
--- transaction: that way two admins deleting their accounts, or demoting each other, at once cannot
--- leave the API without any.
+-- LockAdmins returns the active admins (not suspended, and with a password: an invitation not
+-- accepted yet does not count) and locks their rows until the end of the transaction: that way two
+-- admins deleting their accounts, or demoting each other, at once cannot leave the API without any.
 -- name: LockAdmins :many
 SELECT id FROM users
-WHERE role = 'admin' AND suspended_at IS NULL
+WHERE role = 'admin' AND suspended_at IS NULL AND password_hash IS NOT NULL
 ORDER BY id
 FOR UPDATE;
 
@@ -109,7 +109,7 @@ DELETE FROM users
 WHERE id = $1;
 
 -- ListUsers is the administrators' list, with optional filters: search (in the name or the
--- email, already escaped for ILIKE), role and status (active or suspended). The ILIKE '%…%'
+-- email, already escaped for ILIKE), role and status (active, invited or suspended). The ILIKE '%…%'
 -- search does not use indexes; if the table grows, see pg_trgm in docs/adding-a-resource.md.
 -- name: ListUsers :many
 SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
@@ -117,7 +117,8 @@ FROM users
 WHERE (sqlc.narg('search')::text IS NULL OR name ILIKE '%' || sqlc.narg('search') || '%' OR email ILIKE '%' || sqlc.narg('search') || '%')
   AND (sqlc.narg('role')::text IS NULL OR role = sqlc.narg('role'))
   AND (sqlc.narg('status')::text IS NULL
-       OR (sqlc.narg('status') = 'active' AND suspended_at IS NULL)
+       OR (sqlc.narg('status') = 'active' AND suspended_at IS NULL AND password_hash IS NOT NULL)
+       OR (sqlc.narg('status') = 'invited' AND suspended_at IS NULL AND password_hash IS NULL)
        OR (sqlc.narg('status') = 'suspended' AND suspended_at IS NOT NULL))
 ORDER BY id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
@@ -128,7 +129,8 @@ FROM users
 WHERE (sqlc.narg('search')::text IS NULL OR name ILIKE '%' || sqlc.narg('search') || '%' OR email ILIKE '%' || sqlc.narg('search') || '%')
   AND (sqlc.narg('role')::text IS NULL OR role = sqlc.narg('role'))
   AND (sqlc.narg('status')::text IS NULL
-       OR (sqlc.narg('status') = 'active' AND suspended_at IS NULL)
+       OR (sqlc.narg('status') = 'active' AND suspended_at IS NULL AND password_hash IS NOT NULL)
+       OR (sqlc.narg('status') = 'invited' AND suspended_at IS NULL AND password_hash IS NULL)
        OR (sqlc.narg('status') = 'suspended' AND suspended_at IS NOT NULL));
 
 -- name: UpdateUserRole :execrows
@@ -146,3 +148,15 @@ WHERE id = $1;
 UPDATE users
 SET suspended_at = NULL, updated_at = now()
 WHERE id = $1;
+
+-- SetInitialPassword sets the password of an invited user, and marks the email as verified (the
+-- link reached it) and the language if it has none. It only changes it if the user still has no
+-- password: an invitation that was already accepted, or a password set with a reset, cannot be
+-- overwritten with an old link.
+-- name: SetInitialPassword :execrows
+UPDATE users
+SET password_hash = sqlc.arg('password_hash'),
+    email_verified_at = coalesce(email_verified_at, now()),
+    locale = coalesce(locale, sqlc.narg('locale')),
+    updated_at = now()
+WHERE id = sqlc.arg('id') AND password_hash IS NULL;

@@ -107,6 +107,7 @@ It includes:
 | `POST` | `/auth/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | With a session: turn on and manage 2FA |
 | `POST` | `/auth/two-factor/challenge` | Second step of the login when the user has 2FA |
 | `GET`, `PUT`, `POST`, `DELETE` | `/admin/users`, `/admin/users/{id}`, `/role`, `/suspend`, `/unsuspend` | Administrators: list, change the role, suspend and delete users (see "Managing users" in [docs/auth.md](docs/auth.md#managing-users)) |
+| `POST` | `/admin/users`, `/admin/users/{id}/invitation`, `/auth/invitation/accept` | Invitations: an administrator creates the account and the person chooses their password (see "Invitations" in [docs/auth.md](docs/auth.md#invitations)) |
 | `GET` | `/events?topics=` | With a session: SSE stream with the real-time events (see [docs/realtime.md](docs/realtime.md)) |
 | `GET` | `/notifications?unread=` | With a session: the user's notifications and how many are unread |
 | `POST` | `/notifications/{id}/read`, `/notifications/read-all` | With a session: mark them as read |

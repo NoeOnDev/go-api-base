@@ -1,11 +1,11 @@
 -- +goose Up
 -- One-time tokens: the ones sent by email (reset the password, verify the email,
--- confirm a new email) and the pending challenge of the login with 2FA.
+-- confirm a new email, accept an invitation) and the pending challenge of the login with 2FA.
 -- As with sessions, the SHA-256 of the token is stored, never the token.
 CREATE TABLE user_tokens (
     token_hash bytea       PRIMARY KEY,
     user_id    bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    purpose    text        NOT NULL CHECK (purpose IN ('password_reset', 'email_verification', 'email_change', 'two_factor_login')),
+    purpose    text        NOT NULL CHECK (purpose IN ('password_reset', 'email_verification', 'email_change', 'two_factor_login', 'invitation')),
     -- The new email, only for email_change: it is applied only once it is confirmed.
     email      text,
     expires_at timestamptz NOT NULL,

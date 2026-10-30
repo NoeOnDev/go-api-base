@@ -1,0 +1,10 @@
+{{define "preheader"}}{{.Inviter}} invited you to join {{.App}}. The invitation expires in {{.Expires}}.{{end}}
+
+{{define "content"}}
+<h1>Hi {{.Name}},</h1>
+<p><strong>{{.Inviter}}</strong> invited you to join {{.App}}. To accept the invitation and choose your password, use this button:</p>
+{{template "button" (button .Link "Accept the invitation")}}
+<p>The link expires in {{.Expires}} and works only once.</p>
+<p>If you weren't expecting this invitation, ignore this email.</p>
+{{template "link_help" .Link}}
+{{end}}

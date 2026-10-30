@@ -233,7 +233,7 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 	u, err := s.q.CreateUser(ctx, store.CreateUserParams{
 		Name:            in.Name,
 		Email:           in.Email,
-		PasswordHash:    hash,
+		PasswordHash:    &hash,
 		Role:            role,
 		EmailVerifiedAt: verifiedAt,
 		Locale:          in.Locale,
@@ -259,16 +259,17 @@ var errAccountSuspended = httpx.Forbidden("account_suspended")
 // Authenticate checks the email and password and returns the user.
 func (s *Service) Authenticate(ctx context.Context, email, password string) (User, error) {
 	u, err := s.q.GetUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
-	if errors.Is(err, pgx.ErrNoRows) {
-		// A hash is computed anyway, so the response takes as long as with a valid email.
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return User{}, fmt.Errorf("find user: %w", err)
+	}
+	if err != nil || u.PasswordHash == nil {
+		// The email does not exist, or its invitation was not accepted yet. A hash is computed
+		// anyway, so the response takes as long as with a valid email.
 		_, _ = VerifyPassword(ctx, password, dummyHash())
 		return User{}, errInvalidCredentials
 	}
-	if err != nil {
-		return User{}, fmt.Errorf("find user: %w", err)
-	}
 
-	ok, err := VerifyPassword(ctx, password, u.PasswordHash)
+	ok, err := VerifyPassword(ctx, password, *u.PasswordHash)
 	if err != nil {
 		return User{}, fmt.Errorf("verify the password of user %d: %w", u.ID, err)
 	}
@@ -278,7 +279,7 @@ func (s *Service) Authenticate(ctx context.Context, email, password string) (Use
 	if u.SuspendedAt != nil {
 		return User{}, errAccountSuspended
 	}
-	if needsRehash(u.PasswordHash) {
+	if needsRehash(*u.PasswordHash) {
 		s.rehashPassword(ctx, u, password)
 	}
 
@@ -291,7 +292,7 @@ func (s *Service) Authenticate(ctx context.Context, email, password string) (Use
 func (s *Service) rehashPassword(ctx context.Context, u store.User, password string) {
 	hash, err := HashPassword(ctx, password)
 	if err == nil {
-		_, err = s.q.RehashPassword(ctx, store.RehashPasswordParams{ID: u.ID, OldHash: u.PasswordHash, NewHash: hash})
+		_, err = s.q.RehashPassword(ctx, store.RehashPasswordParams{ID: u.ID, OldHash: u.PasswordHash, NewHash: &hash})
 	}
 	if err != nil {
 		httpx.LoggerFrom(ctx).Warn("could not update the password hash", "user_id", u.ID, "error", err)

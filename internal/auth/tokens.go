@@ -20,6 +20,7 @@ const (
 	purposeEmailVerification = "email_verification"
 	purposeEmailChange       = "email_change"
 	purposeTwoFactorLogin    = "two_factor_login"
+	purposeInvitation        = "invitation"
 )
 
 // How long each kind of token lasts.
@@ -28,6 +29,7 @@ const (
 	emailVerificationTTL = 24 * time.Hour
 	emailChangeTTL       = time.Hour
 	twoFactorLoginTTL    = 5 * time.Minute
+	invitationTTL        = 7 * 24 * time.Hour
 )
 
 // errInvalidToken answers a made-up, expired or already used link. It does not tell the cases
@@ -88,4 +90,23 @@ func consumeToken(ctx context.Context, q *store.Queries, token, purpose string) 
 		return 0, fmt.Errorf("consume the token: %w", err)
 	}
 	return userID, nil
+}
+
+// checkToken checks that the token is valid, without using it up. It avoids expensive work (like
+// computing an argon2 hash) with a made-up or expired link; then it has to be consumed with
+// consumeToken, which checks it again.
+func (s *Service) checkToken(ctx context.Context, token, purpose string) error {
+	if token == "" {
+		return errInvalidToken
+	}
+	// Tokens sent by email do not spend attempts (attempts stays at 0): with a maximum of 1, it only
+	// requires that they are still unused.
+	_, err := s.q.GetUserTokenUser(ctx, store.GetUserTokenUserParams{TokenHash: hashToken(token), Purpose: purpose, MaxAttempts: 1})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errInvalidToken
+	}
+	if err != nil {
+		return fmt.Errorf("find token: %w", err)
+	}
+	return nil
 }

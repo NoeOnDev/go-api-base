@@ -112,7 +112,7 @@ func (s *Service) confirmEmailChange(w http.ResponseWriter, r *http.Request) err
 			return errInvalidToken
 		}
 		if err != nil {
-			return fmt.Errorf("consumir token: %w", err)
+			return fmt.Errorf("consume the token: %w", err)
 		}
 		before, err := q.GetUserByID(r.Context(), row.UserID)
 		if err != nil {

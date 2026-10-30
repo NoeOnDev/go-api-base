@@ -10,12 +10,12 @@ import (
 // The queued emails encrypted with a previous key prevent removing it; those of the current key
 // do not count.
 func TestKeyReportAddQueuedEmails(t *testing.T) {
-	report := auth.KeyReport{CurrentKeyID: "actual", RemovableKeys: []string{"old-1", "old-2"}}
+	report := auth.KeyReport{CurrentKeyID: "current", RemovableKeys: []string{"old-1", "old-2"}}
 	if !report.Done() {
 		t.Fatal("with nothing pending, the report should be done")
 	}
 
-	report.AddQueuedEmails(map[string]int64{"actual": 4, "old-2": 3, "old-3": 0})
+	report.AddQueuedEmails(map[string]int64{"current": 4, "old-2": 3, "old-3": 0})
 
 	if want := []auth.KeyCount{{KeyID: "old-2", Count: 3}}; !slices.Equal(report.QueuedEmails, want) {
 		t.Errorf("QueuedEmails = %+v, want %+v", report.QueuedEmails, want)

@@ -39,9 +39,9 @@ func TestEventsReachOtherInstances(t *testing.T) {
 	onB := testutil.OpenEvents(t, b, aliceCookie, "")
 	bobOnB := testutil.OpenEvents(t, b, bobCookie, "")
 
-	brokerA.PublishToUser(t.Context(), alice.ID, realtime.Event{Type: "notification", Data: map[string]any{"id": 1234567, "message": "hola"}})
+	brokerA.PublishToUser(t.Context(), alice.ID, realtime.Event{Type: "notification", Data: map[string]any{"id": 1234567, "message": "hello"}})
 	for name, r := range map[string]*ssetest.Reader{"A": onA, "B": onB} {
-		if ev := r.Next(t, 2*time.Second); ev.Type != "notification" || ev.Data != `{"id":1234567,"message":"hola"}` {
+		if ev := r.Next(t, 2*time.Second); ev.Type != "notification" || ev.Data != `{"id":1234567,"message":"hello"}` {
 			t.Errorf("event on instance %s: %+v", name, ev)
 		}
 	}

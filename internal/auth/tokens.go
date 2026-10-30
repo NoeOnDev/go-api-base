@@ -85,7 +85,7 @@ func consumeToken(ctx context.Context, q *store.Queries, token, purpose string) 
 		return 0, errInvalidToken
 	}
 	if err != nil {
-		return 0, fmt.Errorf("consumir token: %w", err)
+		return 0, fmt.Errorf("consume the token: %w", err)
 	}
 	return userID, nil
 }

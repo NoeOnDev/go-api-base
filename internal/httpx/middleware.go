@@ -214,7 +214,7 @@ func Recover(next http.Handler) http.Handler {
 				log.Error("panic after the response started; cutting the connection", "panic", v, "stack", string(debug.Stack()))
 				panic(http.ErrAbortHandler)
 			}
-			log.Error("panic recuperado", "panic", v, "stack", string(debug.Stack()))
+			log.Error("panic recovered", "panic", v, "stack", string(debug.Stack()))
 			// The panic is already in the log, with its stack: answer without logging it again.
 			writeBody(w, r, Internal(nil))
 		}()

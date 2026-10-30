@@ -161,7 +161,7 @@ func TestLoadInvalid(t *testing.T) {
 		"invalid LOG_LEVEL":    {"DATABASE_URL": "x", "LOG_LEVEL": "verbose"},
 		"invalid timeout":      {"DATABASE_URL": "x", "SHUTDOWN_TIMEOUT": "ten"},
 		"negative timeout":     {"DATABASE_URL": "x", "SHUTDOWN_TIMEOUT": "-5s"},
-		"workers en cero":      {"DATABASE_URL": "x", "JOBS_MAX_WORKERS": "0"},
+		"zero workers":         {"DATABASE_URL": "x", "JOBS_MAX_WORKERS": "0"},
 		"invalid workers":      {"DATABASE_URL": "x", "JOBS_MAX_WORKERS": "ten"},
 	}
 

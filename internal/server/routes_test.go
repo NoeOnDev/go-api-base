@@ -69,7 +69,7 @@ func TestCSRFProtection(t *testing.T) {
 
 	t.Run("rejects a POST from another site", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
-		r.Header.Set("Origin", "https://sitio-malicioso.com")
+		r.Header.Set("Origin", "https://evil.example")
 		r.Header.Set("Sec-Fetch-Site", "cross-site")
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)

@@ -42,7 +42,7 @@ func TestStreamFormat(t *testing.T) {
 	}
 
 	// A line break in the type would inject another field: it is rejected.
-	if err := s.Send(Event{Type: "x\ndata: inyectado"}); err == nil {
+	if err := s.Send(Event{Type: "x\ndata: injected"}); err == nil {
 		t.Error("want an error for the line break in the type")
 	}
 }
@@ -224,8 +224,8 @@ func TestEventsHandlerRejectedTopics(t *testing.T) {
 	}
 
 	// It gets its channel and the allowed topic; nothing from the rejected ones.
-	b.Publish(t.Context(), "project:42", Event{Type: "ajeno"})
-	b.Publish(t.Context(), "user:2", Event{Type: "ajeno"})
+	b.Publish(t.Context(), "project:42", Event{Type: "foreign"})
+	b.Publish(t.Context(), "user:2", Event{Type: "foreign"})
 	b.PublishToUser(t.Context(), 1, Event{Type: "notification"})
 	b.Publish(t.Context(), "project:1", Event{Type: "task.moved"})
 	if ev := r.Next(t, time.Second); ev.Type != "notification" {
@@ -306,7 +306,7 @@ func TestStreamsEndWithTheirSession(t *testing.T) {
 	}
 
 	// Alice changes the password from the laptop: the other sessions are cut, not hers.
-	_, other := connect(t, srv, 1, "", "sesion-robada")
+	_, other := connect(t, srv, 1, "", "stolen-session")
 	other.Next(t, time.Second)
 	b.UserSessionsEnded(t.Context(), 1, "laptop")
 	if !other.Closed(time.Second) {

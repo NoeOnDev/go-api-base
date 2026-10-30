@@ -79,10 +79,10 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
 	}
 
 	if err := c.Mail(s.From.Address); err != nil {
-		return fmt.Errorf("smtp: remitente: %w", err)
+		return fmt.Errorf("smtp: sender: %w", err)
 	}
 	if err := c.Rcpt(msg.To); err != nil {
-		return fmt.Errorf("smtp: destinatario: %w", err)
+		return fmt.Errorf("smtp: recipient: %w", err)
 	}
 
 	w, err := c.Data()

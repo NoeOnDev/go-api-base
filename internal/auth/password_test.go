@@ -41,7 +41,7 @@ func TestHashPasswordUsesRandomSalt(t *testing.T) {
 }
 
 func TestVerifyPasswordInvalidHash(t *testing.T) {
-	for _, hash := range []string{"", "texto", "$argon2i$v=19$m=1,t=1,p=1$a$b", "$argon2id$v=18$m=1,t=1,p=1$YQ$Yg"} {
+	for _, hash := range []string{"", "text", "$argon2i$v=19$m=1,t=1,p=1$a$b", "$argon2id$v=18$m=1,t=1,p=1$YQ$Yg"} {
 		if _, err := VerifyPassword(t.Context(), "x", hash); err == nil {
 			t.Errorf("want an error for %q", hash)
 		}
@@ -102,7 +102,7 @@ func TestNeedsRehash(t *testing.T) {
 		t.Errorf("the old hash should still verify: %v, %v", ok, err)
 	}
 
-	if needsRehash("texto") {
+	if needsRehash("text") {
 		t.Error("an invalid hash is not rehashed: VerifyPassword already failed")
 	}
 }

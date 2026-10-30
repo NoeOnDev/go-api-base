@@ -62,7 +62,7 @@ func TestMailSenderEncryptsQueuedEmail(t *testing.T) {
 	}
 
 	// An invalid message is rejected when queuing, not in the worker.
-	if err := NewMailSender(client, box).Send(t.Context(), mail.Message{To: "no es un email"}); err == nil {
+	if err := NewMailSender(client, box).Send(t.Context(), mail.Message{To: "not an email"}); err == nil {
 		t.Error("want a validation error")
 	}
 }
@@ -155,7 +155,7 @@ func TestQueuedEmailKeys(t *testing.T) {
 		}
 	}
 	// A cancelled one is no longer in the queue: it does not count.
-	enc, err := boxA.Encrypt([]byte(`{"To":"alice@example.com","Subject":"Hola","Body":"hola"}`), emailAAD)
+	enc, err := boxA.Encrypt([]byte(`{"To":"alice@example.com","Subject":"Hello","Body":"hello"}`), emailAAD)
 	if err != nil {
 		t.Fatal(err)
 	}

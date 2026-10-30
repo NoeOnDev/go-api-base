@@ -65,7 +65,7 @@ func TestEnableTwoFactor(t *testing.T) {
 	code, _ := totp.Code(setup.Secret, time.Now())
 	for name, tt := range map[string]struct{ body, field string }{
 		"without a password": {codeBody(code), "password"},
-		"wrong password":     {enableBody(code, "incorrecta"), "password"},
+		"wrong password":     {enableBody(code, "wrong-password"), "password"},
 		"wrong code":         {enableBody("000000", "test-password"), "code"},
 	} {
 		resp := testutil.Decode[testutil.APIError](t,

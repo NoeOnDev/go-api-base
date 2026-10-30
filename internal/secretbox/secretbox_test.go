@@ -112,8 +112,8 @@ func TestDecryptRejectsTampering(t *testing.T) {
 	tampered := id + ":" + base64.StdEncoding.EncodeToString(raw)
 
 	for name, value := range map[string]string{
-		"alterado":      tampered,
-		"no es base64":  id + ":%%%",
+		"tampered":      tampered,
+		"not base64":    id + ":%%%",
 		"too short":     id + ":AAAA",
 		"no identifier": "AAAA",
 	} {

@@ -182,7 +182,7 @@ func TestRequireAdmin(t *testing.T) {
 	}{
 		{"without a session", nil, http.StatusUnauthorized},
 		{"regular user", loginAs("user@example.com", auth.RoleUser), http.StatusForbidden},
-		{"administrador", loginAs("admin@example.com", auth.RoleAdmin), http.StatusOK},
+		{"admin", loginAs("admin@example.com", auth.RoleAdmin), http.StatusOK},
 	}
 
 	for _, tt := range tests {

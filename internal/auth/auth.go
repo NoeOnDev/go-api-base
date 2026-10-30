@@ -215,7 +215,7 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 		return User{}, err
 	}
 	if role != RoleUser && role != RoleAdmin {
-		return User{}, fmt.Errorf("rol desconocido %q", role)
+		return User{}, fmt.Errorf("unknown role %q", role)
 	}
 
 	hash, err := HashPassword(ctx, in.Password)

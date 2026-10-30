@@ -205,7 +205,7 @@ func TestWriteUnencodableResponse(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 	h := Chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		Write(w, http.StatusOK, map[string]any{"canal": make(chan int)})
+		Write(w, http.StatusOK, map[string]any{"channel": make(chan int)})
 	}), RequestID(logger), Logger, Recover)
 
 	w := httptest.NewRecorder()

@@ -22,7 +22,7 @@ func Required(value string, max int) i18n.Message {
 	return i18n.Message{}
 }
 
-// MaxLen limita un texto opcional a max caracteres.
+// MaxLen limits an optional text to max characters.
 func MaxLen(value string, max int) i18n.Message {
 	if utf8.RuneCountInString(value) > max {
 		return i18n.M("validation.too_long", "max", max)

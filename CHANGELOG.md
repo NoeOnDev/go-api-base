@@ -21,6 +21,7 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 
 ### Changed
 
+- **The `internal/notes` tests use `testutil.NewAPI`, `Do` and `Decode`**, like the other resources and as `AGENTS.md` asks. `notes` is the model for each user's data, so whoever copies it now copies that style.
 - **`httpx.SecurityHeaders` takes whether to send HSTS:** `httpx.SecurityHeaders(d.Config.IsProduction() && d.Config.CookieSecure)` in `internal/server/routes.go`.
 
 ## [v0.6.0] - 2026-10-29

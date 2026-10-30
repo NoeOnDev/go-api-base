@@ -11,7 +11,7 @@ The template edits its original migrations, because they represent the initial s
 deployed, do not edit its migrations: the versions with schema changes include, in **Updating an existing project**,
 the SQL to put in a new migration (`make migrate-new name=…`).
 
-## [Unreleased]
+## [v0.8.0] - 2026-10-30
 
 Administrators can manage users (list, change the role, suspend, delete) and invite them, so a project can work without open registration. Emails go out in HTML, with Postmark's Basic layout, besides plain text. Notifications are paginated by cursor, with helpers for any list. The schema changes: `users.suspended_at`, `users.password_hash` accepts `NULL`, and `user_tokens` has the `invitation` purpose.
 

@@ -11,6 +11,23 @@ The template edits its original migrations, because they represent the initial s
 deployed, do not edit its migrations: the versions with schema changes include, in **Updating an existing project**,
 the SQL to put in a new migration (`make migrate-new name=…`).
 
+## [Unreleased]
+
+### Added
+
+- **User management for administrators** (`internal/auth/admin_users.go`, see "Managing users" in `docs/auth.md`): `GET /admin/users` with search, role and status filters; `GET /admin/users/{id}`; `PUT /admin/users/{id}/role`; `POST /admin/users/{id}/suspend` and `/unsuspend`; and `DELETE /admin/users/{id}`. Changing the role and deleting ask for the admin's password. An admin cannot act on their own account (`409 own_account`), and the last active admin cannot be demoted, suspended or deleted (`409 last_admin`).
+- **Suspended accounts:** the new `users.suspended_at` column. A suspended account cannot log in (`403 account_suspended`, only after the right password), its sessions, streams and pending links are cut, its session cookie stops working even if one is left, and "forgot my password" sends it nothing.
+- **New codes:** `user_not_found`, `account_suspended`, `own_account`, and the validation key `validation.one_of`.
+
+### Changed
+
+- **The last-admin check counts only active admins** (not suspended), and is shared by `DELETE /auth/me` and the admins' actions (`checkNotLastAdmin` and `deleteUser`, in `internal/auth/account.go`).
+- **`db.EscapeLike`** escapes the `ILIKE` wildcards for every package; `internal/products` used its own copy.
+
+### Fixed
+
+- **Text left in Spanish** that the earlier scans missed because it has no accents: a log line (`panic recuperado` is now `panic recovered`), a few internal errors, a comment and several test literals.
+
 ## [v0.7.0] - 2026-10-29
 
 Security and robustness: common passwords are rejected, statements have a time limit, HSTS goes out in production, every route has a per-IP limit, turning off 2FA asks for a code, and administrators can be required to use 2FA.

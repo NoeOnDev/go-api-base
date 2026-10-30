@@ -56,6 +56,11 @@ The 2FA challenge uses a cookie with the same attributes: `two_factor_challenge`
 | `POST` | `/auth/two-factor/enable` | user | `{code, password}` | `200 {recovery_codes}`; `422` if the code or the password are wrong |
 | `POST` | `/auth/two-factor/disable` | user | `{password, code}` or `{password, recovery_code}` | `204`; `422` if the password or the code are wrong; `409` if it is not on |
 | `POST` | `/auth/two-factor/recovery-codes` | user | `{password}` | `200 {recovery_codes}`, new ones |
+| `GET` | `/admin/users` | admin | `?q=&role=&status=&limit=&offset=` | `200 {data, meta}` (see [managing users](#managing-users)) |
+| `GET` | `/admin/users/{id}` | admin | | `200` with the user; `404` |
+| `PUT` | `/admin/users/{id}/role` | admin | `{role, password}` | `200` with the user; `422` if the role or the admin's password are wrong; `409` |
+| `POST` | `/admin/users/{id}/suspend`, `/unsuspend` | admin | | `200` with the user; `409` |
+| `DELETE` | `/admin/users/{id}` | admin | `{password}` | `204`; `422` if the admin's password is wrong; `409` |
 
 In the access column:
 - **session:** any logged-in user, even without a verified email.
@@ -231,6 +236,22 @@ In the routes, `RequireAdmin` responds `401` if there is no session and `403` if
 
 If they turn it off, they lose the admin permissions until they turn it on again. `create-admin` reminds it when the option is on. It is off by default; it is recommended in production (see "Before production" in the README).
 
+## Managing users
+
+The administrators manage the accounts from `/admin/users` (`internal/auth/admin_users.go`). Each user comes as the account (the same fields as `/auth/me`) plus `status` (`active` or `suspended`) and `suspended_at`:
+
+- **List:** `GET /admin/users`, from the newest, with `?q=` (searches the name and the email), `?role=user|admin` and `?status=active|suspended`, paginated like the other lists, with `total`.
+- **Change the role:** `PUT /admin/users/{id}/role` with `{role, password}`. It asks for the admin's password: with a stolen session, making another account an admin would leave the attacker with access even after that session is closed. It applies at once, and the user's real-time streams are cut so their topics are authorized again with the new role.
+- **Suspend:** `POST /admin/users/{id}/suspend`. The account cannot log in (`403 account_suspended`, and only after the right password, so nobody learns it exists), its sessions and real-time streams are cut, and its pending links and two-factor challenge are deleted. "Forgot my password" sends it nothing. `POST /admin/users/{id}/unsuspend` undoes it.
+- **Delete:** `DELETE /admin/users/{id}` with `{password}`, the same as when the user deletes their own account (`ON DELETE CASCADE`, `409 account_has_data`). It asks for the password because it cannot be undone: if in doubt, suspend.
+
+**Protections**, with `409`:
+
+- `own_account`: an admin does not change their own role, suspend or delete themselves from here; their account is managed from `/auth/me`.
+- `last_admin`: the last **active** admin (not suspended) cannot be demoted, suspended or deleted. A suspended admin does not count.
+
+Changing the role and deleting have the per-user limit of the account actions, because they check the password. The actions are logged with the admin's `user_id` and the `target_user_id`.
+
 ## Built-in security
 
 - **Passwords with argon2id** (19 MiB, 2 iterations, 1 thread, as OWASP recommends), with a random salt.
@@ -342,7 +363,7 @@ if user.IsAdmin() { … } // admin permissions: never compare user.Role
 
 ## Removing features
 
-All the routes are in `internal/auth/routes.go`. To remove a feature, delete its routes, its files and its tests, and make the changes in the last column. What several features share is in files that are not deleted: `account.go`, `session.go`, `tokens.go` and `emails.go`, and in the tests, `helpers_test.go`. The email templates are in each language folder (`emails/en/`, `emails/es-MX/`): delete them from all of them.
+All the routes are in `internal/auth/routes.go`. To remove a feature, delete its routes, its files and its tests, and make the changes in the last column. What several features share is in files that are not deleted: `account.go` (including deleting a user, which `DELETE /auth/me` and the admins use), `session.go`, `tokens.go` and `emails.go`, and in the tests, `helpers_test.go`. The email templates are in each language folder (`emails/en/`, `emails/es-MX/`): delete them from all of them.
 
 | Feature | Routes | Files to delete | Also |
 |---|---|---|---|
@@ -353,6 +374,7 @@ All the routes are in `internal/auth/routes.go`. To remove a feature, delete its
 | Deleting the account | `DELETE /auth/me` | `delete_account.go`, `delete_account_test.go`, `emails/*/account_deleted.txt` | |
 | Resetting the password | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go`, `password_reset_test.go`, `emails/*/password_reset.txt` | |
 | Verifying the email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go`, `email_verification_test.go`, `emails/*/verify_email.txt` | In `register` (`handlers.go`), the `if s.opts.RequireVerifiedEmail` block. Leave `REQUIRE_EMAIL_VERIFICATION=false` |
+| Managing users | `/admin/users…` | `admin_users.go`, `admin_users_test.go` | Optionally, the suspension: the `SuspendedAt` checks of `Authenticate` (`auth.go`) and `forgotPassword` (`password_reset.go`), the `suspended_at` column (migration `00001`, `users.sql` and the `GetSessionUser` filter of `sessions.sql`) and the user queries of the list, the role and the suspension (then, `make sqlc`) |
 | 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/*/two_factor_locked.txt` | In `handlers.go`, the login's `if u.TwoFactorEnabled` block; in `auth.go`, `twoFactorLimiter`; in `password_reset.go`, its `resetLimit`; in `keys.go`, the call to `rotateTwoFactorKeys`. Optionally, also `internal/totp`, `testutil/twofactor.go` (with `TestTwoFactorChangesNotify` of `internal/notifications`) and migration `00007` with `recovery_codes.sql` (then, `make sqlc`) |
 
 Finally, `make check`. If a test of another feature fails, it is one that used the feature you removed: to set up the case, or to test how the two combine (for example, that changing the password cancels a pending email change). Delete that case, or move its setup to `testutil.Login`.

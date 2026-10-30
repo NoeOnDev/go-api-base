@@ -42,6 +42,7 @@ headings of each guide are listed with `grep -n '^#' docs/*.md`.
 | Adding a resource, step by step | [docs/adding-a-resource.md](docs/adding-a-resource.md) |
 | Cookie sessions, auth endpoints and roles | [docs/auth.md](docs/auth.md#how-sessions-work), [roles](docs/auth.md#roles) |
 | Protecting a new route (session, admin, public route) | [docs/auth.md](docs/auth.md#protecting-new-routes) |
+| Managing users as an administrator: list, change the role, suspend, delete | [docs/auth.md](docs/auth.md#managing-users) |
 | 2FA, password reset, verifying and changing the email, sessions per device, deleting the account | One section each in [docs/auth.md](docs/auth.md#2fa-two-factor-authentication) |
 | Emails: variables, templates, retries and Mailpit | [docs/auth.md](docs/auth.md#emails) |
 | Attempt limits: values and where to change them | [docs/auth.md](docs/auth.md#built-in-security) |

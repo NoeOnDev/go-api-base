@@ -75,4 +75,13 @@ func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	// Email change: it is requested with the password and confirmed with the link sent to the new one.
 	handle("PUT /auth/email", s.requireSession(account(httpx.Handle(s.requestEmailChange))))
 	handle("POST /auth/email/confirm", limits.Tokens(httpx.Handle(s.confirmEmailChange)))
+
+	// User management, for administrators. Changing the role and deleting ask for the admin's
+	// password, so they have the per-user limit.
+	handle("GET /admin/users", s.RequireAdmin(httpx.Handle(s.listUsers)))
+	handle("GET /admin/users/{id}", s.RequireAdmin(httpx.Handle(s.getUser)))
+	handle("PUT /admin/users/{id}/role", s.RequireAdmin(account(httpx.Handle(s.changeRole))))
+	handle("POST /admin/users/{id}/suspend", s.RequireAdmin(httpx.Handle(s.suspendUser)))
+	handle("POST /admin/users/{id}/unsuspend", s.RequireAdmin(httpx.Handle(s.unsuspendUser)))
+	handle("DELETE /admin/users/{id}", s.RequireAdmin(account(httpx.Handle(s.deleteUserByAdmin))))
 }

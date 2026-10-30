@@ -17,6 +17,9 @@ CREATE TABLE users (
     -- Language of the user's emails and notifications, for example 'es-MX'
     -- (see docs/i18n.md). NULL is the default language (DEFAULT_LOCALE).
     locale            text,
+    -- An administrator suspended the account: it cannot log in and its sessions were closed.
+    -- NULL is an active account.
+    suspended_at      timestamptz,
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );

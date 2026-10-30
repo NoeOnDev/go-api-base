@@ -74,6 +74,18 @@ func (q *Queries) CreateUserToken(ctx context.Context, arg CreateUserTokenParams
 	return err
 }
 
+const deleteAllUserTokens = `-- name: DeleteAllUserTokens :exec
+DELETE FROM user_tokens
+WHERE user_id = $1
+`
+
+// DeleteAllUserTokens deletes every pending token of the user (links and two-factor challenges),
+// for example when the account is suspended.
+func (q *Queries) DeleteAllUserTokens(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, deleteAllUserTokens, userID)
+	return err
+}
+
 const deleteExpiredUserTokens = `-- name: DeleteExpiredUserTokens :execrows
 DELETE FROM user_tokens
 WHERE expires_at <= now()

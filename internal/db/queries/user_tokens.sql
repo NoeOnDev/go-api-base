@@ -20,6 +20,12 @@ RETURNING user_id;
 DELETE FROM user_tokens
 WHERE user_id = $1 AND purpose = $2;
 
+-- DeleteAllUserTokens deletes every pending token of the user (links and two-factor challenges),
+-- for example when the account is suspended.
+-- name: DeleteAllUserTokens :exec
+DELETE FROM user_tokens
+WHERE user_id = $1;
+
 -- name: DeleteExpiredUserTokens :execrows
 DELETE FROM user_tokens
 WHERE expires_at <= now();

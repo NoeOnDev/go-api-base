@@ -1,16 +1,10 @@
 package auth
 
 import (
-	"fmt"
 	"net/http"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
-
-var errLastAdmin = httpx.Conflict("last_admin", "")
 
 // deleteAccount answers DELETE /auth/me with {password}: it deletes the user's account and all
 // its data (sessions, tokens, notes, notifications…, through ON DELETE CASCADE). It asks for the
@@ -29,28 +23,7 @@ func (s *Service) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	err := pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
-		q := s.q.WithTx(tx)
-		if user.Role == RoleAdmin { // by role: an admin who still lacks two-factor authentication counts too
-			// Lock the admin rows: two admins deleting themselves at the same time cannot leave the API
-			// without any.
-			admins, err := q.LockAdmins(r.Context())
-			if err != nil {
-				return fmt.Errorf("find admins: %w", err)
-			}
-			if len(admins) <= 1 {
-				return errLastAdmin
-			}
-		}
-		if _, err := q.DeleteUser(r.Context(), user.ID); err != nil {
-			if _, ok := db.IsForeignKeyViolation(err); ok {
-				return httpx.Conflict("account_has_data", "")
-			}
-			return fmt.Errorf("delete user %d: %w", user.ID, err)
-		}
-		return nil
-	})
-	if err != nil {
+	if err := s.deleteUser(r.Context(), user.ID); err != nil {
 		return err
 	}
 

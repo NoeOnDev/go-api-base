@@ -1,15 +1,15 @@
 -- name: CreateUser :one
 INSERT INTO users (name, email, password_hash, role, email_verified_at, locale)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at;
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at;
 
 -- name: GetUserByEmail :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
 FROM users
 WHERE email = $1;
 
 -- name: GetUserByID :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
 FROM users
 WHERE id = $1;
 
@@ -18,7 +18,7 @@ WHERE id = $1;
 UPDATE users
 SET name = sqlc.arg('name'), locale = coalesce(sqlc.narg('locale'), locale), updated_at = now()
 WHERE id = sqlc.arg('id')
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at;
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at;
 
 -- name: GetUserLocale :one
 SELECT locale FROM users
@@ -91,13 +91,14 @@ FOR UPDATE;
 UPDATE users
 SET email = $2, email_verified_at = now(), updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at;
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at;
 
--- LockAdmins returns the admins and locks their rows until the end of the transaction: that way two
--- admins deleting their accounts at once cannot leave the API without any.
+-- LockAdmins returns the active admins (not suspended) and locks their rows until the end of the
+-- transaction: that way two admins deleting their accounts, or demoting each other, at once cannot
+-- leave the API without any.
 -- name: LockAdmins :many
 SELECT id FROM users
-WHERE role = 'admin'
+WHERE role = 'admin' AND suspended_at IS NULL
 ORDER BY id
 FOR UPDATE;
 
@@ -105,4 +106,43 @@ FOR UPDATE;
 -- codes are deleted on their own (ON DELETE CASCADE).
 -- name: DeleteUser :execrows
 DELETE FROM users
+WHERE id = $1;
+
+-- ListUsers is the administrators' list, with optional filters: search (in the name or the
+-- email, already escaped for ILIKE), role and status (active or suspended). The ILIKE '%…%'
+-- search does not use indexes; if the table grows, see pg_trgm in docs/adding-a-resource.md.
+-- name: ListUsers :many
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+FROM users
+WHERE (sqlc.narg('search')::text IS NULL OR name ILIKE '%' || sqlc.narg('search') || '%' OR email ILIKE '%' || sqlc.narg('search') || '%')
+  AND (sqlc.narg('role')::text IS NULL OR role = sqlc.narg('role'))
+  AND (sqlc.narg('status')::text IS NULL
+       OR (sqlc.narg('status') = 'active' AND suspended_at IS NULL)
+       OR (sqlc.narg('status') = 'suspended' AND suspended_at IS NOT NULL))
+ORDER BY id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: CountUsers :one
+SELECT count(*)
+FROM users
+WHERE (sqlc.narg('search')::text IS NULL OR name ILIKE '%' || sqlc.narg('search') || '%' OR email ILIKE '%' || sqlc.narg('search') || '%')
+  AND (sqlc.narg('role')::text IS NULL OR role = sqlc.narg('role'))
+  AND (sqlc.narg('status')::text IS NULL
+       OR (sqlc.narg('status') = 'active' AND suspended_at IS NULL)
+       OR (sqlc.narg('status') = 'suspended' AND suspended_at IS NOT NULL));
+
+-- name: UpdateUserRole :execrows
+UPDATE users
+SET role = $2, updated_at = now()
+WHERE id = $1;
+
+-- SuspendUser keeps the original date if the account was already suspended.
+-- name: SuspendUser :execrows
+UPDATE users
+SET suspended_at = coalesce(suspended_at, now()), updated_at = now()
+WHERE id = $1;
+
+-- name: UnsuspendUser :execrows
+UPDATE users
+SET suspended_at = NULL, updated_at = now()
 WHERE id = $1;

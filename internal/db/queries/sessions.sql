@@ -4,13 +4,15 @@ VALUES ($1, $2, $3, $4, $5);
 
 -- GetSessionUser finds the valid session of the token, with its user. active_since is the
 -- idle expiry: a session without activity since then no longer works
--- (without idle expiry, a minimum date).
+-- (without idle expiry, a minimum date). A suspended user's session does not work either: they
+-- are deleted on suspension, and this also covers one created at that same moment.
 -- name: GetSessionUser :one
 SELECT sqlc.embed(u), s.id AS session_id, s.last_seen_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = sqlc.arg('token_hash') AND s.expires_at > now()
-  AND s.last_seen_at > sqlc.arg('active_since')::timestamptz;
+  AND s.last_seen_at > sqlc.arg('active_since')::timestamptz
+  AND u.suspended_at IS NULL;
 
 -- name: TouchSession :exec
 UPDATE sessions

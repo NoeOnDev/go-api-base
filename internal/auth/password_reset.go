@@ -48,6 +48,11 @@ func (s *Service) forgotPassword(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("find user: %w", err)
 	}
+	if u.SuspendedAt != nil {
+		// The link would not let them in: the login of a suspended account is rejected.
+		httpx.Write(w, http.StatusAccepted, forgotMessage(r))
+		return nil
+	}
 	allowed, err := s.allowEmail(r.Context(), purposePasswordReset, u.ID)
 	if err != nil {
 		return err

@@ -245,7 +245,9 @@ The ones Laravel Jetstream adds over Breeze: sessions per device, changing the e
 - **Ask for the password** in everything that, with a stolen session, would allow keeping the account or doing damage that is hard to undo: changing the email, deleting the account and closing every other session. Closing a single session does not ask for it.
 - **The email changes only once it is confirmed from the new address**, with a notice to the current one: that way a typo does not leave the account inaccessible, and the owner finds out if it was not them.
 - **The last activity of each session is stored every 5 minutes**, not on each request: that would be a database write per request. It is enough to show "active a while ago" and for the idle expiry.
-- **The only admin cannot be deleted**, with the admins' rows locked in the transaction, so two cannot be deleted at once.
+- **The only admin cannot be deleted**, with the admins' rows locked in the transaction, so two cannot be deleted at once. The same check protects the last active admin from being demoted or suspended by another admin, and a suspended admin does not count.
+- **Administrators can suspend, not only delete.** Suspending is undone with one call and keeps the data, so it is the safe choice for "block this user"; deleting asks for the admin's password, like changing a role, because it cannot be undone and, with a stolen session, a new admin would outlast it. Suspending does not ask for it.
+- **A suspended account answers `403 account_suspended` only after the right password**, so the response does not reveal which emails are registered, nor which are suspended.
 
 ## Background jobs with River
 

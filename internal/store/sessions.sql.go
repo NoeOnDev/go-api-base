@@ -106,11 +106,12 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) error {
 }
 
 const getSessionUser = `-- name: GetSessionUser :one
-SELECT u.id, u.name, u.email, u.password_hash, u.role, u.email_verified_at, u.totp_secret, u.totp_enabled_at, u.totp_last_step, u.locale, u.created_at, u.updated_at, s.id AS session_id, s.last_seen_at
+SELECT u.id, u.name, u.email, u.password_hash, u.role, u.email_verified_at, u.totp_secret, u.totp_enabled_at, u.totp_last_step, u.locale, u.suspended_at, u.created_at, u.updated_at, s.id AS session_id, s.last_seen_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1 AND s.expires_at > now()
   AND s.last_seen_at > $2::timestamptz
+  AND u.suspended_at IS NULL
 `
 
 type GetSessionUserParams struct {
@@ -126,7 +127,8 @@ type GetSessionUserRow struct {
 
 // GetSessionUser finds the valid session of the token, with its user. active_since is the
 // idle expiry: a session without activity since then no longer works
-// (without idle expiry, a minimum date).
+// (without idle expiry, a minimum date). A suspended user's session does not work either: they
+// are deleted on suspension, and this also covers one created at that same moment.
 func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error) {
 	row := q.db.QueryRow(ctx, getSessionUser, arg.TokenHash, arg.ActiveSince)
 	var i GetSessionUserRow
@@ -141,6 +143,7 @@ func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) 
 		&i.User.TOTPEnabledAt,
 		&i.User.TOTPLastStep,
 		&i.User.Locale,
+		&i.User.SuspendedAt,
 		&i.User.CreatedAt,
 		&i.User.UpdatedAt,
 		&i.SessionID,

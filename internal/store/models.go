@@ -176,6 +176,7 @@ type User struct {
 	TOTPEnabledAt   *time.Time
 	TOTPLastStep    *int64
 	Locale          *string
+	SuspendedAt     *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }

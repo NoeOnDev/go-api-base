@@ -10,10 +10,33 @@ import (
 	"time"
 )
 
+const countUsers = `-- name: CountUsers :one
+SELECT count(*)
+FROM users
+WHERE ($1::text IS NULL OR name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
+  AND ($2::text IS NULL OR role = $2)
+  AND ($3::text IS NULL
+       OR ($3 = 'active' AND suspended_at IS NULL)
+       OR ($3 = 'suspended' AND suspended_at IS NOT NULL))
+`
+
+type CountUsersParams struct {
+	Search *string
+	Role   *string
+	Status *string
+}
+
+func (q *Queries) CountUsers(ctx context.Context, arg CountUsersParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countUsers, arg.Search, arg.Role, arg.Status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (name, email, password_hash, role, email_verified_at, locale)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
 `
 
 type CreateUserParams struct {
@@ -46,6 +69,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
 		&i.Locale,
+		&i.SuspendedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -101,7 +125,7 @@ func (q *Queries) EnableTOTP(ctx context.Context, arg EnableTOTPParams) (int64, 
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
 FROM users
 WHERE email = $1
 `
@@ -120,6 +144,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
 		&i.Locale,
+		&i.SuspendedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -127,7 +152,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
 FROM users
 WHERE id = $1
 `
@@ -146,6 +171,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
 		&i.Locale,
+		&i.SuspendedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -162,6 +188,69 @@ func (q *Queries) GetUserLocale(ctx context.Context, id int64) (*string, error) 
 	var locale *string
 	err := row.Scan(&locale)
 	return locale, err
+}
+
+const listUsers = `-- name: ListUsers :many
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+FROM users
+WHERE ($1::text IS NULL OR name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
+  AND ($2::text IS NULL OR role = $2)
+  AND ($3::text IS NULL
+       OR ($3 = 'active' AND suspended_at IS NULL)
+       OR ($3 = 'suspended' AND suspended_at IS NOT NULL))
+ORDER BY id DESC
+LIMIT $5 OFFSET $4
+`
+
+type ListUsersParams struct {
+	Search *string
+	Role   *string
+	Status *string
+	Offset int32
+	Limit  int32
+}
+
+// ListUsers is the administrators' list, with optional filters: search (in the name or the
+// email, already escaped for ILIKE), role and status (active or suspended). The ILIKE '%…%'
+// search does not use indexes; if the table grows, see pg_trgm in docs/adding-a-resource.md.
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, listUsers,
+		arg.Search,
+		arg.Role,
+		arg.Status,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Email,
+			&i.PasswordHash,
+			&i.Role,
+			&i.EmailVerifiedAt,
+			&i.TOTPSecret,
+			&i.TOTPEnabledAt,
+			&i.TOTPLastStep,
+			&i.Locale,
+			&i.SuspendedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUsersWithTOTPSecret = `-- name: ListUsersWithTOTPSecret :many
@@ -198,13 +287,14 @@ func (q *Queries) ListUsersWithTOTPSecret(ctx context.Context) ([]ListUsersWithT
 
 const lockAdmins = `-- name: LockAdmins :many
 SELECT id FROM users
-WHERE role = 'admin'
+WHERE role = 'admin' AND suspended_at IS NULL
 ORDER BY id
 FOR UPDATE
 `
 
-// LockAdmins returns the admins and locks their rows until the end of the transaction: that way two
-// admins deleting their accounts at once cannot leave the API without any.
+// LockAdmins returns the active admins (not suspended) and locks their rows until the end of the
+// transaction: that way two admins deleting their accounts, or demoting each other, at once cannot
+// leave the API without any.
 func (q *Queries) LockAdmins(ctx context.Context) ([]int64, error) {
 	rows, err := q.db.Query(ctx, lockAdmins)
 	if err != nil {
@@ -291,6 +381,35 @@ func (q *Queries) SetPendingTOTPSecret(ctx context.Context, arg SetPendingTOTPSe
 	return result.RowsAffected(), nil
 }
 
+const suspendUser = `-- name: SuspendUser :execrows
+UPDATE users
+SET suspended_at = coalesce(suspended_at, now()), updated_at = now()
+WHERE id = $1
+`
+
+// SuspendUser keeps the original date if the account was already suspended.
+func (q *Queries) SuspendUser(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, suspendUser, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const unsuspendUser = `-- name: UnsuspendUser :execrows
+UPDATE users
+SET suspended_at = NULL, updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) UnsuspendUser(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, unsuspendUser, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateTOTPSecret = `-- name: UpdateTOTPSecret :execrows
 UPDATE users
 SET totp_secret = $1
@@ -317,7 +436,7 @@ const updateUserEmail = `-- name: UpdateUserEmail :one
 UPDATE users
 SET email = $2, email_verified_at = now(), updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
 `
 
 type UpdateUserEmailParams struct {
@@ -340,6 +459,7 @@ func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
 		&i.Locale,
+		&i.SuspendedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -366,7 +486,7 @@ const updateUserProfile = `-- name: UpdateUserProfile :one
 UPDATE users
 SET name = $1, locale = coalesce($2, locale), updated_at = now()
 WHERE id = $3
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, created_at, updated_at
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
 `
 
 type UpdateUserProfileParams struct {
@@ -390,10 +510,30 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
 		&i.Locale,
+		&i.SuspendedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const updateUserRole = `-- name: UpdateUserRole :execrows
+UPDATE users
+SET role = $2, updated_at = now()
+WHERE id = $1
+`
+
+type UpdateUserRoleParams struct {
+	ID   int64
+	Role string
+}
+
+func (q *Queries) UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateUserRole, arg.ID, arg.Role)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const useTOTPStep = `-- name: UseTOTPStep :execrows

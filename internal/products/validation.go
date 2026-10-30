@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/validate"
@@ -85,7 +86,7 @@ func parseFilters(r *http.Request) (filters, error) {
 		if msg := validate.MaxLen(v, 100); !msg.IsZero() {
 			fields["q"] = msg
 		}
-		escaped := escapeLike(v)
+		escaped := db.EscapeLike(v)
 		f.Search = &escaped
 	}
 
@@ -101,12 +102,4 @@ func parseFilters(r *http.Request) (filters, error) {
 		return filters{}, httpx.Validation(fields)
 	}
 	return f, nil
-}
-
-// escapeLike escapes the ILIKE wildcards (%, _ and \) so they are searched as literal text:
-// searching "50%" must find "Discount 50%", not anything that starts with "50".
-var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-
-func escapeLike(s string) string {
-	return likeEscaper.Replace(s)
 }

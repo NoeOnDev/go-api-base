@@ -251,6 +251,10 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 // not exist" from "the password is wrong", so it does not reveal which emails are registered.
 var errInvalidCredentials = httpx.Unauthorized("invalid_credentials")
 
+// errAccountSuspended answers the login of a suspended account. It goes only after the password
+// is verified: without it, nobody learns that the account exists or is suspended.
+var errAccountSuspended = httpx.Forbidden("account_suspended")
+
 // Authenticate checks the email and password and returns the user.
 func (s *Service) Authenticate(ctx context.Context, email, password string) (User, error) {
 	u, err := s.q.GetUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
@@ -269,6 +273,9 @@ func (s *Service) Authenticate(ctx context.Context, email, password string) (Use
 	}
 	if !ok {
 		return User{}, errInvalidCredentials
+	}
+	if u.SuspendedAt != nil {
+		return User{}, errAccountSuspended
 	}
 	if needsRehash(u.PasswordHash) {
 		s.rehashPassword(ctx, u, password)

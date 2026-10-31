@@ -75,3 +75,94 @@ if err != nil {
 	return httpx.Validation(httpx.Fields{"from": i18n.M("validation.date")})
 }
 ```
+
+## In the frontend
+
+**Instants** (`created_at`, `starts_at`) come in UTC. The frontend shows them in the user's zone, in their language:
+
+```js
+const timeZone = user.time_zone ?? undefined // undefined: the browser's
+new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(note.created_at))
+// "30 oct 2026, 20:00" for a user in Mexico City; "30 oct 2026, 23:00" in Buenos Aires
+```
+
+- **Which zone:** the profile's (`user.time_zone`) if it has one, so the screen matches the emails; otherwise the browser's. In a system used in a single place, the business's, fixed in the frontend (`timeZone: 'America/Panama'`), so someone who travels still sees the business's hours.
+- **Send the browser's zone** when registering and when accepting an invitation: `Intl.DateTimeFormat().resolvedOptions().timeZone`. If the user changes country, the profile can offer to update it when the browser's no longer matches.
+- **A wall-clock time with its zone** (an appointment: `local_starts_at` and `time_zone`) is shown as it comes, with the zone of the place: "10:00 (Bogotá time)". To show it in the viewer's zone, use the instant, `starts_at`.
+- **A date input** (`<input type="date">`) gives `"2026-10-31"`: send it as is, as a `civil.Date`. Never with `new Date("2026-10-31").toISOString()`, which turns it into midnight UTC, the 30th in America.
+- **A date and time input** (`<input type="datetime-local">`) gives `"2026-11-05T10:00"`, without a zone: send it as is, with the zone it refers to (`time_zone`), and let the API turn it into the instant. Converting it in the browser uses the browser's zone, which may not be the place's.
+
+## Two scenarios
+
+**A SaaS with users in several countries** (Argentina, Mexico, Colombia, the United States): `APP_TIME_ZONE=UTC`, and each user has their zone, sent by the frontend. A note created at `2026-10-31T02:00:00Z` is the same JSON for everyone, and each one sees it on their clock:
+
+| User | Zone | Sees |
+|---|---|---|
+| Buenos Aires | UTC−3 | Oct 30, 23:00 |
+| New York | UTC−4 until Nov 1, then UTC−5 | Oct 30, 22:00 |
+| Bogotá | UTC−5 | Oct 30, 21:00 |
+| Mexico City | UTC−6 | Oct 30, 20:00 |
+
+In UTC it is already the 31st, but for all of them it is still the 30th. That is why "today" is always someone's day: `civil.DateOf(time.Now().In(user.Location()))`.
+
+**A system for a single country** (Panama, Mexico): the dates are stored the same way, in UTC. `APP_TIME_ZONE=America/Panama` is the zone of the users without their own, of the emails and of the days of the reports. "A single country" is not always a single zone: Mexico has four (Tijuana, with daylight saving time; Sonora; the center; Quintana Roo), and so do the United States and others. If the users are spread out, they keep each their own, with the business's as the default.
+
+**Daylight saving time** exists in the United States, Canada, Chile, Paraguay, Cuba, Europe and the Mexican border, not in the rest of Latin America (Mexico dropped it in 2022). A business in New York that opens at 9:00 opens at 13:00 UTC in the summer and at 14:00 UTC in the winter: that is why a schedule is stored as wall-clock time with its zone, never in UTC.
+
+## SQL recipes
+
+**Filter by someone's days**, with the instants of `civil.DayRange`: the query compares the column directly, so it uses its index.
+
+```go
+start, end := civil.DayRange(from, to, auth.MustUser(ctx).Location())
+```
+
+```sql
+-- name: ListOrdersBetween :many
+SELECT … FROM orders
+WHERE user_id = $1 AND created_at >= sqlc.arg('start') AND created_at < sqlc.arg('end')
+ORDER BY created_at DESC;
+```
+
+**Group by someone's day:** `AT TIME ZONE` turns the instant into that zone's wall clock. Combine it with the range, so the index still does the filtering:
+
+```sql
+-- name: OrdersPerDay :many
+SELECT (created_at AT TIME ZONE sqlc.arg('time_zone')::text)::date AS day, count(*) AS orders
+FROM orders
+WHERE created_at >= sqlc.arg('start') AND created_at < sqlc.arg('end')
+GROUP BY day
+ORDER BY day;
+```
+
+The `day` column is a `date`, so sqlc generates it as a `civil.Date`.
+
+**Do not use** `created_at::date` or `date_trunc('day', created_at)`: they cut the day in the session's zone, which is UTC.
+
+## Modeling schedules
+
+Every schedule is wall-clock time of a place, with that place's zone. The instants are computed from it, not the other way around.
+
+| Kind | How it is stored | Example |
+|---|---|---|
+| **Business hours** | The weekday, the opening and closing hours (`time`) and the place's zone. The exceptions (holidays, special days) per `date` | "Monday to Friday, 9:00 to 18:00 in Bogotá" |
+| **Appointments, bookings** | The local date and hour (`timestamp`), the zone, and the instants (`timestamptz`) computed from them, to search and to avoid overlaps | "Nov 5 at 10:00 in Bogotá, 30 minutes" |
+| **Shifts** | Like an appointment, with its start and its end. A shift that crosses midnight ends the next day | "Monday 22:00 to Tuesday 06:00" |
+| **Repeating classes or events** | The rule (weekdays, hour, duration, first and last day) with its zone. The dates are computed, not stored one by one; only the changes to one session (cancelled, moved) are stored | "Yoga on Mondays and Wednesdays at 18:00" |
+
+**Why an appointment keeps its local hour and zone, besides the instant:** the rules of the zones change. When Mexico dropped daylight saving time in 2022, the appointments stored only as instants were left one hour off. With the local hour and the zone, the instant can be computed again.
+
+**When the rules of a zone change**, update the zone database (see below) and recompute the future instants of the affected zone:
+
+```sql
+UPDATE appointments
+SET starts_at = local_starts_at AT TIME ZONE time_zone,
+    ends_at = (local_starts_at AT TIME ZONE time_zone) + (ends_at - starts_at)
+WHERE time_zone = 'America/Mexico_City' AND starts_at > now();
+```
+
+PostgreSQL has its own zone database: both must be up to date. It also resolves the hour that happens twice (the autumn) as the second one, while `civil.DateTime.In` takes the first: if an appointment can fall on that hour, recompute it from Go, with `In`.
+
+## Keeping the zone database up to date
+
+The zones change a few times a year (a country drops daylight saving time, or moves it). Go uses the system's database (`/usr/share/zoneinfo`, updated with the `tzdata` package of the distribution) and, without it, the copy inside the binary (`time/tzdata`), which comes with the version of Go it was built with. PostgreSQL uses its own, which comes with its minor versions. In practice: keep the system, PostgreSQL and Go up to date.

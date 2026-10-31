@@ -19,6 +19,7 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 - **The time zone of each user and of the application** (see `docs/time.md`): the new column `users.time_zone` (an IANA name, `null` for the application's), accepted as `time_zone` by `POST /auth/register`, `PUT /auth/me`, `POST /admin/users` and `POST /auth/invitation/accept`, and returned with the user; the variable `APP_TIME_ZONE` (`UTC` by default); and `auth.User.Location()`, the user's zone for their days.
 - **Dates written for people:** `i18n.Translator.FormatDateTime` and `FormatDate`, with the Go layouts `format.datetime` and `format.date` of each catalog.
 - **Periodic jobs at an hour of the clock** (see "Periodic jobs" in `docs/jobs.md`): `jobs.DailyAt(hour, minute, loc)` and `jobs.WeeklyAt(weekday, hour, minute, loc)`, which keep the hour after a daylight saving time change. `jobs.Deps.TimeZone` is `APP_TIME_ZONE`.
+- **A guide to dates, time zones and schedules**, `docs/time.md`: the three kinds of time values, what the frontend does, the cases of a SaaS in several countries and of a system for a single country, SQL recipes to filter and group by someone's days, and how to model business hours, appointments, shifts and repeating classes.
 - **Validation rules** `validate.Civil`, `validate.RequiredCivil` and `validate.TimeZone`, with the keys `validation.date`, `validation.time`, `validation.datetime` and `validation.time_zone`. A date in a wrong format arrives invalid instead of failing when decoding, so the validation answers 422 on its field.
 
 ### Changed

@@ -193,6 +193,16 @@ Someone else's resource responds **404 and not 403**, so as not to reveal that i
 
 `price_cents bigint` instead of `float` (it has rounding errors) or `numeric` (it maps to an awkward type in Go). The frontend divides by 100 to show it.
 
+## Dates in UTC
+
+Every date is a `timestamptz` and travels in UTC: `"created_at": "2026-10-31T02:00:00Z"`. It does not depend on where the server runs:
+
+- **The PostgreSQL session is in UTC** (the `timezone` startup parameter, unless `DATABASE_URL` sets another one), so what depends on it in SQL (`now()::date`, `date_trunc`, the text of a date) gives the same on any server.
+- **Go reads the dates in UTC** (`ScanLocation` in the pool, `internal/db/db.go`), whatever the zone of the process. Without it, the same API answered `-06:00` on a machine in Mexico and `Z` in a container.
+- **The binary carries the time zone database** (`time/tzdata`), so the zones work in a container without `/usr/share/zoneinfo`. If the system has it, Go uses the system's, which may be more up to date.
+
+**The frontend shows each date in the user's zone**, with `Intl.DateTimeFormat`. The API does not convert it: the same response works for every user, and the browser has to format it in their language anyway. It is what Laravel does since version 7, which serializes the dates in UTC with `Z`.
+
 ## A separate, protected test database
 
 The tests use **only** `TEST_DATABASE_URL`, a database different from the development one (`DATABASE_URL`), so they never touch the data you use to test by hand or show demos.
@@ -220,7 +230,7 @@ Each line of a request carries its `request_id`, which is also returned in the `
 `ReadHeaderTimeout` 5 s, `ReadTimeout` 15 s, `WriteTimeout` 30 s, `IdleTimeout` 60 s.
 Without them, a slow client can keep connections open indefinitely.
 
-**A statement is cancelled after 10 seconds** (`statement_timeout`), unless `DATABASE_URL` sets another limit. `WriteTimeout` cuts the response, but not the query behind it: without the limit, a slow query keeps its pool connection after the request is gone, and a few of them leave the API without connections. It is set with `SET` on each new connection, not as a startup parameter in the URL, because PgBouncer rejects the parameters it does not know. Whatever legitimately takes longer (a report, a job) raises it only for itself, inside its transaction: `SET LOCAL statement_timeout = '60s'`. The migrations use their own connections without the limit, because an index on a large table can take minutes.
+**A statement is cancelled after 10 seconds** (`statement_timeout`), unless `DATABASE_URL` sets another limit. `WriteTimeout` cuts the response, but not the query behind it: without the limit, a slow query keeps its pool connection after the request is gone, and a few of them leave the API without connections. It is set with `SET` on each new connection (in `AfterConnect`), not as a startup parameter in the URL, because PgBouncer rejects the parameters it does not know. Whatever legitimately takes longer (a report, a job) raises it only for itself, inside its transaction: `SET LOCAL statement_timeout = '60s'`. The migrations use their own connections without the limit, because an index on a large table can take minutes.
 
 SSE streams have no `WriteTimeout` (it would cut them after 30 seconds), but **each write has a 10-second deadline**: a client that stops reading without closing the connection is disconnected, instead of blocking the handler and keeping its slot.
 

@@ -11,6 +11,10 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	// The time zone database, inside the binary: the zones of the users and of APP_TIME_ZONE work
+	// even in a container without /usr/share/zoneinfo. If the system has it, Go uses the system's,
+	// which may be more up to date (see "Dates in UTC" in docs/decisions.md).
+	_ "time/tzdata"
 
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/db"

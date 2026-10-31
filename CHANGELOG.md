@@ -11,6 +11,17 @@ The template edits its original migrations, because they represent the initial s
 deployed, do not edit its migrations: the versions with schema changes include, in **Updating an existing project**,
 the SQL to put in a new migration (`make migrate-new name=…`).
 
+## [Unreleased]
+
+### Changed
+
+- **Dates always in UTC** (see "Dates in UTC" in `docs/decisions.md`): the pool opens the PostgreSQL session in UTC (unless `DATABASE_URL` sets `timezone`) and reads every `timestamptz` in UTC, so the JSON carries them with `Z` whatever the zone of the server. Before, a server with `TZ=America/Mexico_City` answered `-06:00`.
+- **The binary carries the time zone database** (`time/tzdata`), so the zones work in a container without `/usr/share/zoneinfo`.
+
+### Fixed
+
+- **Text left in Spanish:** a comment and the error `TRUSTED_PROXIES requires TRUST_PROXY=true` in `internal/config`, and a test literal.
+
 ## [v0.8.0] - 2026-10-30
 
 Administrators can manage users (list, change the role, suspend, delete) and invite them, so a project can work without open registration. Emails go out in HTML, with Postmark's Basic layout, besides plain text. Notifications are paginated by cursor, with helpers for any list. The schema changes: `users.suspended_at`, `users.password_hash` accepts `NULL`, and `user_tokens` has the `invitation` purpose.

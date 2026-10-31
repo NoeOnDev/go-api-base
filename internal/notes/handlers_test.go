@@ -20,6 +20,9 @@ type note struct {
 	ID    int64  `json:"id"`
 	Title string `json:"title"`
 	Body  string `json:"body"`
+	// The dates as the API sends them, to check their format.
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type noteList struct {
@@ -53,6 +56,10 @@ func TestNotesCRUD(t *testing.T) {
 	created := testutil.Decode[note](t, w, http.StatusCreated)
 	if created.ID == 0 || created.Title != "My note" || created.Body != "hello" {
 		t.Fatalf("unexpected created note: %+v", created)
+	}
+	// The dates go in UTC, whatever the zone of the server (see "Time zones" in docs/decisions.md).
+	if !strings.HasSuffix(created.CreatedAt, "Z") || !strings.HasSuffix(created.UpdatedAt, "Z") {
+		t.Errorf("dates = %q and %q, want them in UTC (with Z)", created.CreatedAt, created.UpdatedAt)
 	}
 	if loc := w.Header().Get("Location"); loc != fmt.Sprintf("/notes/%d", created.ID) {
 		t.Errorf("Location = %q", loc)

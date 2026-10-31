@@ -30,25 +30,26 @@ func TestPoolConfigMaxConns(t *testing.T) {
 	}
 }
 
-func TestPoolConfigStatementTimeout(t *testing.T) {
+func TestPoolConfigTimeZone(t *testing.T) {
 	cfg, err := poolConfig("postgres://u:p@localhost:5432/app")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.AfterConnect == nil {
-		t.Error("without statement_timeout in the URL, each connection must set the default one")
+	if got := cfg.ConnConfig.RuntimeParams["timezone"]; got != "UTC" {
+		t.Errorf("timezone = %q, want UTC", got)
 	}
 
-	for _, url := range []string{
-		"postgres://u:p@localhost:5432/app?statement_timeout=30000",
-		"host=localhost user=u dbname=app statement_timeout=0",
+	// A zone in the URL, in any case, is kept.
+	for url, key := range map[string]string{
+		"postgres://u:p@localhost:5432/app?timezone=America/Bogota": "timezone",
+		"host=localhost user=u dbname=app TimeZone=America/Bogota":  "TimeZone",
 	} {
 		cfg, err := poolConfig(url)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.AfterConnect != nil {
-			t.Errorf("%s: the URL's statement_timeout must be kept", url)
+		if len(cfg.ConnConfig.RuntimeParams) != 1 || cfg.ConnConfig.RuntimeParams[key] != "America/Bogota" {
+			t.Errorf("%s: RuntimeParams = %v, want only the URL's zone", url, cfg.ConnConfig.RuntimeParams)
 		}
 	}
 }

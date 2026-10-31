@@ -199,11 +199,12 @@ It is not built in, because a single process is enough for most projects and it 
 
 If a project does not need it:
 
-1. **First, the hourly cleanup**, which today is a queue job. Move the body of `cleanupWorker.Work` (`internal/jobs/cleanup.go`), with its constants, to a `cleanup(ctx, q, idle, logger) error` function in `cmd/api/cleanup.go`. Next to it, write `cleanupEvery`, which calls it on startup and then every hour with a `time.Ticker`, until `ctx` is cancelled. In `run`, start it with `go cleanupEvery(ctx, store.New(pool), cfg.SessionIdleTimeout, logger)`. With several instances, each one cleans up on its own, and that is fine: they are deletions that do not clash. The tests of `cleanup_test.go` use River: adapt them to call `cleanup` directly, or delete them.
-2. Delete `internal/jobs` and the `00008_create_river.sql` migration. In the `Makefile`, remove `RIVER_VERSION`, `RIVER_CLI` and the `river-migration` target (and its row in `AGENTS.md` and the README).
-3. In `cmd/api/main.go`, remove the queue client and use the `mail.Sender` directly (`sender`) as `Mailer`: the emails are sent inside the request, without retries. `shutdown` is left only with the HTTP server: remove its jobs parameter and the `stopper` interface. Delete `main_test.go`, which tests the shutdown of the jobs.
-4. In `internal/server/routes.go`, remove the `Jobs` field of `Deps`. In `cmd/api/keys.go`, remove the part about queued emails (`jobs.QueuedEmailKeys` and `AddQueuedEmails`).
-5. In `internal/config`, remove `JobsMaxWorkers`, its cases in `config_test.go` and `positiveInt`, which is left unused. Also remove `JOBS_MAX_WORKERS` from `.env.example` and the README.
-6. `make sqlc` (River's schema also generates types in `internal/store`), `go mod tidy` and `make check`.
+1. **The appointments example** queues its reminders here: remove it first (see "Removing the examples" in [time.md](time.md#removing-the-examples)), or send its reminders another way.
+2. **Then, the hourly cleanup**, which today is a queue job. Move the body of `cleanupWorker.Work` (`internal/jobs/cleanup.go`), with its constants, to a `cleanup(ctx, q, idle, logger) error` function in `cmd/api/cleanup.go`. Next to it, write `cleanupEvery`, which calls it on startup and then every hour with a `time.Ticker`, until `ctx` is cancelled. In `run`, start it with `go cleanupEvery(ctx, store.New(pool), cfg.SessionIdleTimeout, logger)`. With several instances, each one cleans up on its own, and that is fine: they are deletions that do not clash. The tests of `cleanup_test.go` use River: adapt them to call `cleanup` directly, or delete them.
+3. Delete `internal/jobs` and the `00008_create_river.sql` migration. In the `Makefile`, remove `RIVER_VERSION`, `RIVER_CLI` and the `river-migration` target (and its row in `AGENTS.md` and the README).
+4. In `cmd/api/main.go`, remove the queue client and use the `mail.Sender` directly (`sender`) as `Mailer`: the emails are sent inside the request, without retries. `shutdown` is left only with the HTTP server: remove its jobs parameter and the `stopper` interface. Delete `main_test.go`, which tests the shutdown of the jobs.
+5. In `internal/server/routes.go`, remove the `Jobs` field of `Deps`. In `cmd/api/keys.go`, remove the part about queued emails (`jobs.QueuedEmailKeys` and `AddQueuedEmails`).
+6. In `internal/config`, remove `JobsMaxWorkers`, its cases in `config_test.go` and `positiveInt`, which is left unused. Also remove `JOBS_MAX_WORKERS` from `.env.example` and the README.
+7. `make sqlc` (River's schema also generates types in `internal/store`), `go mod tidy` and `make check`.
 
 This recipe was tested on a copy of the project, with a test database created only with the remaining migrations.

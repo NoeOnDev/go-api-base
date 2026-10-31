@@ -62,6 +62,19 @@ func (ns NullRiverJobState) Value() (driver.Value, error) {
 	return string(ns.RiverJobState), nil
 }
 
+type Appointment struct {
+	ID            int64
+	BranchID      int64
+	UserID        int64
+	LocalStartsAt civil.DateTime
+	TimeZone      string
+	StartsAt      time.Time
+	EndsAt        time.Time
+	Status        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type Branch struct {
 	ID        int64
 	Name      string

@@ -30,6 +30,7 @@ It includes:
   - `notes`: each user's data
   - `categories` and `products`: a catalog with relationships, filters and admin permissions
   - `branches`: business hours in the branch's time zone, with holidays (see [docs/time.md](docs/time.md))
+  - `appointments`: bookings within those hours, without double bookings, and a reminder the day before
 - **Quality:**
   - integration tests against PostgreSQL
   - `staticcheck` and `govulncheck`
@@ -120,6 +121,9 @@ It includes:
 | `POST`, `PUT`, `DELETE` | `/products…` | Admin only |
 | `GET` | `/branches`, `/branches/{id}`, `/schedule?from=&to=`, `/status`, `/exceptions` | Public: branches with their weekly hours, the real hours of some days, whether it is open now, and the holidays |
 | `POST`, `PUT`, `DELETE` | `/branches…`, `/branches/{id}/hours`, `/branches/{id}/exceptions/{date}` | Admin only |
+| `GET` | `/branches/{id}/availability?date=&duration=` | Public: the free slots of a day |
+| `GET`, `POST` | `/appointments?from=&to=`, `/appointments/{id}`, `/appointments/{id}/cancel` | With a session; each user sees their appointments (the admin, all) |
+| `GET` | `/branches/{id}/appointments?date=` | Admin only: the agenda of a day |
 
 Lists accept `?limit=` (from 1 to 100, 20 by default) and `?offset=` (up to 10000), and respond `{"data": [...], "meta": {"limit", "offset", "total"}}`. A huge offset makes the query slow, because PostgreSQL reads and discards the previous rows.
 
@@ -236,6 +240,7 @@ internal/notes/      example: each user's data
 internal/categories/ example: catalog, public reads and admin writes
 internal/products/   example: relationships, filters and search
 internal/branches/   example: business hours in the branch's zone, with holidays
+internal/appointments/ example: bookings within the business hours, with a reminder
 internal/testutil/   test helpers
 migrations/          SQL migrations
 docs/                guides and decisions

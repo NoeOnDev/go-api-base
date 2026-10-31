@@ -1,11 +1,13 @@
 package jobs
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
 	"github.com/riverqueue/river"
 
+	"github.com/NoeOnDev/go-api-base/internal/appointments"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/store"
@@ -25,6 +27,14 @@ type Deps struct {
 	// TimeZone is the application's (APP_TIME_ZONE), for the periodic jobs at an hour of the clock
 	// (DailyAt, WeeklyAt). If nil, UTC.
 	TimeZone *time.Location
+	// Notifier sends the notifications of the jobs, like the appointment reminder
+	// (internal/notifications implements it).
+	Notifier Notifier
+}
+
+// Notifier sends a notification to a user (see internal/notifications).
+type Notifier interface {
+	Notify(ctx context.Context, userID int64, kind string, data any) error
 }
 
 // registerWorkers registers every worker. Each new job is added here, like the routes in
@@ -34,6 +44,10 @@ func registerWorkers(workers *river.Workers, deps Deps) error {
 		return err
 	}
 	if err := river.AddWorkerSafely(workers, &sendEmailWorker{sender: deps.Mailer, box: deps.Box}); err != nil {
+		return err
+	}
+	// Example appointments (internal/appointments): the reminder the day before.
+	if err := river.AddWorkerSafely(workers, appointments.NewReminderWorker(deps.Queries, deps.Notifier)); err != nil {
 		return err
 	}
 	return nil

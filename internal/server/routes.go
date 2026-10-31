@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/NoeOnDev/go-api-base/internal/appointments"
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/branches"
 	"github.com/NoeOnDev/go-api-base/internal/categories"
@@ -141,7 +142,9 @@ func NewHandler(d Deps) http.Handler {
 	notes.Register(mux, notes.NewHandler(queries, broker), authService)
 	categories.Register(mux, categories.NewHandler(queries), authService)
 	products.Register(mux, products.NewHandler(queries), authService)
-	branches.Register(mux, branches.NewHandler(d.DB, queries), authService)
+	branchesHandler := branches.NewHandler(d.DB, queries)
+	branches.Register(mux, branchesHandler, authService)
+	appointments.Register(mux, appointments.NewHandler(d.DB, queries, d.Jobs, branchesHandler), authService)
 
 	// Any unregistered route answers 404 with the API error format.
 	mux.Handle("/", httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {

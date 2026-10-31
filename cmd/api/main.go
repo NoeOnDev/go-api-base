@@ -21,6 +21,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/jobs"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
+	"github.com/NoeOnDev/go-api-base/internal/notifications"
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/server"
@@ -96,6 +97,13 @@ func run() error {
 		return err
 	}
 
+	// With LISTEN/NOTIFY, the real-time events and the session closings reach every instance of
+	// the API. It keeps listening until the shutdown signal.
+	broker := realtime.NewBroker()
+	if err := broker.Listen(ctx, pool, logger); err != nil {
+		return err
+	}
+
 	// Background jobs: the workers run in this same process.
 	// They start without the signals' ctx: that way the signal does not cut them abruptly, and
 	// shutdown stops them with Stop and its own deadline, letting what is running finish.
@@ -107,6 +115,8 @@ func run() error {
 		// So the cleanup also deletes the idle sessions.
 		SessionIdleTimeout: cfg.SessionIdleTimeout,
 		TimeZone:           cfg.TimeZone,
+		// The jobs notify like the requests: stored, and live through the broker.
+		Notifier: notifications.NewService(store.New(pool), broker, catalog),
 	})
 	if err != nil {
 		return err
@@ -117,13 +127,6 @@ func run() error {
 
 	// The app does not send the emails: it queues them, and a worker sends them (with retries).
 	mailer := jobs.NewMailSender(jobsClient, box)
-
-	// With LISTEN/NOTIFY, the real-time events and the session closings reach every instance of
-	// the API. It keeps listening until the shutdown signal.
-	broker := realtime.NewBroker()
-	if err := broker.Listen(ctx, pool, logger); err != nil {
-		return err
-	}
 
 	srv := server.New(cfg.HTTPAddr, server.NewHandler(server.Deps{
 		Logger: logger,

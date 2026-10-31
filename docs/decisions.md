@@ -185,6 +185,7 @@ Each example shows something different, and together they cover the most common 
 - `categories`: admin writes, a unique value and no deleting while in use.
 - `products`: JOIN, filters, search and an invalid FK.
 - `branches`: business hours, wall-clock times in the branch's zone turned into instants (see [time.md](time.md#modeling-schedules)).
+- `appointments`: bookings within those hours, an `EXCLUDE` constraint against double bookings, and a reminder queued in the transaction.
 
 In a real project you keep the useful ones and delete the rest.
 

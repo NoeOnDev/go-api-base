@@ -11,7 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
@@ -44,6 +46,12 @@ func WithMailer(m mail.Sender) Option {
 // WithBroker uses the given broker, to publish events from the test.
 func WithBroker(b *realtime.Broker) Option {
 	return func(d *server.Deps) { d.Broker = b }
+}
+
+// WithJobs queues the background jobs with client: a river.NewClient without workers is enough to
+// check what a request queues, with rivertest.RequireInserted. Without it, Deps.Jobs is nil.
+func WithJobs(client *river.Client[pgx.Tx]) Option {
+	return func(d *server.Deps) { d.Jobs = client }
 }
 
 // WithConfig changes the configuration, for example to turn on email verification.

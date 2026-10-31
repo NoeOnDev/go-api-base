@@ -15,6 +15,9 @@ const (
 	// codeRestrictViolation is what a FK with ON DELETE RESTRICT returns when deleting a row that
 	// is still in use (FKs without that option return codeForeignKeyViolation).
 	codeRestrictViolation = "23001"
+	// codeExclusionViolation is an EXCLUDE constraint: for example, two appointments of the same
+	// branch that overlap (see migrations/00013_create_appointments.sql).
+	codeExclusionViolation = "23P01"
 )
 
 // IsUniqueViolation reports whether err is a UNIQUE violation (for example, a repeated email)
@@ -27,6 +30,12 @@ func IsUniqueViolation(err error) (constraint string, ok bool) {
 // exist was referenced, or a row that others still reference was deleted.
 func IsForeignKeyViolation(err error) (constraint string, ok bool) {
 	return pgErrorConstraint(err, codeForeignKeyViolation, codeRestrictViolation)
+}
+
+// IsExclusionViolation reports whether err is an EXCLUDE violation: a row that overlaps another
+// (two bookings of the same slot) and returns the name of the constraint.
+func IsExclusionViolation(err error) (constraint string, ok bool) {
+	return pgErrorConstraint(err, codeExclusionViolation)
 }
 
 func pgErrorConstraint(err error, codes ...string) (string, bool) {

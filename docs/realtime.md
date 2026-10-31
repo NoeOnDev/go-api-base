@@ -240,20 +240,22 @@ SSE covers everything above: in those cases the browser sends little (with norma
 
 If a project does not need it:
 
-1. Delete `internal/realtime` and `internal/notifications`, the `00009_create_notifications.sql` and `00011_create_realtime_messages.sql` migrations, and the `notifications.sql` and `realtime.sql` queries of `internal/db/queries`.
-2. In `internal/server/routes.go`, remove the `Broker` field of `Deps`, the broker, the notifications service, `GET /events` and `notifications.Register`. In the auth options, remove `Notifier` and `SessionWatcher` (they are optional).
-3. In `internal/notes`, remove the broker, the `PublishToUser` calls and `events_test.go`. In `cmd/api/main.go`, remove the broker, `Listen` and `RegisterOnShutdown`.
-4. In `internal/jobs/cleanup.go`, remove the deletion of the notifications and of the real-time messages, with their constants (`notificationRetention` and `realtimeMessageRetention`) and their lines in the `CleanupArgs` comment. In `cleanup_test.go`, delete `TestCleanupDeletesOldNotifications` and `TestCleanupDeletesOldRealtimeMessages`.
-5. In `internal/testutil`, delete `events.go` and `WithBroker` (in `http.go`). In the tests of other packages:
+1. The appointments example notifies its reminders: remove it first (see "Removing the examples" in [time.md](time.md#removing-the-examples)).
+2. Delete `internal/realtime` and `internal/notifications`, the `00009_create_notifications.sql` and `00011_create_realtime_messages.sql` migrations, and the `notifications.sql` and `realtime.sql` queries of `internal/db/queries`.
+3. In `internal/server/routes.go`, remove the `Broker` field of `Deps`, the broker, the notifications service, `GET /events` and `notifications.Register`. In the auth options, remove `Notifier` and `SessionWatcher` (they are optional).
+4. In `internal/notes`, remove the broker, the `PublishToUser` calls and `events_test.go`. In `cmd/api/main.go`, remove the broker, `Listen` and `RegisterOnShutdown`.
+5. In `internal/jobs/cleanup.go`, remove the deletion of the notifications and of the real-time messages, with their constants (`notificationRetention` and `realtimeMessageRetention`) and their lines in the `CleanupArgs` comment. In `cleanup_test.go`, delete `TestCleanupDeletesOldNotifications` and `TestCleanupDeletesOldRealtimeMessages`.
+6. In `internal/testutil`, delete `events.go` and `WithBroker` (in `http.go`). In the tests of other packages:
    - delete the ones that open a stream with `OpenEvents`: `TestRevokeSessionCutsItsStream` and `TestDeleteAccountCutsStreams` in `internal/auth`, and `TestEventsEndToEnd` in `internal/server`;
    - in `internal/auth`, `TestDeleteAccount` and `TestChangeEmail` also check the `notifications` table: remove those parts.
-6. `make sqlc` (it also deletes the generated code of the queries you removed) and `make check`.
+7. `make sqlc` (it also deletes the generated code of the queries you removed) and `make check`.
 
 To remove only the notifications and keep real time:
-1. Delete `internal/notifications`, the `00009_create_notifications.sql` migration and the `notifications.sql` query.
-2. In `internal/server/routes.go`, remove the notifications service, `notifications.Register` and the `Notifier` of the auth options.
-3. In `internal/jobs/cleanup.go`, remove the deletion of the notifications, `notificationRetention` and its line in the `CleanupArgs` comment; in `cleanup_test.go`, delete `TestCleanupDeletesOldNotifications`.
-4. In `internal/auth`, remove the parts of `TestDeleteAccount` and `TestChangeEmail` that check the `notifications` table.
-5. `make sqlc` and `make check`.
+1. Remove the appointments example, which notifies its reminders (see "Removing the examples" in [time.md](time.md#removing-the-examples)).
+2. Delete `internal/notifications`, the `00009_create_notifications.sql` migration and the `notifications.sql` query.
+3. In `internal/server/routes.go`, remove the notifications service, `notifications.Register` and the `Notifier` of the auth options.
+4. In `internal/jobs/cleanup.go`, remove the deletion of the notifications, `notificationRetention` and its line in the `CleanupArgs` comment; in `cleanup_test.go`, delete `TestCleanupDeletesOldNotifications`.
+5. In `internal/auth`, remove the parts of `TestDeleteAccount` and `TestChangeEmail` that check the `notifications` table.
+6. `make sqlc` and `make check`.
 
 Both recipes were tested on a copy of the project, with a test database created only with the remaining migrations.

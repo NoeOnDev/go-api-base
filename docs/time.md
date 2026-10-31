@@ -153,6 +153,7 @@ Every schedule is wall-clock time of a place, with that place's zone. The instan
 Each kind has a working example, with its tests:
 
 - **Business hours:** `internal/branches` (see [below](#example-business-hours-branches)).
+- **Appointments:** `internal/appointments` (see [below](#example-appointments-appointments)).
 
 **Why an appointment keeps its local hour and zone, besides the instant:** the rules of the zones change. When Mexico dropped daylight saving time in 2022, the appointments stored only as instants were left one hour off. With the local hour and the zone, the instant can be computed again.
 
@@ -193,6 +194,48 @@ The branches of a business, each with its zone (`time_zone`) and its hours of th
 
 The logic is in `internal/branches/schedule.go`, without the database: `Days` turns the weekly hours and the exceptions into the openings of some dates, and `StatusAt` says whether the branch is open at an instant (two ranges that touch, like 18:00-00:00 and 00:00-02:00, are one opening). Its tests cover the split shift, the ranges that cross midnight and the days of the daylight saving time change: in New York, 9:00 is 13:00 UTC in the summer and 14:00 UTC in the winter, and a night from 22:00 to 06:00 lasts 7 or 9 real hours.
 
+## Example: appointments (`appointments`)
+
+A user books a time at a branch, within its business hours. Each user sees their appointments; an administrator, all of them.
+
+| Route | What it does |
+|---|---|
+| `GET /branches/{id}/availability?date=&duration=` | Public: the free slots of a day (today of the branch by default), every 15 minutes, for an appointment of `duration` minutes (30 by default, from 15 to 240) |
+| `POST /appointments` `{branch_id, starts_at, duration_minutes?}` | With a session. `starts_at` is the hour of the branch's clock, as the availability gave it (`"2026-11-05T10:00"`), and must be one of its slots: outside the hours, in the past or at 10:05 answers `422`. If someone else took it first, `409 slot_taken` |
+| `GET /appointments?from=&to=` | The user's appointments that start on those days **of the user's zone** (from today, 30 days, by default) |
+| `GET /appointments/{id}`, `POST /appointments/{id}/cancel` | The owner or an admin; someone else's answers `404`. Canceling frees the slot |
+| `GET /branches/{id}/appointments?date=` | Admin: the agenda of a day of the branch |
+
+```json
+// POST /appointments → 201
+{"id": 1, "branch_id": 1, "branch_name": "Clinic", "user_id": 2,
+ "local_starts_at": "2026-11-05T10:00", "time_zone": "America/Bogota",
+ "starts_at": "2026-11-05T15:00:00Z", "ends_at": "2026-11-05T15:30:00Z",
+ "duration_minutes": 30, "status": "booked", "created_at": "2026-10-31T02:00:00Z"}
+```
+
+- **No double bookings:** the table has an `EXCLUDE USING gist (branch_id WITH =, tstzrange(starts_at, ends_at) WITH &&) WHERE (status = 'booked')` constraint. Two requests for the same time, even at the same instant on different instances of the API, cannot both succeed: PostgreSQL stops the second one and the API answers `409` (`db.IsExclusionViolation`). It needs the `btree_gist` extension, which comes with PostgreSQL; the migration installs it. A canceled appointment does not count.
+- **One agenda per branch.** For one per person (a clinic with several doctors), add a `staff_id` and put it in the constraint: `(staff_id WITH =, tstzrange(…) WITH &&)`.
+- **The reminder:** booking queues, in the same transaction, a job for 24 hours before (`ReminderArgs`, with `InsertTx`). Its worker checks that the appointment is still booked at the same time, and sends a notification: "Tomorrow you have an appointment at Clinic at 10:00", with the hour of the branch's clock. An appointment in less than 24 hours has no reminder.
+- **The slots** are computed in `internal/appointments/slots.go`, without the database: every 15 real minutes from the start of each opening, so on the day of a daylight saving time change none falls on the hour that does not exist. It depends on `internal/branches`.
+
 ## Keeping the zone database up to date
 
 The zones change a few times a year (a country drops daylight saving time, or moves it). Go uses the system's database (`/usr/share/zoneinfo`, updated with the `tzdata` package of the distribution) and, without it, the copy inside the binary (`time/tzdata`), which comes with the version of Go it was built with. PostgreSQL uses its own, which comes with its minor versions. In practice: keep the system, PostgreSQL and Go up to date.
+
+## Removing the examples
+
+The schedule examples are independent from the rest of the template, except that `appointments` uses `branches`, the queue and the notifications. Remove the ones you do not use:
+
+**`appointments`:**
+1. Delete `internal/appointments`, the `00013_create_appointments.sql` migration and the `appointments.sql` query.
+2. In `internal/server/routes.go`, remove `appointments.Register`. In `internal/jobs/workers.go`, remove the registration of `appointments.NewReminderWorker`; if no other job notifies, also the `Notifier` field of `Deps` and its interface, and the `Notifier` line in `cmd/api/main.go`.
+3. Remove the keys `errors.appointment_not_found`, `errors.slot_taken`, `validation.slot_unavailable`, `validation.unknown_branch`, `validation.duration_minutes` and `notifications.appointment_reminder` from the catalogs, and the two codes from the table of [i18n.md](i18n.md#error-codes).
+
+**`branches`** (after `appointments`):
+1. Delete `internal/branches`, the `00012_create_branches.sql` migration and the `branches.sql` query.
+2. In `internal/server/routes.go`, remove `branches.Register` and the `branchesHandler`.
+3. Remove the keys `errors.branch_not_found`, `errors.branch_in_use`, `errors.branch_exception_not_found`, `validation.overlapping_hours` and `validation.closed_without_hours` from the catalogs, and the three codes from the table of [i18n.md](i18n.md#error-codes).
+
+Then `make sqlc` and `make check`, which says if a catalog key is left unused.
+

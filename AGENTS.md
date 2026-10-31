@@ -30,6 +30,7 @@ user-facing text in several languages (`docs/i18n.md`), and **example resources*
 | `internal/categories` | Public reads, admin-only writes, unique value (409), no deleting while in use (409) |
 | `internal/products` | Relationship with another table (JOIN), filters and search, missing FK (422), data visible by role |
 | `internal/branches` | **Business hours** in the branch's time zone: weekly hours, exceptions per date, the real hours of some days and "open now" (see `docs/time.md`) |
+| `internal/appointments` | **Appointments** within those hours: free slots, no double bookings even at the same instant (`EXCLUDE`, 409), a job queued in the transaction and a notification from a worker |
 
 ## Where to look
 
@@ -231,6 +232,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   `docs/adding-a-resource.md`). Nothing slow inside (argon2, external calls); the notices (events, `SessionWatcher`)
   after the commit. If two simultaneous requests can step on each other, lock the row with `SELECT … FOR UPDATE`
   (like `LockUser`).
+- Rows that must not overlap (two bookings of the same slot): an `EXCLUDE USING gist` constraint, and
+  `db.IsExclusionViolation(err)` → `httpx.Conflict` (see `internal/appointments`).
 - Repeated unique value: `db.IsUniqueViolation(err)` → `httpx.Conflict`. Missing FK or one in use:
   `db.IsForeignKeyViolation(err)` → `httpx.Validation` (when creating/editing) or `httpx.Conflict` (when deleting).
 - Optional filters in sqlc: `sqlc.narg('x')::type IS NULL OR column = sqlc.narg('x')`. Escape `%` and `_` in `ILIKE`
@@ -259,7 +262,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   `testutil.Login` so the cookie matches.
 - Real-time events: `testutil.NewServer` (a real HTTP server) and `testutil.OpenEvents`, which returns a reader with
   `Next`, `NextComment` and `Nothing`. To publish from the test, `testutil.WithBroker`. See `internal/notes/events_test.go`.
-- Workers: `rivertest.NewWorker` and `rivertest.RequireInserted`. See `internal/jobs/email_test.go`.
+- Workers: `rivertest.NewWorker` and `rivertest.RequireInserted`. See `internal/jobs/email_test.go`. To check what a
+  request queues, `testutil.WithJobs` with a `river.NewClient` without workers (see `internal/appointments`).
 - Real sending over SMTP (`TestSMTPSender`) only runs with `SMTP_TEST_ADDR`, for example `SMTP_TEST_ADDR=localhost:1025`
   with Mailpit (the emails show up at `http://localhost:8025`). Without it, it is skipped; it does not run in CI.
 - Tests that use the database do not use `t.Parallel()`, and the packages run in series (`-p 1`, already in `make test`).

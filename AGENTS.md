@@ -6,8 +6,8 @@ Instructions for coding agents (Claude Code, Codex, Copilot) working on this pro
 
 > **This repository is a template**, not a dependency: `gonew` copies the code and the projects created from it are not
 > connected to it. That is why it can be reorganized freely here (including the migrations, which are the initial schema).
-> Every change to the template goes in `CHANGELOG.md`, with the SQL to bring schema changes to a project that is
-> already deployed.
+> Every change to the template goes in `CHANGELOG.md`, as history: the template has no users to update, so it has no
+> upgrade steps or SQL for existing projects.
 >
 > **Migrations in a project created from the template:** until the first deploy, a new or removed field is changed
 > **in the original migration** (and the local database is recreated). After the first deploy, always with a new
@@ -68,7 +68,7 @@ headings of each guide are listed with `grep -n '^#' docs/*.md`.
 | **Removing** real time or only the notifications | [docs/realtime.md](docs/realtime.md#removing-real-time) |
 | Why it is built this way (each design decision) | [docs/decisions.md](docs/decisions.md) |
 | What the template leaves out on purpose: check it before proposing a new feature | [docs/decisions.md](docs/decisions.md#what-it-does-not-include), [docs/auth.md](docs/auth.md#what-it-does-not-include) |
-| What changed in each version, and the SQL to bring it to a project already deployed | [CHANGELOG.md](CHANGELOG.md) |
+| What changed in each version | [CHANGELOG.md](CHANGELOG.md) |
 
 **When you change behavior, update the documentation in the same commit:** the guide that describes it, the
 "Removing…" recipes if routes, files or tables change, this table if you add a guide or a section worth finding, and

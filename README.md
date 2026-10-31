@@ -276,9 +276,9 @@ git init
 ```
 
 Then:
-- **Keep `TEMPLATE_VERSION`:** it says which version of the template the project came from. When you bring the changes of newer versions from the [CHANGELOG](CHANGELOG.md) to the project, update it to the last one you applied. That way you always know where to start reading.
+- **Keep `TEMPLATE_VERSION`:** it says which version of the template the project came from (see the [CHANGELOG](CHANGELOG.md)).
 - Keep the authentication.
-- Keep the examples that look like your project and delete the rest (their package, queries, migrations and registration in `internal/server/routes.go`).
+- Keep the examples that look like your project and delete the rest (their package, queries, migrations and registration in `internal/server/routes.go`; the schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples)).
 - If you don't need some auth feature (open registration, 2FA, email change…), [docs/auth.md](docs/auth.md#removing-features) says what to delete.
 - If you don't need the job queue or real time, [docs/jobs.md](docs/jobs.md#removing-the-queue) and [docs/realtime.md](docs/realtime.md#removing-real-time) explain how to remove them.
 - Add your resources following [docs/adding-a-resource.md](docs/adding-a-resource.md).

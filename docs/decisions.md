@@ -174,7 +174,7 @@ IPv6 addresses are grouped per `/64` block: a provider assigns a whole `/64` to 
 
 `gonew` copies the code, and the projects created are not connected to the template: improving it breaks nothing in them. That is why this repository can be reorganized freely, including the migrations, which represent the initial schema.
 
-The template is versioned with tags (`v0.1.0`, …) and a `CHANGELOG.md`, and the `TEMPLATE_VERSION` file holds the current version. Since it is copied with the rest, each project knows which version it came from, and updates it when it brings in newer changes. Bringing an improvement to an existing project is done by hand, looking at the change in the history. When a version changes the schema, the CHANGELOG has the SQL for the project's new migration.
+The template is versioned with tags (`v0.1.0`, …) and a `CHANGELOG.md`, and the `TEMPLATE_VERSION` file holds the current version. Since it is copied with the rest, each project knows which version it came from. The CHANGELOG is the history of the template, without upgrade steps for the projects created from it.
 
 **The same rule applies in each project:** while it is not deployed, the original migrations are edited (adding an `ALTER TABLE` for each field only clutters the history). After the first deploy, each change goes in a new migration, because the production database already applied the previous ones.
 

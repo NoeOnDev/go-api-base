@@ -1,15 +1,11 @@
 # Changelog
 
-Version history of the template. Each project created with `gonew` is an independent copy:
-use this list to know which improvements you could bring to it by hand. The project's `TEMPLATE_VERSION` file
-says which version it came from (or up to which one it was updated): read the sections newer than that one.
-When a template version is published, `TEMPLATE_VERSION` is updated in the same commit as its section.
+Version history of the template: what changed in each version. Each project created with `gonew` is an independent
+copy, and its `TEMPLATE_VERSION` file says which version it came from. When a template version is published,
+`TEMPLATE_VERSION` is updated in the same commit as its section.
 
-Format: one section per version, with what was **added**, **changed** and **fixed**.
-
-The template edits its original migrations, because they represent the initial schema. If your project is already
-deployed, do not edit its migrations: the versions with schema changes include, in **Updating an existing project**,
-the SQL to put in a new migration (`make migrate-new name=…`).
+Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
+migrations, because they represent the initial schema.
 
 ## [Unreleased]
 
@@ -92,7 +88,7 @@ Security and robustness: common passwords are rejected, statements have a time l
 
 ## [v0.6.0] - 2026-10-29
 
-The API works with multiple instances, user-facing text comes in English or Mexican Spanish depending on the request's language, each error has a specific code, everything internal and the documentation are in English, and the documentation has an index for agents. The schema changes: see **Updating an existing project**.
+The API works with multiple instances, user-facing text comes in English or Mexican Spanish depending on the request's language, each error has a specific code, everything internal and the documentation are in English, and the documentation has an index for agents. The schema changes: `users.locale`, and the `rate_limits` and `realtime_messages` tables.
 
 ### Added
 
@@ -146,36 +142,9 @@ The API works with multiple instances, user-facing text comes in English or Mexi
   - Both of them, and the one to remove only the notifications, were tested on a copy, with a database created only with the remaining migrations.
 - The README did not link auth's "Removing features" from "Starting a new project", and an agent reading the README or `AGENTS.md` had no way to find out it existed.
 
-### Updating an existing project
-
-For the translation, copy `internal/i18n`, `internal/mail/templates.go` and the `internal/auth/emails/en/` and `es-MX/` folders, and adapt the handlers to the codes (see `docs/i18n.md`). The user's language needs a new migration (`make migrate-new name=add_users_locale`), with `ALTER TABLE users DROP COLUMN locale;` in `-- +goose Down`:
-
-```sql
-ALTER TABLE users ADD COLUMN locale text;
-```
-
-Notifications stored before have their text in `data.message`: that field stays, but `message` comes from the catalogs.
-
-Copy `internal/ratelimit`, `internal/realtime/instances.go` and the `rate_limits.sql` and `realtime.sql` queries, add the `interval` override to `sqlc.yaml` and run `make sqlc`. The schema needs two new migrations (`make migrate-new name=create_rate_limits` and `name=create_realtime_messages`), each one with its `DROP TABLE` in `-- +goose Down`:
-
-```sql
-CREATE TABLE rate_limits (
-    key bytea       PRIMARY KEY,
-    tat timestamptz NOT NULL
-);
-```
-
-```sql
-CREATE TABLE realtime_messages (
-    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    payload    text        NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now()
-);
-```
-
 ## [v0.5.5] - 2026-10-25
 
-Improvements from a third review, and documentation without deployment instructions. The schema changes: see **Updating an existing project**.
+Improvements from a third review, and documentation without deployment instructions. The schema changes: `users.email` must be lowercase.
 
 ### Added
 
@@ -189,19 +158,6 @@ Improvements from a third review, and documentation without deployment instructi
 - **`GET /healthz` is logged at `debug`** if it responds fine: a monitor no longer fills the log. A `503` is still logged as an error.
 - **The documentation no longer explains how to deploy** with Caddy, Nginx, Docker or systemd. What is left are the environment variables, the production warnings and the API's rules, told in general.
 - `var recorder Recorder`, unused in `mail_test.go`, becomes the check that each sender satisfies `mail.Sender`.
-
-### Updating an existing project
-
-```sql
-ALTER TABLE users ADD CONSTRAINT users_email_lowercase CHECK (email = lower(email));
-```
-
-If it fails, there are uppercase emails stored by hand. Before lowercasing them, check that no two accounts are left with the same email:
-
-```sql
-SELECT lower(email), count(*) FROM users GROUP BY lower(email) HAVING count(*) > 1;
-UPDATE users SET email = lower(email) WHERE email <> lower(email);
-```
 
 ## [v0.5.4] - 2026-10-25
 
@@ -526,19 +482,6 @@ Security fixes from a review of 2FA, email sending and encryption.
 - **Unlimited emails to the same person** using several IPs, which also cancelled their previous link.
 - **The limiter forgot an idle key after 10 minutes** even if it took longer to refill (the email one takes 15), and gave it back all its attempts. Now it remembers it until it refills.
 
-### Updating an existing project
-
-```sql
-ALTER TABLE user_tokens ADD COLUMN attempts int NOT NULL DEFAULT 0;
-```
-
-The 2FA secrets and recovery codes of previous versions are not compatible with the new format. Users with 2FA have to turn it on again:
-
-```sql
-UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL WHERE totp_secret IS NOT NULL;
-DELETE FROM user_recovery_codes;
-```
-
 ## [v0.3.1] - 2026-10-24
 
 Rotation of `ENCRYPTION_KEY` without affecting users, and better error handling.
@@ -565,17 +508,6 @@ Rotation of `ENCRYPTION_KEY` without affecting users, and better error handling.
 ### Fixed
 
 - A 2FA secret that cannot be decrypted no longer responds `500`: it responds `503 two_factor_unavailable` with a clear message, and the log records the cause and the key.
-
-### Updating an existing project
-
-The stored recovery codes have no `key_id`. The simplest is to delete them and have each user generate
-new codes from their profile; their authenticator app keeps working:
-
-```sql
-DELETE FROM user_recovery_codes;
-ALTER TABLE user_recovery_codes ADD COLUMN key_id text NOT NULL;
-CREATE INDEX user_recovery_codes_key_id_idx ON user_recovery_codes (key_id);
-```
 
 ## [v0.3.0] - 2026-10-24
 
@@ -605,26 +537,6 @@ Opt-in 2FA with an authenticator app, comparable to what Laravel Fortify adds ov
 - The configuration strips the quotes around a value, so a `.env` with `APP_NAME="My App"` works with make, the shell and systemd.
 - sqlc writes the TOTP initialism in uppercase in the generated names.
 
-### Updating an existing project
-
-```sql
-ALTER TABLE users
-    ADD COLUMN totp_secret     text,
-    ADD COLUMN totp_enabled_at timestamptz,
-    ADD COLUMN totp_last_step  bigint;
-
-ALTER TABLE user_tokens DROP CONSTRAINT user_tokens_purpose_check;
-ALTER TABLE user_tokens ADD CONSTRAINT user_tokens_purpose_check
-    CHECK (purpose IN ('password_reset', 'email_verification', 'two_factor_login'));
-
-CREATE TABLE user_recovery_codes (
-    code_hash  bytea       PRIMARY KEY,
-    user_id    bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX user_recovery_codes_user_id_idx ON user_recovery_codes (user_id);
-```
-
 ## [v0.2.0] - 2026-10-24
 
 Complete authentication for public projects and SaaS, comparable to Laravel Breeze.
@@ -653,25 +565,6 @@ Complete authentication for public projects and SaaS, comparable to Laravel Bree
 - `auth.Register` takes `auth.Limits` (attempts and emails) instead of a single middleware.
 - `auth.User` includes `email_verified_at`.
 - The admins created with `create-admin` have their email verified.
-
-### Updating an existing project
-
-The existing users are left unverified. If you are going to turn on `REQUIRE_EMAIL_VERIFICATION`, mark them
-as verified in the same migration (`UPDATE users SET email_verified_at = created_at;`).
-
-```sql
-ALTER TABLE users ADD COLUMN email_verified_at timestamptz;
-
-CREATE TABLE user_tokens (
-    token_hash bytea       PRIMARY KEY,
-    user_id    bigint      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    purpose    text        NOT NULL CHECK (purpose IN ('password_reset', 'email_verification')),
-    expires_at timestamptz NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX user_tokens_user_id_purpose_idx ON user_tokens (user_id, purpose);
-CREATE INDEX user_tokens_expires_at_idx ON user_tokens (expires_at);
-```
 
 ## [v0.1.0] - 2026-10-23
 

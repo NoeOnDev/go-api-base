@@ -7,7 +7,9 @@ copy, and its `TEMPLATE_VERSION` file says which version it came from. When a te
 Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
 migrations, because they represent the initial schema.
 
-## [Unreleased]
+## [v0.9.1] - 2026-10-31
+
+Fixes from a review of v0.9.0. Reassigning a shift no longer moves it to another person's zone, two foreign keys of the examples get their index, and the appointment reminder says the day instead of "tomorrow", with dates and hours written in the reader's format inside the texts. The schema changes: two new indexes in the original migrations `00013` and `00014`.
 
 ### Added
 

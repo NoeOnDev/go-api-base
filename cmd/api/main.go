@@ -106,6 +106,7 @@ func run() error {
 		Box:     box,
 		// So the cleanup also deletes the idle sessions.
 		SessionIdleTimeout: cfg.SessionIdleTimeout,
+		TimeZone:           cfg.TimeZone,
 	})
 	if err != nil {
 		return err

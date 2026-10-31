@@ -22,6 +22,9 @@ type Deps struct {
 	// SessionIdleTimeout: the cleanup also deletes the sessions idle for longer than this. 0, only
 	// the expired ones.
 	SessionIdleTimeout time.Duration
+	// TimeZone is the application's (APP_TIME_ZONE), for the periodic jobs at an hour of the clock
+	// (DailyAt, WeeklyAt). If nil, UTC.
+	TimeZone *time.Location
 }
 
 // registerWorkers registers every worker. Each new job is added here, like the routes in
@@ -37,8 +40,9 @@ func registerWorkers(workers *river.Workers, deps Deps) error {
 }
 
 // periodicJobs are the jobs that queue themselves every so often (the equivalent of Laravel's
-// scheduler). Only one instance queues them, the one River elects as leader.
-func periodicJobs() []*river.PeriodicJob {
+// scheduler). Only one instance queues them, the one River elects as leader. For a fixed hour of
+// the clock (every day at 8:00), use DailyAt or WeeklyAt with deps.TimeZone.
+func periodicJobs(deps Deps) []*river.PeriodicJob {
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(
 			river.PeriodicInterval(time.Hour),

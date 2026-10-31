@@ -8,6 +8,7 @@ package jobs
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,6 +39,9 @@ type Config struct {
 // as the application. To run jobs, call Start; without Start, the client still works to queue
 // them.
 func New(pool *pgxpool.Pool, logger *slog.Logger, cfg Config, deps Deps) (*Client, error) {
+	if deps.TimeZone == nil {
+		deps.TimeZone = time.UTC
+	}
 	workers := river.NewWorkers()
 	if err := registerWorkers(workers, deps); err != nil {
 		return nil, fmt.Errorf("register workers: %w", err)
@@ -50,7 +54,7 @@ func New(pool *pgxpool.Pool, logger *slog.Logger, cfg Config, deps Deps) (*Clien
 			QueueEmail:         {MaxWorkers: emailWorkers},
 		},
 		Workers:      workers,
-		PeriodicJobs: periodicJobs(),
+		PeriodicJobs: periodicJobs(deps),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create the River client: %w", err)

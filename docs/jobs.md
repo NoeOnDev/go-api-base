@@ -125,16 +125,24 @@ The arguments are stored in the `river_job` table unencrypted, and River keeps f
 The equivalent of Laravel's scheduler. They are added in `periodicJobs` (`internal/jobs/workers.go`):
 
 ```go
+// Every hour, like the cleanup.
 river.NewPeriodicJob(
-	river.PeriodicInterval(24*time.Hour),
+	river.PeriodicInterval(time.Hour),
+	func() (river.JobArgs, *river.InsertOpts) { return CleanupArgs{}, nil },
+	&river.PeriodicJobOpts{ID: "cleanup", RunOnStart: true},
+),
+// Every day at 8:00 of APP_TIME_ZONE: ->dailyAt('08:00')->timezone(…) in Laravel.
+river.NewPeriodicJob(
+	DailyAt(8, 0, deps.TimeZone),
 	func() (river.JobArgs, *river.InsertOpts) { return DailyDigestArgs{}, nil },
-	&river.PeriodicJobOpts{ID: "daily_digest", RunOnStart: true},
+	&river.PeriodicJobOpts{ID: "daily_digest"},
 ),
 ```
 
 - With several instances, only one queues them: the one River elects as leader.
-- `RunOnStart` also queues it on startup. To avoid repeating it if the API restarts often, make it unique per period (`UniqueOpts.ByPeriod`), like `CleanupArgs`.
-- For fixed times (every day at 3:00), River accepts a cron-like schedule: see its [documentation](https://riverqueue.com/docs/periodic-jobs).
+- `RunOnStart` also queues it on startup. To avoid repeating it if the API restarts often, make it unique per period (`UniqueOpts.ByPeriod`), like `CleanupArgs`. A job at a fixed hour usually does not want it.
+- **At an hour of the clock**, `DailyAt(hour, minute, loc)` and `WeeklyAt(weekday, hour, minute, loc)` (`internal/jobs/schedule.go`). They follow the clock of `loc`, not a fixed interval: after a daylight saving time change, 8:00 is still 8:00. `deps.TimeZone` is `APP_TIME_ZONE`; a job for a place with its own zone passes that one. `river.PeriodicInterval(24*time.Hour)` would drift one hour at each change.
+- **At 8:00 of each user**, everyone in their own zone, is not one periodic job per user: a job every 15 minutes picks the users for whom it is already 8:00 and who have not received the notice today, and stores that they did. Every 15 minutes, and not every hour, because some zones are 30 or 45 minutes off (India, Newfoundland, Nepal). See [time.md](time.md).
 
 ## On shutdown
 

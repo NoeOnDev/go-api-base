@@ -200,6 +200,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 **Background jobs** (see `docs/jobs.md`)
 - Each job is an arguments struct with `Kind()` and a worker with `river.WorkerDefaults`. Register the worker in
   `registerWorkers` and periodic jobs in `periodicJobs` (`internal/jobs/workers.go`). Never change a deployed `Kind`.
+- A periodic job at an hour of the clock uses `jobs.DailyAt` or `jobs.WeeklyAt` with a zone (`deps.TimeZone`), never
+  `river.PeriodicInterval(24*time.Hour)`, which drifts an hour at each daylight saving time change.
 - If the job depends on data stored in the same request, queue it with `InsertTx` inside the transaction.
 - The arguments are stored unencrypted: prefer ids, and encrypt any secret or personal data with `secretbox` (like
   `SendEmailArgs`).

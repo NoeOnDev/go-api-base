@@ -28,8 +28,10 @@ type inviteInput struct {
 	Email string `json:"email"`
 	Role  string `json:"role"`
 	// Locale is the language of the invitation email and of the account; if it is missing, the
-	// person's browser sets it when accepting.
-	Locale *string `json:"locale"`
+	// person's browser sets it when accepting. TimeZone is the account's zone; if it is missing, the
+	// frontend can send it when accepting.
+	Locale   *string `json:"locale"`
+	TimeZone *string `json:"time_zone"`
 	// Password is the admin's own, needed only to invite another admin.
 	Password string `json:"password"`
 }
@@ -54,6 +56,9 @@ func (s *Service) validateInvite(in *inviteInput) error {
 			fields["locale"] = msg
 		}
 		in.Locale = &locale
+	}
+	if msg := validateTimeZone(in.TimeZone); !msg.IsZero() {
+		fields["time_zone"] = msg
 	}
 	if len(fields) > 0 {
 		return httpx.Validation(fields)
@@ -95,10 +100,11 @@ func (s *Service) inviteUser(account *ratelimit.Limiter) func(http.ResponseWrite
 
 		// Without a password and with the email not verified: the invitation link verifies it.
 		u, err := s.q.CreateUser(r.Context(), store.CreateUserParams{
-			Name:   in.Name,
-			Email:  in.Email,
-			Role:   in.Role,
-			Locale: in.Locale,
+			Name:     in.Name,
+			Email:    in.Email,
+			Role:     in.Role,
+			Locale:   in.Locale,
+			TimeZone: in.TimeZone,
 		})
 		if _, ok := db.IsUniqueViolation(err); ok {
 			return httpx.Conflict("email_taken", "email")
@@ -171,12 +177,14 @@ func (s *Service) sendInvitation(ctx context.Context, u store.User, admin User) 
 type acceptInvitationInput struct {
 	Token    string `json:"token"`
 	Password string `json:"password"`
+	// TimeZone is optional: the browser's, if the admin did not choose one.
+	TimeZone *string `json:"time_zone"`
 }
 
 // acceptInvitation answers POST /auth/invitation/accept with the token of the link and the new
 // password: it sets the password, marks the email as verified (the link reached it) and starts
-// the session, like the registration. The language of the account, if the admin did not choose
-// one, is the one of the browser.
+// the session, like the registration. The language and the time zone of the account, if the
+// admin did not choose them, are the ones of the browser.
 func (s *Service) acceptInvitation(w http.ResponseWriter, r *http.Request) error {
 	var in acceptInvitationInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -185,8 +193,15 @@ func (s *Service) acceptInvitation(w http.ResponseWriter, r *http.Request) error
 
 	// As in the password reset: the password is validated first, the link is checked without
 	// using it up, and the hash (argon2, expensive) is computed outside the transaction.
+	fields := httpx.Fields{}
 	if msg := validatePassword(in.Password); !msg.IsZero() {
-		return httpx.Validation(httpx.Fields{"password": msg})
+		fields["password"] = msg
+	}
+	if msg := validateTimeZone(in.TimeZone); !msg.IsZero() {
+		fields["time_zone"] = msg
+	}
+	if len(fields) > 0 {
+		return httpx.Validation(fields)
 	}
 	if err := s.checkToken(r.Context(), in.Token, purposeInvitation); err != nil {
 		return err
@@ -215,7 +230,7 @@ func (s *Service) acceptInvitation(w http.ResponseWriter, r *http.Request) error
 		if u.SuspendedAt != nil {
 			return errAccountSuspended
 		}
-		rows, err := q.SetInitialPassword(r.Context(), store.SetInitialPasswordParams{ID: id, PasswordHash: &hash, Locale: locale})
+		rows, err := q.SetInitialPassword(r.Context(), store.SetInitialPasswordParams{ID: id, PasswordHash: &hash, Locale: locale, TimeZone: in.TimeZone})
 		if err != nil {
 			return fmt.Errorf("set the password of user %d: %w", id, err)
 		}

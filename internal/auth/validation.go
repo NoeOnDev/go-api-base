@@ -7,6 +7,7 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
+	"github.com/NoeOnDev/go-api-base/internal/validate"
 )
 
 // Length limits, in characters.
@@ -25,6 +26,9 @@ type RegisterInput struct {
 	// Locale is the user's language (see User.Locale). It does not come in the body: registration
 	// takes it from Accept-Language, and nil leaves the default language.
 	Locale *string `json:"-"`
+	// TimeZone is optional (see User.TimeZone): the frontend sends the browser's,
+	// Intl.DateTimeFormat().resolvedOptions().timeZone. There is no header for it.
+	TimeZone *string `json:"time_zone"`
 }
 
 func (in *RegisterInput) normalize() {
@@ -50,10 +54,22 @@ func (in RegisterInput) validate() error {
 		fields["password"] = msg
 	}
 
+	if msg := validateTimeZone(in.TimeZone); !msg.IsZero() {
+		fields["time_zone"] = msg
+	}
+
 	if len(fields) > 0 {
 		return httpx.Validation(fields)
 	}
 	return nil
+}
+
+// validateTimeZone checks an optional time zone: nil (not sent) is valid.
+func validateTimeZone(timeZone *string) i18n.Message {
+	if timeZone == nil {
+		return i18n.Message{}
+	}
+	return validate.TimeZone(*timeZone)
 }
 
 // loginInput is the login data. It only checks that it is there: the database comparison

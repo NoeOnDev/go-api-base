@@ -50,6 +50,9 @@
   "errors.wrong_body_type": "The request body has the wrong type.",
   "errors.wrong_type": "The field \"{field}\" has the wrong type.",
 
+  "format.date": "Jan 2, 2006",
+  "format.datetime": "Jan 2, 2006, 3:04 PM",
+
   "messages.email_change_sent": "We sent a link to {email} to confirm the change.",
   "messages.password_reset_sent": "If the email is registered, we sent you a link to choose a new password.",
   "messages.verification_sent": "We sent you a new link to confirm your email.",

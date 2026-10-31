@@ -176,6 +176,7 @@ func (s *Service) sessionFromRequest(r *http.Request) (session, error) {
 	}
 	user := toUser(row.User)
 	user.adminNeedsTwoFactor = s.opts.RequireAdminTwoFactor && user.Role == RoleAdmin && !user.TwoFactorEnabled
+	user.location = s.location(r.Context(), user.TimeZone)
 	return session{id: row.SessionID, tokenHash: hash, user: user, lastSeen: row.LastSeenAt}, nil
 }
 

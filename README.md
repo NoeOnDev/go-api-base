@@ -167,6 +167,7 @@ Everything is configured with environment variables. [`.env.example`](.env.examp
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | — / `587` | SMTP server details |
 | `APP_NAME` | `My App` | Name shown by the 2FA authenticator app |
 | `DEFAULT_LOCALE` | `en` | Language of the user-facing text when the request does not ask for an available one (see [docs/i18n.md](docs/i18n.md)) |
+| `APP_TIME_ZONE` | `UTC` | Time zone of the users without their own, for the dates the API writes for people (emails) and their days (reports, filters). An IANA name like `America/Mexico_City`. The JSON always carries UTC (see [docs/time.md](docs/time.md)) |
 | `ENCRYPTION_KEY` | (required) | Key to encrypt the 2FA secret. Generate it with `make key` (see [docs/encryption.md](docs/encryption.md)) |
 | `ENCRYPTION_PREVIOUS_KEYS` | | Previous keys, only during a rotation |
 | `JOBS_MAX_WORKERS` | `10` | Background jobs that run at once (emails have their own queue of 4) |
@@ -188,6 +189,7 @@ What to check in the configuration, whatever the server. If `COOKIE_SECURE` or `
 - **`MAIL_DRIVER=smtp`** with a real provider, and **`FRONTEND_URL`** with the frontend's domain (the links in the emails point there). With the frontend on another domain, `CORS_ALLOWED_ORIGINS` too.
 - **`REQUIRE_ADMIN_TWO_FACTOR=true`**, unless the project has a reason not to: an administrator account with only a password is the most valuable one to steal.
 - **`ENCRYPTION_KEY` stored as a secret and backed up apart from the database:** if it is lost, users have to set up 2FA again (see [docs/encryption.md](docs/encryption.md)).
+- **`APP_TIME_ZONE`** with the business's zone if the system is used in a single place (`America/Panama`). For users in several zones, leave `UTC` and have the frontend send each user's (see [docs/time.md](docs/time.md)).
 - **`GOMEMLIMIT`** around 70% of the server's RAM.
 - **A direct connection to PostgreSQL**, or PgBouncer in `session` mode. Real time and River listen with `LISTEN`, which does not work with PgBouncer in `transaction` mode.
 

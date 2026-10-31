@@ -16,10 +16,13 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 ### Added
 
 - **Dates and times without a zone** (`internal/civil`, see `docs/time.md`): `civil.Date` (`"2026-10-31"`), `civil.Time` (`"09:30"`) and `civil.DateTime` (`"2026-11-05T10:00"`), with JSON, the `date`, `time` and `timestamp` columns (sqlc generates them, and their zero value is `NULL`), and the conversion to instants in a zone (`In`, `Date.Start`, `DayRange`) with the daylight saving time rule of Temporal and java.time. `civil.LoadLocation` loads IANA zones.
+- **The time zone of each user and of the application** (see `docs/time.md`): the new column `users.time_zone` (an IANA name, `null` for the application's), accepted as `time_zone` by `POST /auth/register`, `PUT /auth/me`, `POST /admin/users` and `POST /auth/invitation/accept`, and returned with the user; the variable `APP_TIME_ZONE` (`UTC` by default); and `auth.User.Location()`, the user's zone for their days.
+- **Dates written for people:** `i18n.Translator.FormatDateTime` and `FormatDate`, with the Go layouts `format.datetime` and `format.date` of each catalog.
 - **Validation rules** `validate.Civil`, `validate.RequiredCivil` and `validate.TimeZone`, with the keys `validation.date`, `validation.time`, `validation.datetime` and `validation.time_zone`. A date in a wrong format arrives invalid instead of failing when decoding, so the validation answers 422 on its field.
 
 ### Changed
 
+- **The "sign-in attempt blocked" email shows the time in the user's zone and language** (`31/10/2026 00:56 (America/Mexico_City)` in es-MX), instead of in UTC.
 - **Dates always in UTC** (see "Dates in UTC" in `docs/decisions.md`): the pool opens the PostgreSQL session in UTC (unless `DATABASE_URL` sets `timezone`) and reads every `timestamptz` in UTC, so the JSON carries them with `Z` whatever the zone of the server. Before, a server with `TZ=America/Mexico_City` answered `-06:00`.
 - **The binary carries the time zone database** (`time/tzdata`), so the zones work in a container without `/usr/share/zoneinfo`.
 

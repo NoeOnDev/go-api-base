@@ -70,6 +70,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.AppName != "My App" || len(cfg.EncryptionKey) != 32 {
 		t.Errorf("AppName = %q, EncryptionKey = %d bytes", cfg.AppName, len(cfg.EncryptionKey))
 	}
+	if cfg.TimeZone != time.UTC {
+		t.Errorf("TimeZone = %v, want UTC", cfg.TimeZone)
+	}
 }
 
 func TestLoadMailSMTP(t *testing.T) {
@@ -108,6 +111,7 @@ func TestLoadCustomValues(t *testing.T) {
 		"SESSION_TTL":          "24h",
 		"TRUST_PROXY":          "true",
 		"CORS_ALLOWED_ORIGINS": " https://app.example.com/ , http://localhost:5173",
+		"APP_TIME_ZONE":        "America/Panama",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -138,6 +142,9 @@ func TestLoadCustomValues(t *testing.T) {
 	if fmt.Sprint(cfg.CORSAllowedOrigins) != fmt.Sprint(want) {
 		t.Errorf("CORSAllowedOrigins = %v, want %v", cfg.CORSAllowedOrigins, want)
 	}
+	if cfg.TimeZone.String() != "America/Panama" {
+		t.Errorf("TimeZone = %v, want America/Panama", cfg.TimeZone)
+	}
 }
 
 func TestCookieSecureOverride(t *testing.T) {
@@ -163,6 +170,8 @@ func TestLoadInvalid(t *testing.T) {
 		"negative timeout":     {"DATABASE_URL": "x", "SHUTDOWN_TIMEOUT": "-5s"},
 		"zero workers":         {"DATABASE_URL": "x", "JOBS_MAX_WORKERS": "0"},
 		"invalid workers":      {"DATABASE_URL": "x", "JOBS_MAX_WORKERS": "ten"},
+		"invalid time zone":    {"DATABASE_URL": "x", "APP_TIME_ZONE": "Mars/Base"},
+		"server's time zone":   {"DATABASE_URL": "x", "APP_TIME_ZONE": "Local"},
 	}
 
 	for name, env := range tests {

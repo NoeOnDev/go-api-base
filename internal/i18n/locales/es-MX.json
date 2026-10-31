@@ -50,6 +50,9 @@
   "errors.wrong_body_type": "El cuerpo de la petición tiene un tipo incorrecto.",
   "errors.wrong_type": "El campo \"{field}\" tiene un tipo incorrecto.",
 
+  "format.date": "02/01/2006",
+  "format.datetime": "02/01/2006 15:04",
+
   "messages.email_change_sent": "Te enviamos un enlace a {email} para confirmar el cambio.",
   "messages.password_reset_sent": "Si el email está registrado, te enviamos un enlace para elegir una contraseña nueva.",
   "messages.verification_sent": "Te enviamos un enlace nuevo para confirmar tu email.",

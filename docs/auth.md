@@ -35,11 +35,11 @@ The 2FA challenge uses a cookie with the same attributes: `two_factor_challenge`
 
 | Method | Path | Access | Body | Response |
 |---|---|---|---|---|
-| `POST` | `/auth/register` | public | `{name, email, password}` | `201` with the user and the cookie; `409` if the email already exists; `422` |
+| `POST` | `/auth/register` | public | `{name, email, password, time_zone?}` | `201` with the user and the cookie; `409` if the email already exists; `422` |
 | `POST` | `/auth/login` | public | `{email, password}` | `200` with the user and the cookie; `202 {two_factor_required: true}` if they have 2FA; `401` if the credentials do not match |
 | `POST` | `/auth/logout` | public | | `204`, always (also if the session already expired) |
 | `GET` | `/auth/me` | session | | `200` with the user |
-| `PUT` | `/auth/me` | session | `{name, locale?}` | `200` with the user |
+| `PUT` | `/auth/me` | session | `{name, locale?, time_zone?}` | `200` with the user |
 | `DELETE` | `/auth/me` | session | `{password}` | `204`, deletes the account; `422` if the password is wrong; `409` if it is the only admin |
 | `PUT` | `/auth/email` | session | `{email, password}` | `202`, sends the link to the new email; `409` if it is in use; `422` |
 | `POST` | `/auth/email/confirm` | public | `{token}` | `204`, changes the email; `422` if the link is not valid or expired; `409` if another account took the email |
@@ -57,7 +57,7 @@ The 2FA challenge uses a cookie with the same attributes: `two_factor_challenge`
 | `POST` | `/auth/two-factor/disable` | user | `{password, code}` or `{password, recovery_code}` | `204`; `422` if the password or the code are wrong; `409` if it is not on |
 | `POST` | `/auth/two-factor/recovery-codes` | user | `{password}` | `200 {recovery_codes}`, new ones |
 | `GET` | `/admin/users` | admin | `?q=&role=&status=&limit=&offset=` | `200 {data, meta}` (see [managing users](#managing-users)) |
-| `POST` | `/admin/users` | admin | `{name, email, role, locale?, password?}` | `201` with the invited user; `409` if the email already exists; `422` (see [invitations](#invitations)) |
+| `POST` | `/admin/users` | admin | `{name, email, role, locale?, time_zone?, password?}` | `201` with the invited user; `409` if the email already exists; `422` (see [invitations](#invitations)) |
 | `POST` | `/admin/users/{id}/invitation` | admin | | `204`, sends a new link; `409` if it was already accepted; `429` |
 | `POST` | `/auth/invitation/accept` | public | `{token, password}` | `200` with the user and the cookie; `422` if the link is not valid or expired |
 | `GET` | `/admin/users/{id}` | admin | | `200` with the user; `404` |
@@ -72,7 +72,7 @@ In the access column:
 The user is returned like this (it never includes the password):
 
 ```json
-{"id": 1, "name": "Alice", "email": "alice@example.com", "role": "user", "email_verified_at": null, "two_factor_enabled": false, "locale": "es-MX", "created_at": "..."}
+{"id": 1, "name": "Alice", "email": "alice@example.com", "role": "user", "email_verified_at": null, "two_factor_enabled": false, "locale": "es-MX", "time_zone": "America/Mexico_City", "created_at": "2026-10-31T02:00:00Z"}
 ```
 
 **Rules:**
@@ -82,7 +82,8 @@ The user is returned like this (it never includes the password):
 
 ## Profile and password change
 
-- **`PUT /auth/me`** changes the name and, if present, the language (`locale`: one of the available ones, like `en` or `es-MX`). The language decides which language the emails and notifications reach the user in; registration stores the one the browser asked for (see [languages](i18n.md)). The email is changed separately (see "Changing the email"), because the new address must be verified.
+- **`PUT /auth/me`** changes the name and, if present, the language (`locale`: one of the available ones, like `en` or `es-MX`) and the time zone (`time_zone`). The language decides which language the emails and notifications reach the user in; registration stores the one the browser asked for (see [languages](i18n.md)). The email is changed separately (see "Changing the email"), because the new address must be verified.
+- **`time_zone`** is an IANA name, like `America/Mexico_City`: the zone of the dates the API writes for the user (the emails) and of their days (a report "for today"). `null` is the application's, `APP_TIME_ZONE`. There is no header for it, so the frontend sends the browser's, `Intl.DateTimeFormat().resolvedOptions().timeZone`, when registering and when accepting an invitation. The dates of the JSON always travel in UTC, and the frontend shows them in the user's zone (see [time.md](time.md)).
 - **`PUT /auth/password`** asks for the current password, so someone who finds the session open cannot change it. Changing it **closes every other session** of the user while the current one stays active, and **cancels a pending email change** (see "Changing the email").
 
 ## Sessions per device
@@ -269,8 +270,8 @@ Changing the role and deleting have the per-user limit of the account actions, b
 
 For systems without open registration (an internal tool, a client's team), an admin creates the account and the person chooses their password (`internal/auth/invitations.go`):
 
-1. **The admin invites:** `POST /admin/users` with `{name, email, role}`, and optionally `locale` (the language of the email and of the account). Inviting another admin also asks for the admin's `password`, like changing a role. The user is created **without a password** (`status: "invited"`) and with the email not verified, and gets an email with a link to `FRONTEND_URL/accept-invitation?token=…`, valid for **7 days**.
-2. **The person accepts:** the frontend reads the token from the URL and sends `POST /auth/invitation/accept` with `{token, password}`. The password follows the usual rules. The email is marked as verified (the link reached it), the language is the browser's if the admin did not choose one, and the session starts, as in the registration.
+1. **The admin invites:** `POST /admin/users` with `{name, email, role}`, and optionally `locale` (the language of the email and of the account) and `time_zone`. Inviting another admin also asks for the admin's `password`, like changing a role. The user is created **without a password** (`status: "invited"`) and with the email not verified, and gets an email with a link to `FRONTEND_URL/accept-invitation?token=…`, valid for **7 days**.
+2. **The person accepts:** the frontend reads the token from the URL and sends `POST /auth/invitation/accept` with `{token, password, time_zone?}`. The password follows the usual rules. The email is marked as verified (the link reached it), the language (and the zone, if it is sent) are the browser's if the admin did not choose them, and the session starts, as in the registration.
 
 **To keep in mind:**
 

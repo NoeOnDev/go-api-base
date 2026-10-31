@@ -89,6 +89,7 @@ func NewHandler(d Deps) http.Handler {
 		TrustedProxies:        d.Config.TrustedProxies,
 		Notifier:              notificationsService,
 		I18n:                  catalog,
+		TimeZone:              d.Config.TimeZone,
 		SessionWatcher:        broker,
 	})
 	// Limits of the auth routes: "in a row" is how many requests are allowed at once, and then one

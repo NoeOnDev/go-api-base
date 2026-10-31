@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/text/language"
 )
@@ -280,6 +281,20 @@ func (t Translator) Plural(key string, n int, args ...any) string {
 
 // Message translates m.
 func (t Translator) Message(m Message) string { return t.T(m.Key, m.Args...) }
+
+// FormatDateTime writes the instant t for a person, in t's zone and with the zone's name:
+// "31/10/2026 00:56 (America/Mexico_City)" in es-MX. Pass it the instant in the reader's zone:
+// tr.FormatDateTime(t.In(loc)). The format is the Go layout of format.datetime in the catalogs.
+func (t Translator) FormatDateTime(at time.Time) string {
+	return at.Format(t.T("format.datetime")) + " (" + at.Location().String() + ")"
+}
+
+// FormatDate writes the day of t for a person, without the hour or the zone: "31/10/2026" in es-MX.
+// The format is the Go layout of format.date in the catalogs. For a civil.Date d, pass it
+// d.Start(time.UTC).
+func (t Translator) FormatDate(at time.Time) string {
+	return at.Format(t.T("format.date"))
+}
 
 // lookup finds key in the translator's language, then in the default language, then in BaseLocale.
 func (t Translator) lookup(key string) (entry, bool) {

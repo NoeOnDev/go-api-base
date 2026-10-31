@@ -2,6 +2,7 @@ package civil
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -9,9 +10,17 @@ import (
 // (America/Argentina/ComodRivadavia, the longest, has 32 characters).
 const maxZoneNameLen = 64
 
+// locations caches the zones already loaded: time.LoadLocation reads and parses the zone's file
+// every time, and the zone of the user is loaded in every request. Only the valid ones are kept,
+// so it has at most one entry per IANA zone (about 600).
+var locations sync.Map // name → *time.Location
+
 // LoadLocation loads an IANA time zone, like "America/Mexico_City" or "UTC". Unlike
 // time.LoadLocation, it rejects "" and "Local", which are not zones but "UTC" and "the server's".
 func LoadLocation(name string) (*time.Location, error) {
+	if loc, ok := locations.Load(name); ok {
+		return loc.(*time.Location), nil
+	}
 	if name == "" || name == "Local" || len(name) > maxZoneNameLen {
 		return nil, fmt.Errorf("civil: %q is not a time zone like America/Mexico_City", name)
 	}
@@ -19,6 +28,7 @@ func LoadLocation(name string) (*time.Location, error) {
 	if err != nil {
 		return nil, fmt.Errorf("civil: %q is not a time zone like America/Mexico_City", name)
 	}
+	locations.Store(name, loc)
 	return loc, nil
 }
 

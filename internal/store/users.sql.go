@@ -35,9 +35,9 @@ func (q *Queries) CountUsers(ctx context.Context, arg CountUsersParams) (int64, 
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (name, email, password_hash, role, email_verified_at, locale)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+INSERT INTO users (name, email, password_hash, role, email_verified_at, locale, time_zone)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at
 `
 
 type CreateUserParams struct {
@@ -47,6 +47,7 @@ type CreateUserParams struct {
 	Role            string
 	EmailVerifiedAt *time.Time
 	Locale          *string
+	TimeZone        *string
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
@@ -57,6 +58,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		arg.Role,
 		arg.EmailVerifiedAt,
 		arg.Locale,
+		arg.TimeZone,
 	)
 	var i User
 	err := row.Scan(
@@ -70,6 +72,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
 		&i.Locale,
+		&i.TimeZone,
 		&i.SuspendedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -126,7 +129,7 @@ func (q *Queries) EnableTOTP(ctx context.Context, arg EnableTOTPParams) (int64, 
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at
 FROM users
 WHERE email = $1
 `
@@ -145,6 +148,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
 		&i.Locale,
+		&i.TimeZone,
 		&i.SuspendedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -153,7 +157,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at
 FROM users
 WHERE id = $1
 `
@@ -172,6 +176,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
 		&i.Locale,
+		&i.TimeZone,
 		&i.SuspendedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -192,7 +197,7 @@ func (q *Queries) GetUserLocale(ctx context.Context, id int64) (*string, error) 
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at
 FROM users
 WHERE ($1::text IS NULL OR name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
   AND ($2::text IS NULL OR role = $2)
@@ -241,6 +246,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.TOTPEnabledAt,
 			&i.TOTPLastStep,
 			&i.Locale,
+			&i.TimeZone,
 			&i.SuspendedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -369,22 +375,29 @@ UPDATE users
 SET password_hash = $1,
     email_verified_at = coalesce(email_verified_at, now()),
     locale = coalesce(locale, $2),
+    time_zone = coalesce(time_zone, $3),
     updated_at = now()
-WHERE id = $3 AND password_hash IS NULL
+WHERE id = $4 AND password_hash IS NULL
 `
 
 type SetInitialPasswordParams struct {
 	PasswordHash *string
 	Locale       *string
+	TimeZone     *string
 	ID           int64
 }
 
-// SetInitialPassword sets the password of an invited user, and marks the email as verified (the
-// link reached it) and the language if it has none. It only changes it if the user still has no
-// password: an invitation that was already accepted, or a password set with a reset, cannot be
-// overwritten with an old link.
+// SetInitialPassword sets the password of an invited user, marks the email as verified (the link
+// reached it) and sets the language and the time zone if it has none. It only changes it if the
+// user still has no password: an invitation that was already accepted, or a password set with a
+// reset, cannot be overwritten with an old link.
 func (q *Queries) SetInitialPassword(ctx context.Context, arg SetInitialPasswordParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setInitialPassword, arg.PasswordHash, arg.Locale, arg.ID)
+	result, err := q.db.Exec(ctx, setInitialPassword,
+		arg.PasswordHash,
+		arg.Locale,
+		arg.TimeZone,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -465,7 +478,7 @@ const updateUserEmail = `-- name: UpdateUserEmail :one
 UPDATE users
 SET email = $2, email_verified_at = now(), updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at
 `
 
 type UpdateUserEmailParams struct {
@@ -488,6 +501,7 @@ func (q *Queries) UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
 		&i.Locale,
+		&i.TimeZone,
 		&i.SuspendedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -513,20 +527,30 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 
 const updateUserProfile = `-- name: UpdateUserProfile :one
 UPDATE users
-SET name = $1, locale = coalesce($2, locale), updated_at = now()
-WHERE id = $3
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+SET name = $1,
+    locale = coalesce($2, locale),
+    time_zone = coalesce($3, time_zone),
+    updated_at = now()
+WHERE id = $4
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at
 `
 
 type UpdateUserProfileParams struct {
-	Name   string
-	Locale *string
-	ID     int64
+	Name     string
+	Locale   *string
+	TimeZone *string
+	ID       int64
 }
 
-// UpdateUserProfile changes the name and, if given, the language (a NULL locale leaves it as it is).
+// UpdateUserProfile changes the name and, if given, the language and the time zone (a NULL leaves
+// them as they are).
 func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
-	row := q.db.QueryRow(ctx, updateUserProfile, arg.Name, arg.Locale, arg.ID)
+	row := q.db.QueryRow(ctx, updateUserProfile,
+		arg.Name,
+		arg.Locale,
+		arg.TimeZone,
+		arg.ID,
+	)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -539,6 +563,7 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.TOTPEnabledAt,
 		&i.TOTPLastStep,
 		&i.Locale,
+		&i.TimeZone,
 		&i.SuspendedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,

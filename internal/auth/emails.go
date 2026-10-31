@@ -41,7 +41,7 @@ type emailData struct {
 	Name    string
 	Link    string
 	Expires string // for example "1 hour", in the language of the email (see expiresIn)
-	When    string // date and time of the event, in UTC
+	When    string // date and time of the event, in the user's zone and language (i18n.Translator.FormatDateTime)
 	IP      string // IP the request came from
 	Email   string // another email mentioned (for example, the new one in an email change)
 	App     string // the application's name (APP_NAME)

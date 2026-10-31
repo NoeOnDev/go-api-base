@@ -19,6 +19,9 @@ CREATE TABLE users (
     -- Language of the user's emails and notifications, for example 'es-MX'
     -- (see docs/i18n.md). NULL is the default language (DEFAULT_LOCALE).
     locale            text,
+    -- Time zone of the user's dates (emails, reports by day), an IANA name like
+    -- 'America/Mexico_City' (see docs/time.md). NULL is the application's (APP_TIME_ZONE).
+    time_zone         text,
     -- An administrator suspended the account: it cannot log in and its sessions were closed.
     -- NULL is an active account.
     suspended_at      timestamptz,

@@ -12,6 +12,13 @@ Almost every bug with dates comes from treating three different things as one. T
 - **A calendar date is never converted to a zone.** A birthday converted from UTC shows up one day early in America.
 - **A wall-clock time needs its zone** (`America/Bogota`) to become an instant. The zone is stored next to it.
 
+## The zone of the application and of each user
+
+- **`APP_TIME_ZONE`** (`UTC` by default) is the zone of the users without their own. A system used in a single place (a business in Panama) sets the business's: `APP_TIME_ZONE=America/Panama`.
+- **`users.time_zone`** is each user's, an IANA name, or `null` for the application's. It comes in `POST /auth/register`, `PUT /auth/me`, `POST /admin/users` and `POST /auth/invitation/accept`, and `GET /auth/me` returns it (see [auth.md](auth.md#profile-and-password-change)). There is no header for the zone, so the frontend sends the browser's.
+- **In a handler**, `auth.MustUser(ctx).Location()` is the user's zone (their own, or the application's).
+- **In an email**, the date goes in the user's zone and language: `tr.FormatDateTime(t.In(loc))`, like the "sign-in attempt blocked" notice (see "Dates and times" in [i18n.md](i18n.md#dates-and-times)).
+
 ## Dates and times without a zone: `internal/civil`
 
 `civil.Date`, `civil.Time` (precise to the minute) and `civil.DateTime` are the types of the last two kinds:

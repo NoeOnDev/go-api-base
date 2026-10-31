@@ -197,8 +197,7 @@ func (s *Service) sendTwoFactorLockedEmail(ctx context.Context, u store.User, ip
 	err = s.sendEmail(ctx, u.Email, u.Locale, "two_factor_locked", emailData{
 		Name: u.Name,
 		Link: s.opts.FrontendURL,
-		// A format without ambiguity in any language (02/01 is January 2 or February 1).
-		When: time.Now().UTC().Format("2006-01-02 15:04 UTC"),
+		When: s.catalog.Translator(deref(u.Locale)).FormatDateTime(time.Now().In(s.location(ctx, u.TimeZone))),
 		IP:   ip,
 	})
 	if err != nil {

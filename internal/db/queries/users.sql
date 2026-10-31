@@ -1,24 +1,28 @@
 -- name: CreateUser :one
-INSERT INTO users (name, email, password_hash, role, email_verified_at, locale)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at;
+INSERT INTO users (name, email, password_hash, role, email_verified_at, locale, time_zone)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at;
 
 -- name: GetUserByEmail :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at
 FROM users
 WHERE email = $1;
 
 -- name: GetUserByID :one
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at
 FROM users
 WHERE id = $1;
 
--- UpdateUserProfile changes the name and, if given, the language (a NULL locale leaves it as it is).
+-- UpdateUserProfile changes the name and, if given, the language and the time zone (a NULL leaves
+-- them as they are).
 -- name: UpdateUserProfile :one
 UPDATE users
-SET name = sqlc.arg('name'), locale = coalesce(sqlc.narg('locale'), locale), updated_at = now()
+SET name = sqlc.arg('name'),
+    locale = coalesce(sqlc.narg('locale'), locale),
+    time_zone = coalesce(sqlc.narg('time_zone'), time_zone),
+    updated_at = now()
 WHERE id = sqlc.arg('id')
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at;
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at;
 
 -- name: GetUserLocale :one
 SELECT locale FROM users
@@ -91,7 +95,7 @@ FOR UPDATE;
 UPDATE users
 SET email = $2, email_verified_at = now(), updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at;
+RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at;
 
 -- LockAdmins returns the active admins (not suspended, and with a password: an invitation not
 -- accepted yet does not count) and locks their rows until the end of the transaction: that way two
@@ -112,7 +116,7 @@ WHERE id = $1;
 -- email, already escaped for ILIKE), role and status (active, invited or suspended). The ILIKE '%…%'
 -- search does not use indexes; if the table grows, see pg_trgm in docs/adding-a-resource.md.
 -- name: ListUsers :many
-SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, suspended_at, created_at, updated_at
+SELECT id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at
 FROM users
 WHERE (sqlc.narg('search')::text IS NULL OR name ILIKE '%' || sqlc.narg('search') || '%' OR email ILIKE '%' || sqlc.narg('search') || '%')
   AND (sqlc.narg('role')::text IS NULL OR role = sqlc.narg('role'))
@@ -149,14 +153,15 @@ UPDATE users
 SET suspended_at = NULL, updated_at = now()
 WHERE id = $1;
 
--- SetInitialPassword sets the password of an invited user, and marks the email as verified (the
--- link reached it) and the language if it has none. It only changes it if the user still has no
--- password: an invitation that was already accepted, or a password set with a reset, cannot be
--- overwritten with an old link.
+-- SetInitialPassword sets the password of an invited user, marks the email as verified (the link
+-- reached it) and sets the language and the time zone if it has none. It only changes it if the
+-- user still has no password: an invitation that was already accepted, or a password set with a
+-- reset, cannot be overwritten with an old link.
 -- name: SetInitialPassword :execrows
 UPDATE users
 SET password_hash = sqlc.arg('password_hash'),
     email_verified_at = coalesce(email_verified_at, now()),
     locale = coalesce(locale, sqlc.narg('locale')),
+    time_zone = coalesce(time_zone, sqlc.narg('time_zone')),
     updated_at = now()
 WHERE id = sqlc.arg('id') AND password_hash IS NULL;

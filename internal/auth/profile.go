@@ -15,12 +15,13 @@ import (
 
 type profileInput struct {
 	Name string `json:"name"`
-	// Locale is optional: if it is missing, the language does not change.
-	Locale *string `json:"locale"`
+	// Locale and TimeZone are optional: if one is missing, it does not change.
+	Locale   *string `json:"locale"`
+	TimeZone *string `json:"time_zone"`
 }
 
 // updateProfile answers PUT /auth/me: it changes the user's name and, if given, their language
-// (one of the available ones; see docs/i18n.md). The email is not changed here: changing it
+// (one of the available ones; see docs/i18n.md) and their time zone (see docs/time.md). The email is not changed here: changing it
 // requires verifying the new address.
 func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) error {
 	var in profileInput
@@ -39,14 +40,18 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) error {
 		}
 		in.Locale = &locale
 	}
+	if msg := validateTimeZone(in.TimeZone); !msg.IsZero() {
+		fields["time_zone"] = msg
+	}
 	if len(fields) > 0 {
 		return httpx.Validation(fields)
 	}
 
 	u, err := s.q.UpdateUserProfile(r.Context(), store.UpdateUserProfileParams{
-		ID:     MustUser(r.Context()).ID,
-		Name:   in.Name,
-		Locale: in.Locale,
+		ID:       MustUser(r.Context()).ID,
+		Name:     in.Name,
+		Locale:   in.Locale,
+		TimeZone: in.TimeZone,
 	})
 	if err != nil {
 		return fmt.Errorf("update the profile: %w", err)

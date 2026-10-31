@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/NoeOnDev/go-api-base/internal/civil"
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
@@ -53,6 +55,20 @@ func (s *Service) lookupLocale(locale string) (string, i18n.Message) {
 		return found, i18n.Message{}
 	}
 	return locale, i18n.M("validation.unsupported_locale", "locales", strings.Join(s.catalog.Locales(), ", "))
+}
+
+// location returns the zone of a user's TimeZone, or the application's if they have none. A stored
+// zone that no longer loads (if tzdata dropped the name) falls back to the application's.
+func (s *Service) location(ctx context.Context, timeZone *string) *time.Location {
+	if timeZone == nil {
+		return s.opts.TimeZone
+	}
+	loc, err := civil.LoadLocation(*timeZone)
+	if err != nil {
+		httpx.LoggerFrom(ctx).Warn("the user's time zone does not load; using the application's", "time_zone", *timeZone)
+		return s.opts.TimeZone
+	}
+	return loc
 }
 
 // savePassword stores the hash of a new password with the queries q (they can be those of a

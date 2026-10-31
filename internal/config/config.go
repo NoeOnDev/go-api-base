@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NoeOnDev/go-api-base/internal/civil"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
@@ -69,6 +70,10 @@ type Config struct {
 	// the request does not ask for an available one. It is one of the internal/i18n catalogs (see
 	// docs/i18n.md).
 	DefaultLocale string
+	// TimeZone is the zone of the dates the API writes for people (emails, reports by day) when the
+	// user has none of their own: the business's, for a system used in a single place. UTC by
+	// default (see docs/time.md).
+	TimeZone *time.Location
 	// EncryptionKey (32 bytes) encrypts the sensitive data stored in the database, like the
 	// two-factor secret. If it is lost, that data cannot be recovered.
 	EncryptionKey []byte
@@ -228,6 +233,10 @@ func load(rawGetenv func(string) string) (Config, error) {
 	cfg.DefaultLocale = valueOr(getenv("DEFAULT_LOCALE"), i18n.BaseLocale)
 	if _, err := i18n.New(cfg.DefaultLocale); err != nil {
 		errs = append(errs, fmt.Errorf("DEFAULT_LOCALE: %w", err))
+	}
+
+	if cfg.TimeZone, err = civil.LoadLocation(valueOr(getenv("APP_TIME_ZONE"), "UTC")); err != nil {
+		errs = append(errs, fmt.Errorf("APP_TIME_ZONE must be an IANA time zone, like America/Mexico_City: %w", err))
 	}
 
 	if v := strings.TrimSpace(getenv("ENCRYPTION_KEY")); v == "" {

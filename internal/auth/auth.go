@@ -44,12 +44,17 @@ type User struct {
 	TwoFactorEnabled bool       `json:"two_factor_enabled"`
 	// Locale is the language of the user's emails and notifications, for example "es-MX".
 	// null is the default language (DEFAULT_LOCALE). See docs/i18n.md.
-	Locale    *string   `json:"locale"`
+	Locale *string `json:"locale"`
+	// TimeZone is the zone of the user's dates (emails, reports by day), an IANA name like
+	// "America/Mexico_City". null is the application's (APP_TIME_ZONE). See docs/time.md.
+	TimeZone  *string   `json:"time_zone"`
 	CreatedAt time.Time `json:"created_at"`
 
 	// adminNeedsTwoFactor marks an admin without two-factor authentication when
 	// RequireAdminTwoFactor is on. The session sets it (see sessionFromRequest).
 	adminNeedsTwoFactor bool
+	// location is the zone of TimeZone, or the application's. The session sets it.
+	location *time.Location
 }
 
 // EmailVerified reports whether the user confirmed their email.
@@ -60,6 +65,16 @@ func (u User) EmailVerified() bool { return u.EmailVerifiedAt != nil }
 // admin permissions with it, never by comparing Role.
 func (u User) IsAdmin() bool { return u.Role == RoleAdmin && !u.adminNeedsTwoFactor }
 
+// Location returns the user's time zone: their own, or the application's (APP_TIME_ZONE) if they
+// have none. Use it to turn an instant into the user's day (civil.DateOf(t.In(loc))) or a range of
+// their days into instants (civil.DayRange). See docs/time.md.
+func (u User) Location() *time.Location {
+	if u.location == nil {
+		return time.UTC
+	}
+	return u.location
+}
+
 func toUser(u store.User) User {
 	return User{
 		ID:               u.ID,
@@ -69,6 +84,7 @@ func toUser(u store.User) User {
 		EmailVerifiedAt:  u.EmailVerifiedAt,
 		TwoFactorEnabled: u.TOTPEnabledAt != nil,
 		Locale:           u.Locale,
+		TimeZone:         u.TimeZone,
 		CreatedAt:        u.CreatedAt,
 	}
 }
@@ -103,6 +119,8 @@ type Options struct {
 	// I18n are the languages of the emails and of the user-facing texts. If nil, i18n.Default()
 	// is used (English by default).
 	I18n *i18n.Catalog
+	// TimeZone is the zone of the users without their own (APP_TIME_ZONE). If nil, UTC.
+	TimeZone *time.Location
 	// SessionWatcher learns when auth closes sessions, to cut what depended on them.
 	// It is optional. In the template, the internal/realtime broker implements it, cutting the
 	// GET /events streams opened with those sessions.
@@ -193,6 +211,9 @@ func NewService(pool *pgxpool.Pool, opts Options) *Service {
 	if opts.I18n == nil {
 		opts.I18n = i18n.Default()
 	}
+	if opts.TimeZone == nil {
+		opts.TimeZone = time.UTC
+	}
 	q := store.New(pool)
 	return &Service{
 		db:               pool,
@@ -237,6 +258,7 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 		Role:            role,
 		EmailVerifiedAt: verifiedAt,
 		Locale:          in.Locale,
+		TimeZone:        in.TimeZone,
 	})
 	if _, ok := db.IsUniqueViolation(err); ok {
 		return User{}, httpx.Conflict("email_taken", "email")

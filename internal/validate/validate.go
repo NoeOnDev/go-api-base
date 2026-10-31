@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/NoeOnDev/go-api-base/internal/civil"
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
 
@@ -48,6 +49,39 @@ func Slug(value string, max int) i18n.Message {
 func NonNegative[T int32 | int64](value T) i18n.Message {
 	if value < 0 {
 		return i18n.M("validation.negative")
+	}
+	return i18n.Message{}
+}
+
+// civilValue is a civil.Date, civil.Time or civil.DateTime.
+type civilValue interface {
+	IsZero() bool
+	IsValid() bool
+	FormatMessage() i18n.Message
+}
+
+// Civil checks an optional civil.Date, civil.Time or civil.DateTime of a request body: it can be
+// missing (null), but not in another format. A wrong format does not fail when decoding the body:
+// the value arrives invalid, and this rule rejects it with the message of its type.
+func Civil(v civilValue) i18n.Message {
+	if !v.IsZero() && !v.IsValid() {
+		return v.FormatMessage()
+	}
+	return i18n.Message{}
+}
+
+// RequiredCivil demands a civil.Date, civil.Time or civil.DateTime in its format.
+func RequiredCivil(v civilValue) i18n.Message {
+	if v.IsZero() {
+		return i18n.M("validation.required")
+	}
+	return Civil(v)
+}
+
+// TimeZone demands an IANA time zone name, like "America/Mexico_City" (see civil.LoadLocation).
+func TimeZone(name string) i18n.Message {
+	if _, err := civil.LoadLocation(name); err != nil {
+		return i18n.M("validation.time_zone")
 	}
 	return i18n.Message{}
 }

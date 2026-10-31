@@ -30,6 +30,23 @@ sql:
             go_type:
               type: "time.Time"
               pointer: true
+          # The dates and times without a zone are generated as internal/civil types (see docs/time.md).
+          # Their zero value is NULL, so a nullable column uses the same type, without a pointer.
+          - db_type: "date"
+            go_type: "github.com/NoeOnDev/go-api-base/internal/civil.Date"
+          - db_type: "date"
+            nullable: true
+            go_type: "github.com/NoeOnDev/go-api-base/internal/civil.Date"
+          - db_type: "pg_catalog.time"
+            go_type: "github.com/NoeOnDev/go-api-base/internal/civil.Time"
+          - db_type: "pg_catalog.time"
+            nullable: true
+            go_type: "github.com/NoeOnDev/go-api-base/internal/civil.Time"
+          - db_type: "pg_catalog.timestamp"
+            go_type: "github.com/NoeOnDev/go-api-base/internal/civil.DateTime"
+          - db_type: "pg_catalog.timestamp"
+            nullable: true
+            go_type: "github.com/NoeOnDev/go-api-base/internal/civil.DateTime"
           # jsonb is generated as json.RawMessage: it is stored and returned as is, without decoding.
           - db_type: "jsonb"
             go_type: "encoding/json.RawMessage"

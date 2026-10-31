@@ -13,6 +13,11 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 
 ## [Unreleased]
 
+### Added
+
+- **Dates and times without a zone** (`internal/civil`, see `docs/time.md`): `civil.Date` (`"2026-10-31"`), `civil.Time` (`"09:30"`) and `civil.DateTime` (`"2026-11-05T10:00"`), with JSON, the `date`, `time` and `timestamp` columns (sqlc generates them, and their zero value is `NULL`), and the conversion to instants in a zone (`In`, `Date.Start`, `DayRange`) with the daylight saving time rule of Temporal and java.time. `civil.LoadLocation` loads IANA zones.
+- **Validation rules** `validate.Civil`, `validate.RequiredCivil` and `validate.TimeZone`, with the keys `validation.date`, `validation.time`, `validation.datetime` and `validation.time_zone`. A date in a wrong format arrives invalid instead of failing when decoding, so the validation answers 422 on its field.
+
 ### Changed
 
 - **Dates always in UTC** (see "Dates in UTC" in `docs/decisions.md`): the pool opens the PostgreSQL session in UTC (unless `DATABASE_URL` sets `timezone`) and reads every `timestamptz` in UTC, so the JSON carries them with `Z` whatever the zone of the server. Before, a server with `TZ=America/Mexico_City` answered `-06:00`.

@@ -35,6 +35,8 @@ DROP TABLE orders;
 
 **Good practices:**
 - **Money goes in cents** (`bigint`).
+- **A moment is a `timestamptz`**; a day without an hour, a `date`; and an hour of the wall clock, a `time` or a
+  `timestamp` with its zone in another column. See [time.md](time.md).
 - **Every foreign key gets an index**: PostgreSQL does not create it on its own.
 - **For relationships, choose what happens on delete:**
   - `ON DELETE CASCADE`: deletes the dependent rows;

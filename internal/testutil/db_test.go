@@ -31,7 +31,7 @@ func TestCheckTestDatabase(t *testing.T) {
 }
 
 func TestRequireTestDatabase(t *testing.T) {
-	for env, want := range map[string]bool{"": false, "true": true, "1": true, "false": false, "cualquiera": false} {
+	for env, want := range map[string]bool{"": false, "true": true, "1": true, "false": false, "whatever": false} {
 		getenv := func(string) string { return env }
 		if got := requireTestDatabase(getenv); got != want {
 			t.Errorf("CI=%q: requireTestDatabase = %v, want %v", env, got, want)

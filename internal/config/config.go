@@ -18,7 +18,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 )
 
-// Entornos soportados.
+// Supported environments.
 const (
 	EnvDevelopment = "development"
 	EnvProduction  = "production"
@@ -194,7 +194,7 @@ func load(rawGetenv func(string) string) (Config, error) {
 	case err != nil:
 		errs = append(errs, fmt.Errorf("TRUSTED_PROXIES: %w", err))
 	case !trustProxy && len(proxies) > 0:
-		errs = append(errs, errors.New("TRUSTED_PROXIES requiere TRUST_PROXY=true"))
+		errs = append(errs, errors.New("TRUSTED_PROXIES requires TRUST_PROXY=true"))
 	case trustProxy && len(proxies) > 0:
 		cfg.TrustedProxies = proxies
 	case trustProxy:

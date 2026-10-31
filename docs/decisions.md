@@ -180,10 +180,11 @@ The template is versioned with tags (`v0.1.0`, …) and a `CHANGELOG.md`, and th
 
 ## Example resources
 
-Each example shows something different, and together the three cover the most common cases:
+Each example shows something different, and together they cover the most common cases:
 - `notes`: per-user ownership.
 - `categories`: admin writes, a unique value and no deleting while in use.
 - `products`: JOIN, filters, search and an invalid FK.
+- `branches`: business hours, wall-clock times in the branch's zone turned into instants (see [time.md](time.md#modeling-schedules)).
 
 In a real project you keep the useful ones and delete the rest.
 

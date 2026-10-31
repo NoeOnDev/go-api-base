@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/NoeOnDev/go-api-base/internal/civil"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -59,6 +60,31 @@ func (ns NullRiverJobState) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.RiverJobState), nil
+}
+
+type Branch struct {
+	ID        int64
+	Name      string
+	TimeZone  string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type BranchException struct {
+	ID       int64
+	BranchID int64
+	Date     civil.Date
+	OpensAt  civil.Time
+	ClosesAt civil.Time
+	Note     string
+}
+
+type BranchHour struct {
+	ID       int64
+	BranchID int64
+	Weekday  int16
+	OpensAt  civil.Time
+	ClosesAt civil.Time
 }
 
 type Category struct {

@@ -150,6 +150,10 @@ Every schedule is wall-clock time of a place, with that place's zone. The instan
 | **Shifts** | Like an appointment, with its start and its end. A shift that crosses midnight ends the next day | "Monday 22:00 to Tuesday 06:00" |
 | **Repeating classes or events** | The rule (weekdays, hour, duration, first and last day) with its zone. The dates are computed, not stored one by one; only the changes to one session (cancelled, moved) are stored | "Yoga on Mondays and Wednesdays at 18:00" |
 
+Each kind has a working example, with its tests:
+
+- **Business hours:** `internal/branches` (see [below](#example-business-hours-branches)).
+
 **Why an appointment keeps its local hour and zone, besides the instant:** the rules of the zones change. When Mexico dropped daylight saving time in 2022, the appointments stored only as instants were left one hour off. With the local hour and the zone, the instant can be computed again.
 
 **When the rules of a zone change**, update the zone database (see below) and recompute the future instants of the affected zone:
@@ -162,6 +166,32 @@ WHERE time_zone = 'America/Mexico_City' AND starts_at > now();
 ```
 
 PostgreSQL has its own zone database: both must be up to date. It also resolves the hour that happens twice (the autumn) as the second one, while `civil.DateTime.In` takes the first: if an appointment can fall on that hour, recompute it from Go, with `In`.
+
+## Example: business hours (`branches`)
+
+The branches of a business, each with its zone (`time_zone`) and its hours of the clock. Reads are public; writes, only for administrators.
+
+| Route | What it does |
+|---|---|
+| `GET /branches`, `GET /branches/{id}` | The branches with their weekly hours |
+| `POST /branches`, `PUT /branches/{id}` `{name, time_zone}`, `DELETE /branches/{id}` | Admin. Changing the zone keeps the hours of the clock. A branch with appointments answers `409 branch_in_use` |
+| `PUT /branches/{id}/hours` `{hours: [{weekday, opens_at, closes_at}]}` | Admin: replaces the whole week. `weekday` goes from 0 (Sunday) to 6. A day can have several ranges (a split shift); a range whose `closes_at` is before its `opens_at` ends the next day (a bar from 18:00 to 02:00). Ranges that overlap answer `422` |
+| `PUT /branches/{id}/exceptions/{date}` `{closed: true}` or `{opens_at, closes_at}`, with an optional `note` | Admin: a holiday or a day with other hours, which replaces the weekly hours of that date. `DELETE` brings the weekly hours back |
+| `GET /branches/{id}/exceptions?from=&to=` | The exceptions (by default, the next 62 days) |
+| `GET /branches/{id}/schedule?from=&to=` | The real hours of each date, in the local hour and in instants (by default, a week from today in the branch; up to 62 days) |
+| `GET /branches/{id}/status` | `{open, closes_at, next_opens_at}` now |
+
+```json
+// GET /branches/1/schedule?from=2026-11-02&to=2026-11-03
+{"time_zone": "America/Bogota", "data": [
+  {"date": "2026-11-02", "exception": true, "note": "All Saints", "openings": []},
+  {"date": "2026-11-03", "exception": false, "note": "", "openings": [
+    {"opens_at": "09:00", "closes_at": "13:00", "starts_at": "2026-11-03T14:00:00Z", "ends_at": "2026-11-03T18:00:00Z"}
+  ]}
+]}
+```
+
+The logic is in `internal/branches/schedule.go`, without the database: `Days` turns the weekly hours and the exceptions into the openings of some dates, and `StatusAt` says whether the branch is open at an instant (two ranges that touch, like 18:00-00:00 and 00:00-02:00, are one opening). Its tests cover the split shift, the ranges that cross midnight and the days of the daylight saving time change: in New York, 9:00 is 13:00 UTC in the summer and 14:00 UTC in the winter, and a night from 22:00 to 06:00 lasts 7 or 9 real hours.
 
 ## Keeping the zone database up to date
 

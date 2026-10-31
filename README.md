@@ -26,9 +26,10 @@ It includes:
   - embedded migrations applied on startup
   - graceful shutdown
 - **User-facing text in several languages:** English by default and Mexican Spanish, chosen with `Accept-Language`.
-- **Three example resources** to copy:
+- **Example resources** to copy:
   - `notes`: each user's data
   - `categories` and `products`: a catalog with relationships, filters and admin permissions
+  - `branches`: business hours in the branch's time zone, with holidays (see [docs/time.md](docs/time.md))
 - **Quality:**
   - integration tests against PostgreSQL
   - `staticcheck` and `govulncheck`
@@ -117,6 +118,8 @@ It includes:
 | `POST`, `PUT`, `DELETE` | `/categories…` | Admin only |
 | `GET` | `/products?category_id=&q=&active=`, `/products/{id}` | Public: visitors only see active products; the admin sees all |
 | `POST`, `PUT`, `DELETE` | `/products…` | Admin only |
+| `GET` | `/branches`, `/branches/{id}`, `/schedule?from=&to=`, `/status`, `/exceptions` | Public: branches with their weekly hours, the real hours of some days, whether it is open now, and the holidays |
+| `POST`, `PUT`, `DELETE` | `/branches…`, `/branches/{id}/hours`, `/branches/{id}/exceptions/{date}` | Admin only |
 
 Lists accept `?limit=` (from 1 to 100, 20 by default) and `?offset=` (up to 10000), and respond `{"data": [...], "meta": {"limit", "offset", "total"}}`. A huge offset makes the query slow, because PostgreSQL reads and discards the previous rows.
 
@@ -232,6 +235,7 @@ internal/civil/      dates and times without a time zone, and their conversion t
 internal/notes/      example: each user's data
 internal/categories/ example: catalog, public reads and admin writes
 internal/products/   example: relationships, filters and search
+internal/branches/   example: business hours in the branch's zone, with holidays
 internal/testutil/   test helpers
 migrations/          SQL migrations
 docs/                guides and decisions

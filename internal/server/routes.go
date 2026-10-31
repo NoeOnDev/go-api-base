@@ -13,6 +13,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/branches"
 	"github.com/NoeOnDev/go-api-base/internal/categories"
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
@@ -140,6 +141,7 @@ func NewHandler(d Deps) http.Handler {
 	notes.Register(mux, notes.NewHandler(queries, broker), authService)
 	categories.Register(mux, categories.NewHandler(queries), authService)
 	products.Register(mux, products.NewHandler(queries), authService)
+	branches.Register(mux, branches.NewHandler(d.DB, queries), authService)
 
 	// Any unregistered route answers 404 with the API error format.
 	mux.Handle("/", httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {

@@ -13,6 +13,8 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 
 ## [Unreleased]
 
+A base for dates, time zones and schedules (see `docs/time.md`). The dates of the JSON always travel in UTC, whatever the zone of the server, and the frontend shows them in the user's zone. Each user can have a time zone, and the application has one for the rest (`APP_TIME_ZONE`), for the dates the API writes for people and for their days. `internal/civil` adds dates and times without a zone, with the daylight saving time rule of Temporal and java.time, and the periodic jobs can run at an hour of the clock. Four new examples model the usual schedules: business hours, appointments, shifts and repeating classes. The schema changes: `users.time_zone`, and the tables of the examples (`00012` to `00015`, with the `btree_gist` extension).
+
 ### Added
 
 - **Dates and times without a zone** (`internal/civil`, see `docs/time.md`): `civil.Date` (`"2026-10-31"`), `civil.Time` (`"09:30"`) and `civil.DateTime` (`"2026-11-05T10:00"`), with JSON, the `date`, `time` and `timestamp` columns (sqlc generates them, and their zero value is `NULL`), and the conversion to instants in a zone (`In`, `Date.Start`, `DayRange`) with the daylight saving time rule of Temporal and java.time. `civil.LoadLocation` loads IANA zones.
@@ -32,6 +34,7 @@ the SQL to put in a new migration (`make migrate-new name=…`).
 - **The "sign-in attempt blocked" email shows the time in the user's zone and language** (`31/10/2026 00:56 (America/Mexico_City)` in es-MX), instead of in UTC.
 - **Dates always in UTC** (see "Dates in UTC" in `docs/decisions.md`): the pool opens the PostgreSQL session in UTC (unless `DATABASE_URL` sets `timezone`) and reads every `timestamptz` in UTC, so the JSON carries them with `Z` whatever the zone of the server. Before, a server with `TZ=America/Mexico_City` answered `-06:00`.
 - **The binary carries the time zone database** (`time/tzdata`), so the zones work in a container without `/usr/share/zoneinfo`.
+- **The recipes to remove the queue and real time** (`docs/jobs.md`, `docs/realtime.md`) start by removing the appointments example, which uses both; "Removing the examples" in `docs/time.md` has the recipe of each schedule example.
 
 ### Fixed
 

@@ -7,7 +7,7 @@ copy, and its `TEMPLATE_VERSION` file says which version it came from. When a te
 Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
 migrations, because they represent the initial schema.
 
-## [Unreleased]
+## [v0.9.0] - 2026-10-31
 
 A base for dates, time zones and schedules (see `docs/time.md`). The dates of the JSON always travel in UTC, whatever the zone of the server, and the frontend shows them in the user's zone. Each user can have a time zone, and the application has one for the rest (`APP_TIME_ZONE`), for the dates the API writes for people and for their days. `internal/civil` adds dates and times without a zone, with the daylight saving time rule of Temporal and java.time, and the periodic jobs can run at an hour of the clock. Four new examples model the usual schedules: business hours, appointments, shifts and repeating classes. The schema changes: `users.time_zone`, and the tables of the examples (`00012` to `00015`, with the `btree_gist` extension).
 

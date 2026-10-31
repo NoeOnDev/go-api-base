@@ -32,6 +32,9 @@ CREATE TABLE appointments (
 );
 
 CREATE INDEX appointments_user_id_idx ON appointments (user_id, starts_at);
+-- The agenda of a branch (canceled ones included) and the check when deleting a branch: the index
+-- of the constraint only has the booked ones.
+CREATE INDEX appointments_branch_id_idx ON appointments (branch_id, starts_at);
 
 -- +goose Down
 DROP TABLE appointments;

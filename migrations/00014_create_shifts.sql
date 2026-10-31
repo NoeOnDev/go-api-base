@@ -20,7 +20,8 @@ CREATE TABLE shifts (
     note            text        NOT NULL DEFAULT '',
     created_at      timestamptz NOT NULL DEFAULT now(),
     updated_at      timestamptz NOT NULL DEFAULT now(),
-    -- A person cannot have two shifts that overlap (409 shift_overlap).
+    -- A person cannot have two shifts that overlap (409 shift_overlap). Its index also serves the
+    -- searches by user_id, the foreign key.
     CONSTRAINT shifts_no_overlap EXCLUDE USING gist (
         user_id WITH =,
         tstzrange(starts_at, ends_at) WITH &&
@@ -43,6 +44,8 @@ CREATE TABLE time_entries (
 -- Only one open entry per person: clocking in twice answers 409 already_clocked_in.
 CREATE UNIQUE INDEX time_entries_one_open_idx ON time_entries (user_id) WHERE clock_out IS NULL;
 CREATE INDEX time_entries_user_id_idx ON time_entries (user_id, clock_in);
+-- Deleting a shift sets shift_id to NULL in its entries.
+CREATE INDEX time_entries_shift_id_idx ON time_entries (shift_id);
 
 -- +goose Down
 DROP TABLE time_entries;

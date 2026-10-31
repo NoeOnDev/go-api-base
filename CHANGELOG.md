@@ -12,6 +12,7 @@ migrations, because they represent the initial schema.
 ### Fixed
 
 - **`PUT /shifts/{id}` with another `user_id` reassigns the shift** (`internal/shifts`). Before, the shift stayed with its person but took the zone of the other one, so its instants moved. If it overlaps a shift of the new person, `409 shift_overlap`.
+- **Two foreign keys of the examples had no index**, against the rule of `docs/adding-a-resource.md`: `appointments.branch_id` (the index of the constraint only has the booked appointments; now `appointments_branch_id_idx`, which also serves a branch's agenda) and `time_entries.shift_id` (`time_entries_shift_id_idx`). The original migrations `00013` and `00014` change.
 - **A user's time zone that does not load** is logged as a warning in `internal/shifts` too, like in `internal/auth`, before using the application's.
 
 ## [v0.9.0] - 2026-10-31

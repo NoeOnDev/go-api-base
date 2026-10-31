@@ -20,7 +20,6 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/civil"
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
-	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -317,15 +316,6 @@ func (h *Handler) listExceptions(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// pathDate reads the {date} of the route (2006-01-02).
-func pathDate(r *http.Request) (civil.Date, error) {
-	d, err := civil.ParseDate(r.PathValue("date"))
-	if err != nil {
-		return civil.Date{}, httpx.Validation(httpx.Fields{"date": i18n.M("validation.date")})
-	}
-	return d, nil
-}
-
 // putException answers PUT /branches/{id}/exceptions/{date} with {closed: true} or {opens_at,
 // closes_at}, and an optional note. It replaces the exception of that date, if there was one.
 func (h *Handler) putException(w http.ResponseWriter, r *http.Request) error {
@@ -333,7 +323,7 @@ func (h *Handler) putException(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	date, err := pathDate(r)
+	date, err := httpx.PathDate(r, "date")
 	if err != nil {
 		return err
 	}
@@ -366,7 +356,7 @@ func (h *Handler) deleteException(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
-	date, err := pathDate(r)
+	date, err := httpx.PathDate(r, "date")
 	if err != nil {
 		return err
 	}

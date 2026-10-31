@@ -148,8 +148,9 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   IANA names, checked with `validate.TimeZone` (see `docs/time.md`).
 - Pagination with `httpx.ParsePage` and the `httpx.List[T]` response (`{data, meta}`), or by cursor for a "load more" or a
   long list: `httpx.ParseCursorPage`, `DecodeCursor` and `NewCursorList` (see `internal/notifications` and "Lists by page
-  or by cursor" in `docs/adding-a-resource.md`). Route IDs with `httpx.PathID(r, "id")`. A range of days
-  (`?from=2026-11-01&to=2026-11-07`) with `httpx.ParseDateRange`, which caps how many days it covers.
+  or by cursor" in `docs/adding-a-resource.md`). Route IDs with `httpx.PathID(r, "id")` and dates with
+  `httpx.PathDate(r, "date")`. A range of days (`?from=2026-11-01&to=2026-11-07`) with `httpx.ParseDateRange`, which
+  caps how many days it covers.
 - Each resource defines its own response struct; do not return the `internal/store` structs directly.
 - The user's time zone, for their days (a filter "from 2026-10-01 to 2026-10-31", a report "for today"), is
   `auth.MustUser(ctx).Location()`: their own or `APP_TIME_ZONE`. A date written for a person (an email) uses

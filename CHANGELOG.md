@@ -9,6 +9,14 @@ migrations, because they represent the initial schema.
 
 ## [Unreleased]
 
+### Added
+
+- **`httpx.PathDate(r, "date")`** reads a date of the route (`{date}`) and answers `422` on its name, like `httpx.PathID` with the IDs. `branches` and `classes` used their own copy.
+
+### Changed
+
+- **"In the URL" in `docs/time.md`** shows `httpx.ParseDateRange`, which every example uses for `?from=&to=`, instead of reading each date by hand.
+
 ### Fixed
 
 - **`PUT /shifts/{id}` with another `user_id` reassigns the shift** (`internal/shifts`). Before, the shift stayed with its person but took the zone of the other one, so its instants moved. If it overlaps a shift of the new person, `409 shift_overlap`.

@@ -53,3 +53,13 @@ func ParseDateRange(r *http.Request, today civil.Date, defaultDays, maxDays int)
 	}
 	return rng, nil
 }
+
+// PathDate reads a date (2006-01-02) from the path, for example {date} in
+// "PUT /branches/{id}/exceptions/{date}". If it is invalid, it returns a validation error on name.
+func PathDate(r *http.Request, name string) (civil.Date, error) {
+	d, err := civil.ParseDate(r.PathValue(name))
+	if err != nil {
+		return civil.Date{}, Validation(Fields{name: i18n.M("validation.date")})
+	}
+	return d, nil
+}

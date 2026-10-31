@@ -41,3 +41,20 @@ func TestParseDateRange(t *testing.T) {
 		}
 	}
 }
+
+func TestPathDate(t *testing.T) {
+	r := httptest.NewRequest("PUT", "/x/2026-11-02", nil)
+	r.SetPathValue("date", "2026-11-02")
+	if d, err := PathDate(r, "date"); err != nil || d != civil.NewDate(2026, time.November, 2) {
+		t.Errorf("PathDate = %v, %v", d, err)
+	}
+
+	for _, v := range []string{"02-11-2026", "2026-02-30", ""} {
+		r.SetPathValue("date", v)
+		_, err := PathDate(r, "date")
+		var e *Error
+		if !errors.As(err, &e) || e.Fields["date"].IsZero() {
+			t.Errorf("%q: error = %v, want one on date", v, err)
+		}
+	}
+}

@@ -67,14 +67,19 @@ Storing an invalid value fails (`civil: cannot store an invalid date; validate i
 
 ### In the URL
 
-Filters like `?from=2026-10-01&to=2026-10-31` are read with `civil.ParseDate`, answering `validation.date` on the parameter:
+**A range of days** (`?from=2026-10-01&to=2026-10-31`) is read with `httpx.ParseDateRange`, like every example does. Without `from` it starts today, without `to` it covers the default days, and it answers `422` if a date has another format, if the range ends before it starts or if it covers more than the maximum days (a long range asks the database for too much). "Today" is the day of whoever the days belong to:
 
 ```go
-from, err := civil.ParseDate(r.URL.Query().Get("from"))
+loc := auth.MustUser(r.Context()).Location()
+rng, err := httpx.ParseDateRange(r, civil.DateOf(time.Now().In(loc)), 30, 366) // 30 days by default, at most 366
 if err != nil {
-	return httpx.Validation(httpx.Fields{"from": i18n.M("validation.date")})
+	return err
 }
+start, end := civil.DayRange(rng.From, rng.To, loc) // the instants, to filter (see "SQL recipes")
 ```
+
+- **A date of the route** (`PUT /branches/{id}/exceptions/{date}`) is read with `httpx.PathDate(r, "date")`, which answers `422` on that name.
+- **A single date** (`?date=2026-11-05`) is read with `civil.ParseDate`, answering `validation.date` on the parameter (see `parseDate` in `internal/appointments/validation.go`).
 
 ## In the frontend
 

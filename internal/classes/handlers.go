@@ -280,15 +280,6 @@ func (h *Handler) agenda(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// pathDate reads the {date} of the route (2006-01-02).
-func pathDate(r *http.Request) (civil.Date, error) {
-	d, err := civil.ParseDate(r.PathValue("date"))
-	if err != nil {
-		return civil.Date{}, httpx.Validation(httpx.Fields{"date": i18n.M("validation.date")})
-	}
-	return d, nil
-}
-
 // putChange answers PUT /classes/{id}/sessions/{date} with {canceled: true} or {starts_at}, and an
 // optional note: it cancels or moves the session of that date, which must be one of the rule.
 func (h *Handler) putChange(w http.ResponseWriter, r *http.Request) error {
@@ -296,7 +287,7 @@ func (h *Handler) putChange(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	date, err := pathDate(r)
+	date, err := httpx.PathDate(r, "date")
 	if err != nil {
 		return err
 	}
@@ -338,7 +329,7 @@ func (h *Handler) deleteChange(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	date, err := pathDate(r)
+	date, err := httpx.PathDate(r, "date")
 	if err != nil {
 		return err
 	}

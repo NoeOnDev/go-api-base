@@ -204,6 +204,28 @@ type Session struct {
 	CreatedAt  time.Time
 }
 
+type Shift struct {
+	ID            int64
+	UserID        int64
+	TimeZone      string
+	LocalStartsAt civil.DateTime
+	LocalEndsAt   civil.DateTime
+	StartsAt      time.Time
+	EndsAt        time.Time
+	Note          string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type TimeEntry struct {
+	ID        int64
+	UserID    int64
+	ShiftID   *int64
+	ClockIn   time.Time
+	ClockOut  *time.Time
+	CreatedAt time.Time
+}
+
 type User struct {
 	ID              int64
 	Name            string

@@ -154,6 +154,7 @@ Each kind has a working example, with its tests:
 
 - **Business hours:** `internal/branches` (see [below](#example-business-hours-branches)).
 - **Appointments:** `internal/appointments` (see [below](#example-appointments-appointments)).
+- **Shifts:** `internal/shifts` (see [below](#example-shifts-shifts)).
 
 **Why an appointment keeps its local hour and zone, besides the instant:** the rules of the zones change. When Mexico dropped daylight saving time in 2022, the appointments stored only as instants were left one hour off. With the local hour and the zone, the instant can be computed again.
 
@@ -219,6 +220,29 @@ A user books a time at a branch, within its business hours. Each user sees their
 - **The reminder:** booking queues, in the same transaction, a job for 24 hours before (`ReminderArgs`, with `InsertTx`). Its worker checks that the appointment is still booked at the same time, and sends a notification: "Tomorrow you have an appointment at Clinic at 10:00", with the hour of the branch's clock. An appointment in less than 24 hours has no reminder.
 - **The slots** are computed in `internal/appointments/slots.go`, without the database: every 15 real minutes from the start of each opening, so on the day of a daylight saving time change none falls on the hour that does not exist. It depends on `internal/branches`.
 
+## Example: shifts (`shifts`)
+
+An administrator assigns shifts; each user sees theirs, clocks in and out, and sees the time worked per day.
+
+| Route | What it does |
+|---|---|
+| `POST /shifts` `{user_id, starts_at, ends_at, time_zone?, note?}`, `PUT /shifts/{id}`, `DELETE /shifts/{id}` | Admin. The hours are of the clock of the place: `"2026-11-02T22:00"` to `"2026-11-03T06:00"` is a night shift. The zone is the shift's, or the worker's if it is missing. At most 24 hours. If the person already has a shift at that time, `409 shift_overlap` |
+| `GET /shifts?user_id=&from=&to=`, `GET /shifts/{id}` | The shifts that overlap those days of the zone of whoever asks (from today, a week, by default). The admin sees everyone's, or those of `user_id`; a user, only theirs |
+| `POST /time-entries/clock-in`, `POST /time-entries/clock-out` | Clocking in and out, now. The entry belongs to the shift going on (or starting within the hour). Clocking in twice answers `409 already_clocked_in`; clocking out without an open entry, `409 not_clocked_in` |
+| `GET /time-entries?user_id=&from=&to=` | The entries of those days of the worker's clock |
+| `GET /time-entries/summary?user_id=&from=&to=` | The minutes worked on each day of the worker's clock |
+
+```json
+// POST /shifts {"user_id": 2, "starts_at": "2026-03-07T22:00", "ends_at": "2026-03-08T06:00"}, María in New York
+{"id": 1, "user_id": 2, "time_zone": "America/New_York",
+ "local_starts_at": "2026-03-07T22:00", "local_ends_at": "2026-03-08T06:00",
+ "starts_at": "2026-03-08T03:00:00Z", "ends_at": "2026-03-08T10:00:00Z", "duration_minutes": 420, …}
+```
+
+- **The night of a change lasts one hour less or more:** that night of March, from 22:00 to 06:00 there are 7 real hours, and `duration_minutes` says so. The pay of a night shift is computed from the instants, not from the hours of the clock.
+- **The time worked is split by days of the worker's clock** (`SplitByDay`, in `internal/shifts/schedule.go`): an entry from 22:00 to 06:00 counts 2 hours on the first day and 6 on the second, and an open one counts until now. Each day lasts what it really lasts: 23 or 25 hours when the clocks change.
+- **One open entry per person:** a partial unique index (`ON time_entries (user_id) WHERE clock_out IS NULL`).
+
 ## Keeping the zone database up to date
 
 The zones change a few times a year (a country drops daylight saving time, or moves it). Go uses the system's database (`/usr/share/zoneinfo`, updated with the `tzdata` package of the distribution) and, without it, the copy inside the binary (`time/tzdata`), which comes with the version of Go it was built with. PostgreSQL uses its own, which comes with its minor versions. In practice: keep the system, PostgreSQL and Go up to date.
@@ -231,6 +255,11 @@ The schedule examples are independent from the rest of the template, except that
 1. Delete `internal/appointments`, the `00013_create_appointments.sql` migration and the `appointments.sql` query.
 2. In `internal/server/routes.go`, remove `appointments.Register`. In `internal/jobs/workers.go`, remove the registration of `appointments.NewReminderWorker`; if no other job notifies, also the `Notifier` field of `Deps` and its interface, and the `Notifier` line in `cmd/api/main.go`.
 3. Remove the keys `errors.appointment_not_found`, `errors.slot_taken`, `validation.slot_unavailable`, `validation.unknown_branch`, `validation.duration_minutes` and `notifications.appointment_reminder` from the catalogs, and the two codes from the table of [i18n.md](i18n.md#error-codes).
+
+**`shifts`:**
+1. Delete `internal/shifts`, the `00014_create_shifts.sql` migration and the `shifts.sql` query.
+2. In `internal/server/routes.go`, remove `shifts.Register`.
+3. Remove the keys `errors.shift_not_found`, `errors.shift_overlap`, `errors.already_clocked_in`, `errors.not_clocked_in`, `validation.unknown_user` and `validation.max_hours` from the catalogs, and the four codes from the table of [i18n.md](i18n.md#error-codes).
 
 **`branches`** (after `appointments`):
 1. Delete `internal/branches`, the `00012_create_branches.sql` migration and the `branches.sql` query.

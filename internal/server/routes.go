@@ -26,6 +26,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/ratelimit"
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
+	"github.com/NoeOnDev/go-api-base/internal/shifts"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -145,6 +146,7 @@ func NewHandler(d Deps) http.Handler {
 	branchesHandler := branches.NewHandler(d.DB, queries)
 	branches.Register(mux, branchesHandler, authService)
 	appointments.Register(mux, appointments.NewHandler(d.DB, queries, d.Jobs, branchesHandler), authService)
+	shifts.Register(mux, shifts.NewHandler(queries, d.Config.TimeZone), authService)
 
 	// Any unregistered route answers 404 with the API error format.
 	mux.Handle("/", httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {

@@ -31,6 +31,7 @@ It includes:
   - `categories` and `products`: a catalog with relationships, filters and admin permissions
   - `branches`: business hours in the branch's time zone, with holidays (see [docs/time.md](docs/time.md))
   - `appointments`: bookings within those hours, without double bookings, and a reminder the day before
+  - `shifts`: work shifts, also overnight, clocking in and out, and the minutes worked per day
 - **Quality:**
   - integration tests against PostgreSQL
   - `staticcheck` and `govulncheck`
@@ -124,6 +125,9 @@ It includes:
 | `GET` | `/branches/{id}/availability?date=&duration=` | Public: the free slots of a day |
 | `GET`, `POST` | `/appointments?from=&to=`, `/appointments/{id}`, `/appointments/{id}/cancel` | With a session; each user sees their appointments (the admin, all) |
 | `GET` | `/branches/{id}/appointments?date=` | Admin only: the agenda of a day |
+| `GET` | `/shifts?user_id=&from=&to=`, `/shifts/{id}` | With a session; each user sees their shifts (the admin, all) |
+| `POST`, `PUT`, `DELETE` | `/shifts…` | Admin only: assign shifts |
+| `POST`, `GET` | `/time-entries/clock-in`, `/clock-out`, `/time-entries?from=&to=`, `/time-entries/summary` | With a session: clock in and out, and the minutes worked per day |
 
 Lists accept `?limit=` (from 1 to 100, 20 by default) and `?offset=` (up to 10000), and respond `{"data": [...], "meta": {"limit", "offset", "total"}}`. A huge offset makes the query slow, because PostgreSQL reads and discards the previous rows.
 
@@ -241,6 +245,7 @@ internal/categories/ example: catalog, public reads and admin writes
 internal/products/   example: relationships, filters and search
 internal/branches/   example: business hours in the branch's zone, with holidays
 internal/appointments/ example: bookings within the business hours, with a reminder
+internal/shifts/     example: work shifts, clocking in and out, minutes worked per day
 internal/testutil/   test helpers
 migrations/          SQL migrations
 docs/                guides and decisions

@@ -30,6 +30,7 @@ user-facing text in several languages (`docs/i18n.md`), and **example resources*
 | `internal/categories` | Public reads, admin-only writes, unique value (409), no deleting while in use (409) |
 | `internal/products` | Relationship with another table (JOIN), filters and search, missing FK (422), data visible by role |
 | `internal/branches` | **Business hours** in the branch's time zone: weekly hours, exceptions per date, the real hours of some days and "open now" (see `docs/time.md`) |
+| `internal/classes` | **Repeating classes**: a rule (weekdays, hour of the clock, first and last day) whose sessions are computed, and the changes to one session (canceled, moved) |
 | `internal/shifts` | **Shifts** that cross midnight, no two overlapping for a person (`EXCLUDE`), clocking in and out, and the time worked split by days of the worker's zone |
 | `internal/appointments` | **Appointments** within those hours: free slots, no double bookings even at the same instant (`EXCLUDE`, 409), a job queued in the transaction and a notification from a worker |
 

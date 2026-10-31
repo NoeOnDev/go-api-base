@@ -16,6 +16,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/branches"
 	"github.com/NoeOnDev/go-api-base/internal/categories"
+	"github.com/NoeOnDev/go-api-base/internal/classes"
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
@@ -147,6 +148,7 @@ func NewHandler(d Deps) http.Handler {
 	branches.Register(mux, branchesHandler, authService)
 	appointments.Register(mux, appointments.NewHandler(d.DB, queries, d.Jobs, branchesHandler), authService)
 	shifts.Register(mux, shifts.NewHandler(queries, d.Config.TimeZone), authService)
+	classes.Register(mux, classes.NewHandler(queries, d.Config.TimeZone), authService)
 
 	// Any unregistered route answers 404 with the API error format.
 	mux.Handle("/", httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {

@@ -32,6 +32,7 @@ It includes:
   - `branches`: business hours in the branch's time zone, with holidays (see [docs/time.md](docs/time.md))
   - `appointments`: bookings within those hours, without double bookings, and a reminder the day before
   - `shifts`: work shifts, also overnight, clocking in and out, and the minutes worked per day
+  - `classes`: classes that repeat some days of the week, with a session canceled or moved
 - **Quality:**
   - integration tests against PostgreSQL
   - `staticcheck` and `govulncheck`
@@ -128,6 +129,8 @@ It includes:
 | `GET` | `/shifts?user_id=&from=&to=`, `/shifts/{id}` | With a session; each user sees their shifts (the admin, all) |
 | `POST`, `PUT`, `DELETE` | `/shifts…` | Admin only: assign shifts |
 | `POST`, `GET` | `/time-entries/clock-in`, `/clock-out`, `/time-entries?from=&to=`, `/time-entries/summary` | With a session: clock in and out, and the minutes worked per day |
+| `GET` | `/classes`, `/classes/{id}`, `/classes/{id}/sessions?from=&to=`, `/classes/sessions?from=&to=` | Public: the classes and their sessions, or those of every class |
+| `POST`, `PUT`, `DELETE` | `/classes…`, `/classes/{id}/sessions/{date}` | Admin only: the classes, and canceling or moving one session |
 
 Lists accept `?limit=` (from 1 to 100, 20 by default) and `?offset=` (up to 10000), and respond `{"data": [...], "meta": {"limit", "offset", "total"}}`. A huge offset makes the query slow, because PostgreSQL reads and discards the previous rows.
 
@@ -246,6 +249,7 @@ internal/products/   example: relationships, filters and search
 internal/branches/   example: business hours in the branch's zone, with holidays
 internal/appointments/ example: bookings within the business hours, with a reminder
 internal/shifts/     example: work shifts, clocking in and out, minutes worked per day
+internal/classes/    example: classes that repeat, with sessions canceled or moved
 internal/testutil/   test helpers
 migrations/          SQL migrations
 docs/                guides and decisions

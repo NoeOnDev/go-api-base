@@ -187,6 +187,7 @@ Each example shows something different, and together they cover the most common 
 - `branches`: business hours, wall-clock times in the branch's zone turned into instants (see [time.md](time.md#modeling-schedules)).
 - `appointments`: bookings within those hours, an `EXCLUDE` constraint against double bookings, and a reminder queued in the transaction.
 - `shifts`: work shifts that cross midnight, clocking in and out, and the time worked per day of the worker.
+- `classes`: repeating classes, a rule whose sessions are computed, and the changes to one session.
 
 In a real project you keep the useful ones and delete the rest.
 

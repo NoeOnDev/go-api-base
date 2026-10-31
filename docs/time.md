@@ -155,6 +155,7 @@ Each kind has a working example, with its tests:
 - **Business hours:** `internal/branches` (see [below](#example-business-hours-branches)).
 - **Appointments:** `internal/appointments` (see [below](#example-appointments-appointments)).
 - **Shifts:** `internal/shifts` (see [below](#example-shifts-shifts)).
+- **Repeating classes:** `internal/classes` (see [below](#example-repeating-classes-classes)).
 
 **Why an appointment keeps its local hour and zone, besides the instant:** the rules of the zones change. When Mexico dropped daylight saving time in 2022, the appointments stored only as instants were left one hour off. With the local hour and the zone, the instant can be computed again.
 
@@ -243,6 +244,31 @@ An administrator assigns shifts; each user sees theirs, clocks in and out, and s
 - **The time worked is split by days of the worker's clock** (`SplitByDay`, in `internal/shifts/schedule.go`): an entry from 22:00 to 06:00 counts 2 hours on the first day and 6 on the second, and an open one counts until now. Each day lasts what it really lasts: 23 or 25 hours when the clocks change.
 - **One open entry per person:** a partial unique index (`ON time_entries (user_id) WHERE clock_out IS NULL`).
 
+## Example: repeating classes (`classes`)
+
+"Yoga on Mondays and Wednesdays at 18:00, from November 3 to December 19". The class is a rule: its sessions are computed for the days asked for, not stored one by one. Only the changes to one session are stored. Reads are public; writes, only for administrators.
+
+| Route | What it does |
+|---|---|
+| `POST /classes` `{name, time_zone, weekdays, start_time, duration_minutes, starts_on, ends_on?}`, `PUT /classes/{id}`, `DELETE /classes/{id}` | Admin. `weekdays` from 0 (Sunday) to 6; without `ends_on`, it repeats with no end |
+| `GET /classes`, `GET /classes/{id}` | The classes |
+| `GET /classes/{id}/sessions?from=&to=` | The sessions of those days of the class's clock (from today, 30 days, by default; up to 92), canceled ones marked and moved ones at their new hour |
+| `GET /classes/sessions?from=&to=` | The agenda of every class, sorted by when they start (from today, a week, by default) |
+| `PUT /classes/{id}/sessions/{date}` `{canceled: true}` or `{starts_at}`, with an optional `note` | Admin: cancels or moves the session of that date (another hour or another day), which must be one of the rule. `DELETE` brings it back to the rule |
+
+```json
+// GET /classes/1/sessions?from=2026-10-26&to=2026-11-02
+{"time_zone": "America/New_York", "data": [
+  {"date": "2026-10-26", "local_starts_at": "2026-10-26T18:00", "starts_at": "2026-10-26T22:00:00Z", "ends_at": "2026-10-26T23:00:00Z", "canceled": true, "moved": false, "note": "Holiday"},
+  {"date": "2026-10-28", "local_starts_at": "2026-10-29T19:00", "starts_at": "2026-10-29T23:00:00Z", "ends_at": "2026-10-30T00:00:00Z", "canceled": false, "moved": true, "note": ""},
+  {"date": "2026-11-02", "local_starts_at": "2026-11-02T18:00", "starts_at": "2026-11-02T23:00:00Z", "ends_at": "2026-11-03T00:00:00Z", "canceled": false, "moved": false, "note": ""}
+]}
+```
+
+- **The hour of the clock is kept:** at 18:00 of New York, the class is at 22:00 UTC in October and at 23:00 UTC in November. A class stored as a UTC instant plus "every 7 days" would move one hour at each change.
+- **`date` identifies a session** even when it was moved: it is the date of the rule, the one a change refers to. A session moved to another day appears on the day it was moved to, also if that day is outside the range of its original date.
+- **The logic** is in `internal/classes/schedule.go` (`Sessions`), without the database.
+
 ## Keeping the zone database up to date
 
 The zones change a few times a year (a country drops daylight saving time, or moves it). Go uses the system's database (`/usr/share/zoneinfo`, updated with the `tzdata` package of the distribution) and, without it, the copy inside the binary (`time/tzdata`), which comes with the version of Go it was built with. PostgreSQL uses its own, which comes with its minor versions. In practice: keep the system, PostgreSQL and Go up to date.
@@ -260,6 +286,11 @@ The schedule examples are independent from the rest of the template, except that
 1. Delete `internal/shifts`, the `00014_create_shifts.sql` migration and the `shifts.sql` query.
 2. In `internal/server/routes.go`, remove `shifts.Register`.
 3. Remove the keys `errors.shift_not_found`, `errors.shift_overlap`, `errors.already_clocked_in`, `errors.not_clocked_in`, `validation.unknown_user` and `validation.max_hours` from the catalogs, and the four codes from the table of [i18n.md](i18n.md#error-codes).
+
+**`classes`:**
+1. Delete `internal/classes`, the `00015_create_classes.sql` migration and the `classes.sql` query.
+2. In `internal/server/routes.go`, remove `classes.Register`.
+3. Remove the keys `errors.class_not_found`, `errors.class_change_not_found`, `validation.not_a_session` and `validation.canceled_without_time` from the catalogs, and the two codes from the table of [i18n.md](i18n.md#error-codes).
 
 **`branches`** (after `appointments`):
 1. Delete `internal/branches`, the `00012_create_branches.sql` migration and the `branches.sql` query.

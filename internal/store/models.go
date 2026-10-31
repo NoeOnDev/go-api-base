@@ -108,6 +108,28 @@ type Category struct {
 	UpdatedAt time.Time
 }
 
+type Class struct {
+	ID              int64
+	Name            string
+	TimeZone        string
+	Weekdays        []int16
+	StartTime       civil.Time
+	DurationMinutes int32
+	StartsOn        civil.Date
+	EndsOn          civil.Date
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type ClassSessionChange struct {
+	ID            int64
+	ClassID       int64
+	Date          civil.Date
+	Canceled      bool
+	LocalStartsAt civil.DateTime
+	Note          string
+}
+
 type Note struct {
 	ID        int64
 	UserID    int64

@@ -249,6 +249,10 @@ func (t Translator) Has(key string) bool {
 
 // T returns the text of key with its arguments filled in: T("validation.too_long", "max", 100).
 // A missing key returns the key itself, so a mistake shows up instead of an empty text.
+//
+// {name:date} and {name:time} write a date ("2026-11-05") or an hour ("10:00") in the language's
+// format, with FormatDate and FormatTime: "el {date:date} a las {time:time}" is "el 05/11/2026 a las
+// 10:00" in es-MX. They are for the values that travel as text, like the data of a notification.
 func (t Translator) T(key string, args ...any) string {
 	e, ok := t.lookup(key)
 	if !ok {
@@ -258,7 +262,7 @@ func (t Translator) T(key string, args ...any) string {
 	if e.plural() {
 		text = e.Other
 	}
-	return fill(text, args)
+	return t.fill(text, args)
 }
 
 // Plural returns the form of key for the number n ("one" for 1, "other" for the rest), with
@@ -276,7 +280,7 @@ func (t Translator) Plural(key string, n int, args ...any) string {
 			text = e.One
 		}
 	}
-	return fill(text, append([]any{"count", n}, args...))
+	return t.fill(text, append([]any{"count", n}, args...))
 }
 
 // Message translates m.
@@ -296,6 +300,12 @@ func (t Translator) FormatDate(at time.Time) string {
 	return at.Format(t.T("format.date"))
 }
 
+// FormatTime writes the hour of t for a person, without the date or the zone: "15:04" in es-MX,
+// "3:04 PM" in English. The format is the Go layout of format.time in the catalogs.
+func (t Translator) FormatTime(at time.Time) string {
+	return at.Format(t.T("format.time"))
+}
+
 // lookup finds key in the translator's language, then in the default language, then in BaseLocale.
 func (t Translator) lookup(key string) (entry, bool) {
 	for _, locale := range []string{t.locale, t.c.defaultLocale, BaseLocale} {
@@ -306,14 +316,32 @@ func (t Translator) lookup(key string) (entry, bool) {
 	return entry{}, false
 }
 
-// fill replaces each {name} in text with its value from args (key/value pairs).
-func fill(text string, args []any) string {
+// fill replaces each {name} in text with its value from args (key/value pairs), and each
+// {name:date} and {name:time} with the value written in the language's format (see T).
+func (t Translator) fill(text string, args []any) string {
 	if len(args) < 2 || !strings.Contains(text, "{") {
 		return text
 	}
+	formats := []struct {
+		suffix, layout string
+		format         func(time.Time) string
+	}{
+		{":date", time.DateOnly, t.FormatDate},
+		{":time", "15:04", t.FormatTime},
+	}
 	pairs := make([]string, 0, len(args))
 	for i := 0; i+1 < len(args); i += 2 {
-		pairs = append(pairs, "{"+fmt.Sprint(args[i])+"}", fmt.Sprint(args[i+1]))
+		name, value := fmt.Sprint(args[i]), fmt.Sprint(args[i+1])
+		pairs = append(pairs, "{"+name+"}", value)
+		for _, f := range formats {
+			if placeholder := "{" + name + f.suffix + "}"; strings.Contains(text, placeholder) {
+				formatted := value // a value in another format goes as it is
+				if at, err := time.Parse(f.layout, value); err == nil {
+					formatted = f.format(at)
+				}
+				pairs = append(pairs, placeholder, formatted)
+			}
+		}
 	}
 	return strings.NewReplacer(pairs...).Replace(text)
 }

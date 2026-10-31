@@ -11,15 +11,19 @@ migrations, because they represent the initial schema.
 
 ### Added
 
+- **Dates and hours inside a text:** `{name:date}` and `{name:time}` write a value that comes as text (`"2026-11-05"`, `"14:30"`) in the reader's format, and `i18n.Translator.FormatTime` writes an hour with the new `format.time` of the catalogs (see "Dates and times" in `docs/i18n.md`).
 - **`httpx.PathDate(r, "date")`** reads a date of the route (`{date}`) and answers `422` on its name, like `httpx.PathID` with the IDs. `branches` and `classes` used their own copy.
 
 ### Changed
 
+- **The appointment reminder says the day:** "Reminder: you have an appointment at Clinic on Nov 5, 2026 at 10:00 AM", instead of "Tomorrow…". The text of a notification is built when it is read, so "tomorrow" was wrong if it was read another day. Its data carries `date` besides `time`.
+- **`docs/time.md` says that changing a branch's hours does not touch the booked appointments**, and what a real project can do.
 - **"In the URL" in `docs/time.md`** shows `httpx.ParseDateRange`, which every example uses for `?from=&to=`, instead of reading each date by hand.
 
 ### Fixed
 
 - **`PUT /shifts/{id}` with another `user_id` reassigns the shift** (`internal/shifts`). Before, the shift stayed with its person but took the zone of the other one, so its instants moved. If it overlaps a shift of the new person, `409 shift_overlap`.
+- **`docs/i18n.md` still said that the dates of the emails use a fixed format in UTC** ("Limits"), which v0.9.0 changed.
 - **Two foreign keys of the examples had no index**, against the rule of `docs/adding-a-resource.md`: `appointments.branch_id` (the index of the constraint only has the booked appointments; now `appointments_branch_id_idx`, which also serves a branch's agenda) and `time_entries.shift_id` (`time_entries_shift_id_idx`). The original migrations `00013` and `00014` change.
 - **A user's time zone that does not load** is logged as a warning in `internal/shifts` too, like in `internal/auth`, before using the application's.
 

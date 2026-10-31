@@ -289,7 +289,7 @@ func TestReminderWorker(t *testing.T) {
 		t.Fatalf("sent %d notifications, want 1", len(notifier.sent))
 	}
 	n := notifier.sent[0]
-	if n.userID != f.aliceID || n.kind != appointments.NotifyReminder || n.data["branch"] != "Clinic" || n.data["time"] != "10:00" || n.data["time_zone"] != "America/Bogota" {
+	if n.userID != f.aliceID || n.kind != appointments.NotifyReminder || n.data["branch"] != "Clinic" || n.data["date"] != a.LocalStartsAt[:10] || n.data["time"] != "10:00" || n.data["time_zone"] != "America/Bogota" {
 		t.Errorf("notification = %+v", n)
 	}
 

@@ -65,11 +65,13 @@ func (w *ReminderWorker) Work(ctx context.Context, job *river.Job[ReminderArgs])
 	if a.Status != statusBooked || !a.StartsAt.Equal(job.Args.StartsAt) {
 		return nil
 	}
-	// The hour of the branch's clock: the appointment is there. The frontend has starts_at to show
-	// it in another zone.
+	// The day and hour of the branch's clock: the appointment is there. The text writes them in the
+	// reader's format ({date:date}, {time:time}); the frontend has starts_at to show it in another
+	// zone.
 	return w.notifier.Notify(ctx, a.UserID, NotifyReminder, map[string]any{
 		"appointment_id": a.ID,
 		"branch":         row.BranchName,
+		"date":           a.LocalStartsAt.Date().String(),
 		"time":           a.LocalStartsAt.Time().String(),
 		"time_zone":      a.TimeZone,
 		"starts_at":      a.StartsAt,

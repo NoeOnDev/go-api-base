@@ -63,12 +63,13 @@
 
   "format.date": "02/01/2006",
   "format.datetime": "02/01/2006 15:04",
+  "format.time": "15:04",
 
   "messages.email_change_sent": "Te enviamos un enlace a {email} para confirmar el cambio.",
   "messages.password_reset_sent": "Si el email está registrado, te enviamos un enlace para elegir una contraseña nueva.",
   "messages.verification_sent": "Te enviamos un enlace nuevo para confirmar tu email.",
 
-  "notifications.appointment_reminder": "Mañana tienes cita en {branch} a las {time}.",
+  "notifications.appointment_reminder": "Recordatorio: tienes cita en {branch} el {date:date} a las {time:time}.",
   "notifications.email_changed": "El email de tu cuenta ahora es {email}.",
   "notifications.password_changed": "Se cambió la contraseña de tu cuenta. Si no fuiste tú, recupérala cuanto antes.",
   "notifications.two_factor_disabled": "Se desactivó la verificación en dos pasos en tu cuenta. Si no fuiste tú, cambia tu contraseña.",

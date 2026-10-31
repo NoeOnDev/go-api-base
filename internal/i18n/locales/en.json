@@ -63,12 +63,13 @@
 
   "format.date": "Jan 2, 2006",
   "format.datetime": "Jan 2, 2006, 3:04 PM",
+  "format.time": "3:04 PM",
 
   "messages.email_change_sent": "We sent a link to {email} to confirm the change.",
   "messages.password_reset_sent": "If the email is registered, we sent you a link to choose a new password.",
   "messages.verification_sent": "We sent you a new link to confirm your email.",
 
-  "notifications.appointment_reminder": "Tomorrow you have an appointment at {branch} at {time}.",
+  "notifications.appointment_reminder": "Reminder: you have an appointment at {branch} on {date:date} at {time:time}.",
   "notifications.email_changed": "Your account email is now {email}.",
   "notifications.password_changed": "Your account password was changed. If it wasn't you, reset it right away.",
   "notifications.two_factor_disabled": "Two-factor authentication was disabled on your account. If it wasn't you, change your password.",

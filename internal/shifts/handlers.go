@@ -103,6 +103,7 @@ func (h *Handler) workerZone(r *http.Request, userID int64) (*time.Location, err
 	}
 	loc, err := civil.LoadLocation(*tz)
 	if err != nil {
+		httpx.LoggerFrom(r.Context()).Warn("the user's time zone does not load; using the application's", "user_id", userID, "time_zone", *tz)
 		return h.appZone, nil
 	}
 	return loc, nil
@@ -153,7 +154,8 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// update answers PUT /shifts/{id}, with the same body. Only for administrators.
+// update answers PUT /shifts/{id}, with the same body: another user_id reassigns the shift (409
+// shift_overlap if it overlaps one of theirs). Only for administrators.
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 	id, err := httpx.PathID(r, "id")
 	if err != nil {
@@ -164,7 +166,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s, err := h.q.UpdateShift(r.Context(), store.UpdateShiftParams{
-		ID: id, TimeZone: loc.String(), LocalStartsAt: in.StartsAt, LocalEndsAt: in.EndsAt,
+		ID: id, UserID: in.UserID, TimeZone: loc.String(), LocalStartsAt: in.StartsAt, LocalEndsAt: in.EndsAt,
 		StartsAt: start, EndsAt: end, Note: in.Note,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

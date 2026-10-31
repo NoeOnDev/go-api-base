@@ -50,7 +50,7 @@ func TestShifts(t *testing.T) {
 	api := testutil.NewAPI(pool)
 	_, admin := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
 	maria, mariaCookie := testutil.Login(t, pool, "maria@example.com", auth.RoleUser)
-	_, bob := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
+	bobUser, bob := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
 	setTimeZone(t, pool, maria.ID, "America/New_York")
 
 	// A night shift on the night the clocks jump: it lasts 7 real hours. Without time_zone, María's.
@@ -93,6 +93,19 @@ func TestShifts(t *testing.T) {
 	updated := testutil.Decode[shift](t, testutil.Do(t, api, admin, http.MethodPut, path, shiftBody(maria.ID, "2026-03-07T23:00", "2026-03-08T06:00", "")), http.StatusOK)
 	if updated.DurationMinutes != 360 {
 		t.Errorf("updated = %+v", updated)
+	}
+	// Another user_id reassigns it, in their zone if the body does not bring one.
+	setTimeZone(t, pool, bobUser.ID, "Asia/Tokyo")
+	moved := testutil.Decode[shift](t, testutil.Do(t, api, admin, http.MethodPut, path, shiftBody(bobUser.ID, "2026-03-07T23:00", "2026-03-08T06:00", "")), http.StatusOK)
+	if moved.UserID != bobUser.ID || moved.TimeZone != "Asia/Tokyo" || moved.StartsAt != "2026-03-07T14:00:00Z" {
+		t.Errorf("reassigned = %+v", moved)
+	}
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, mariaCookie, http.MethodGet, path, ""), http.StatusNotFound)
+	testutil.Decode[shift](t, testutil.Do(t, api, bob, http.MethodGet, path, ""), http.StatusOK)
+	// Reassigned back to María, it cannot overlap one of hers.
+	w = testutil.Do(t, api, admin, http.MethodPut, path, shiftBody(maria.ID, "2026-03-09T10:00", "2026-03-09T12:00", "America/Chicago"))
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusConflict); resp.Error.Code != "shift_overlap" {
+		t.Errorf("reassigning onto an overlap: %+v", resp.Error)
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, mariaCookie, http.MethodDelete, path, ""), http.StatusForbidden)
 	if w := testutil.Do(t, api, admin, http.MethodDelete, path, ""); w.Code != http.StatusNoContent {

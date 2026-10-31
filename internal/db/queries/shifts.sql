@@ -9,10 +9,12 @@ INSERT INTO shifts (user_id, time_zone, local_starts_at, local_ends_at, starts_a
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
+-- UpdateShift replaces a shift, also its person: reassigning it checks that it does not overlap the
+-- shifts of the new one.
 -- name: UpdateShift :one
 UPDATE shifts
-SET time_zone = $2, local_starts_at = $3, local_ends_at = $4, starts_at = $5, ends_at = $6, note = $7,
-    updated_at = now()
+SET user_id = $2, time_zone = $3, local_starts_at = $4, local_ends_at = $5, starts_at = $6, ends_at = $7,
+    note = $8, updated_at = now()
 WHERE id = $1
 RETURNING *;
 

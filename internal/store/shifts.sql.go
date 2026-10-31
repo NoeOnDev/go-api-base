@@ -254,14 +254,15 @@ func (q *Queries) ListTimeEntries(ctx context.Context, arg ListTimeEntriesParams
 
 const updateShift = `-- name: UpdateShift :one
 UPDATE shifts
-SET time_zone = $2, local_starts_at = $3, local_ends_at = $4, starts_at = $5, ends_at = $6, note = $7,
-    updated_at = now()
+SET user_id = $2, time_zone = $3, local_starts_at = $4, local_ends_at = $5, starts_at = $6, ends_at = $7,
+    note = $8, updated_at = now()
 WHERE id = $1
 RETURNING id, user_id, time_zone, local_starts_at, local_ends_at, starts_at, ends_at, note, created_at, updated_at
 `
 
 type UpdateShiftParams struct {
 	ID            int64
+	UserID        int64
 	TimeZone      string
 	LocalStartsAt civil.DateTime
 	LocalEndsAt   civil.DateTime
@@ -270,9 +271,12 @@ type UpdateShiftParams struct {
 	Note          string
 }
 
+// UpdateShift replaces a shift, also its person: reassigning it checks that it does not overlap the
+// shifts of the new one.
 func (q *Queries) UpdateShift(ctx context.Context, arg UpdateShiftParams) (Shift, error) {
 	row := q.db.QueryRow(ctx, updateShift,
 		arg.ID,
+		arg.UserID,
 		arg.TimeZone,
 		arg.LocalStartsAt,
 		arg.LocalEndsAt,

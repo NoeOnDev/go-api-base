@@ -227,7 +227,7 @@ An administrator assigns shifts; each user sees theirs, clocks in and out, and s
 
 | Route | What it does |
 |---|---|
-| `POST /shifts` `{user_id, starts_at, ends_at, time_zone?, note?}`, `PUT /shifts/{id}`, `DELETE /shifts/{id}` | Admin. The hours are of the clock of the place: `"2026-11-02T22:00"` to `"2026-11-03T06:00"` is a night shift. The zone is the shift's, or the worker's if it is missing. At most 24 hours. If the person already has a shift at that time, `409 shift_overlap` |
+| `POST /shifts` `{user_id, starts_at, ends_at, time_zone?, note?}`, `PUT /shifts/{id}`, `DELETE /shifts/{id}` | Admin. The hours are of the clock of the place: `"2026-11-02T22:00"` to `"2026-11-03T06:00"` is a night shift. The zone is the shift's, or the worker's if it is missing. At most 24 hours. If the person already has a shift at that time, `409 shift_overlap`. A `PUT` with another `user_id` reassigns the shift |
 | `GET /shifts?user_id=&from=&to=`, `GET /shifts/{id}` | The shifts that overlap those days of the zone of whoever asks (from today, a week, by default). The admin sees everyone's, or those of `user_id`; a user, only theirs |
 | `POST /time-entries/clock-in`, `POST /time-entries/clock-out` | Clocking in and out, now. The entry belongs to the shift going on (or starting within the hour). Clocking in twice answers `409 already_clocked_in`; clocking out without an open entry, `409 not_clocked_in` |
 | `GET /time-entries?user_id=&from=&to=` | The entries of those days of the worker's clock |

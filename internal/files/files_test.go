@@ -299,6 +299,39 @@ func (failingStore) Put(context.Context, string, io.ReadSeeker, int64, string) e
 	return errors.New("the bucket does not answer")
 }
 
+// streamStore returns the objects as S3 does: a body that arrives, without jumping inside it.
+type streamStore struct{ *storage.Memory }
+
+func (s streamStore) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	body, err := s.Memory.Open(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return struct {
+		io.Reader
+		io.Closer
+	}{body, body}, nil
+}
+
+// With S3 the file is sent whole as it arrives from the bucket, also when a part of it is asked for.
+func TestDownloadFromAStoreThatStreams(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool, testutil.WithStorage(streamStore{storage.NewMemory()}))
+	_, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	f := fixture{api: api}
+	up := testutil.Decode[file](t, testutil.Upload(t, api, cookie, "/files", "photo.png", testutil.PNG), http.StatusCreated)
+
+	for _, headers := range [][]string{nil, {"Range: bytes=1-3"}} {
+		w := f.get(cookie, up.URL, headers...)
+		if w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), testutil.PNG) || w.Header().Get("Content-Length") != fmt.Sprint(len(testutil.PNG)) {
+			t.Errorf("with %v: status = %d, %d bytes, Content-Length = %q", headers, w.Code, w.Body.Len(), w.Header().Get("Content-Length"))
+		}
+	}
+	if w := f.get(cookie, up.URL, "If-None-Match: "+f.get(cookie, up.URL).Header().Get("ETag")); w.Code != http.StatusNotModified {
+		t.Errorf("with If-None-Match: status = %d, want 304", w.Code)
+	}
+}
+
 func TestUploadWhenTheStoreFails(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool, testutil.WithStorage(failingStore{storage.NewMemory()}))

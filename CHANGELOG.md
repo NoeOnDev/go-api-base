@@ -20,7 +20,7 @@ File uploads: on the local disk or in S3, with the permission check on every dow
 - **The hourly cleanup deletes the files nobody needs** (`files.Purge`): the released ones, those of a deleted account, and the ones uploaded more than a day ago that no resource took.
 - **What keeps an uploaded file from being dangerous:** its type is the one found in its bytes, not the one the request says; only the images are shown in the browser and everything else is downloaded, with `Content-Security-Policy: sandbox`; the bytes are stored under a random key, never under the name sent; and each user has a limit of uploads in a row (30) and of total space (1 GB), in PostgreSQL.
 - **Attachments in the notes example** (`internal/notes/attachments.go`, the `note_attachments` table): `POST`, `GET` and `DELETE` on `/notes/{id}/attachments`. Deleting a note releases its files.
-- **`testutil.Upload`, `testutil.WithStorage`**, and `testutil.PNG` and `testutil.PDF`, for the tests of uploads. `TestS3Real` tries a real bucket when `S3_TEST_BUCKET` is set, like the SMTP test with Mailpit.
+- **`testutil.Upload`, `testutil.WithStorage`**, and `testutil.PNG` and `testutil.PDF`, for the tests of uploads. `TestS3Real` tries a real bucket when `S3_TEST_BUCKET` is set, like the SMTP test with Mailpit; `docs/files.md` says how to run it against AWS Emulator, AWS's own local emulator.
 
 ### Changed
 

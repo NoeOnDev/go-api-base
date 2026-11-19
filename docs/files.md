@@ -233,6 +233,16 @@ file := testutil.Decode[files.File](t, w, http.StatusCreated)
 
 The S3 store is tested against a small server that answers like S3 (`internal/storage/storage_test.go`). To try a real bucket, or a MinIO in Docker, set `S3_TEST_BUCKET` and the other `S3_TEST_*` variables (see `.env.example`): `TestS3Real` only runs with them, like the SMTP test with Mailpit.
 
+[AWS Emulator](https://docs.aws.amazon.com/emulator/latest/userguide/getting-started-linux.html), the official one, serves S3 on your machine without an account. It writes its certificate and the keys of each run to `~/.aws/emulator/9297/`; the SDK trusts the certificate through `AWS_CA_BUNDLE`, and the bucket is created first (`aws s3api create-bucket --bucket files-test`, with the AWS CLI set up as its guide says):
+
+```bash
+AWS_CA_BUNDLE=~/.aws/emulator/9297/ca.pem S3_TEST_BUCKET=files-test S3_TEST_REGION=us-east-1 \
+S3_TEST_ENDPOINT=https://127.0.0.1:9297 S3_TEST_PATH_STYLE=true \
+S3_TEST_ACCESS_KEY_ID=… S3_TEST_SECRET_ACCESS_KEY=… go test -run TestS3Real ./internal/storage/
+```
+
+The same variables without `_TEST`, with `STORAGE_DRIVER=s3`, point the API of development at it.
+
 ## What it does not include
 
 - **Thumbnails or resizing images.** It needs an image library, and each project wants different sizes. A job can make them: it reads the file from the store and writes another one.

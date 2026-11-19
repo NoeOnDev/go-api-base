@@ -14,7 +14,7 @@ The template uses [River](https://riverqueue.com), a job queue stored in **Postg
 | Job | Queue | What it does |
 |---|---|---|
 | `send_email` | `email` | Sends the emails. Up to 5 attempts, with the content encrypted (see below) |
-| `cleanup` | `default` | Every hour it deletes the expired sessions and tokens, the notifications read more than 90 days ago, the keys of the attempt limits that already refilled and the large real-time messages |
+| `cleanup` | `default` | Every hour it deletes the expired sessions and tokens, the notifications read more than 90 days ago, the keys of the attempt limits that already refilled, the large real-time messages and the uploaded files nobody needs (see [files.md](files.md#the-life-of-a-file)) |
 
 There are two queues, each one with its own worker limit, so a slow job in one does not hold back the other:
 
@@ -219,7 +219,7 @@ It is not built in, because a single process is enough for most projects and it 
 If a project does not need it:
 
 1. **The appointments example** queues its reminders here: remove it first (see "Removing the examples" in [time.md](time.md#removing-the-examples)), or send its reminders another way.
-2. **Then, the hourly cleanup**, which today is a queue job. Move the body of `cleanupWorker.Work` (`internal/jobs/cleanup.go`), with its constants, to a `cleanup(ctx, q, idle, logger) error` function in `cmd/api/cleanup.go`. Next to it, write `cleanupEvery`, which calls it on startup and then every hour with a `time.Ticker`, until `ctx` is cancelled. In `run`, start it with `go cleanupEvery(ctx, store.New(pool), cfg.SessionIdleTimeout, logger)`. With several instances, each one cleans up on its own, and that is fine: they are deletions that do not clash. The tests of `cleanup_test.go` use River: adapt them to call `cleanup` directly, or delete them.
+2. **Then, the hourly cleanup**, which today is a queue job. Move the body of `cleanupWorker.Work` (`internal/jobs/cleanup.go`), with its constants, to a `cleanup(ctx, q, idle, fileStore, logger) error` function in `cmd/api/cleanup.go`. Next to it, write `cleanupEvery`, which calls it on startup and then every hour with a `time.Ticker`, until `ctx` is cancelled. In `run`, start it with `go cleanupEvery(ctx, store.New(pool), cfg.SessionIdleTimeout, fileStore, logger)`. With several instances, each one cleans up on its own, and that is fine: they are deletions that do not clash. The tests of `cleanup_test.go` use River: adapt them to call `cleanup` directly, or delete them.
 3. Delete `internal/jobs` and the `00008_create_river.sql` migration. In the `Makefile`, remove `RIVER_VERSION`, `RIVER_CLI` and the `river-migration` target (and its row in `AGENTS.md` and the README).
 4. In `cmd/api/main.go`, remove the queue client and use the `mail.Sender` directly (`sender`) as `Mailer`: the emails are sent inside the request, without retries. `POST /auth/password/forgot` then waits for the mail server only when the email exists, so its response time tells registered emails apart: if that matters to the project, send that email from a goroutine (with `context.WithoutCancel(r.Context())`). `shutdown` is left only with the HTTP server: remove its jobs parameter and the `stopper` interface. Delete `main_test.go`, which tests the shutdown of the jobs.
 5. In `internal/server/routes.go`, remove the `Jobs` field of `Deps`, and in `internal/testutil/http.go`, `WithJobs`, which sets it. In `cmd/api/keys.go`, remove the part about queued emails (`jobs.QueuedEmailKeys` and `AddQueuedEmails`).

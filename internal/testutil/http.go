@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -20,6 +21,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/server"
+	"github.com/NoeOnDev/go-api-base/internal/storage"
 )
 
 // EncryptionKey is the ENCRYPTION_KEY of the tests: 32 fixed bytes, not a secret.
@@ -52,6 +54,12 @@ func WithBroker(b *realtime.Broker) Option {
 // check what a request queues, with rivertest.RequireInserted. Without it, Deps.Jobs is nil.
 func WithJobs(client *river.Client[pgx.Tx]) Option {
 	return func(d *server.Deps) { d.Jobs = client }
+}
+
+// WithStorage keeps the uploaded files in st, usually a storage.NewMemory the test reads afterwards.
+// Without it, they go to one that is thrown away.
+func WithStorage(st storage.Store) Option {
+	return func(d *server.Deps) { d.Storage = st }
 }
 
 // WithConfig changes the configuration, for example to turn on email verification.
@@ -133,6 +141,39 @@ func request(t *testing.T, api http.Handler, ip, lang string, cookie *http.Cooki
 	api.ServeHTTP(w, r)
 	return w
 }
+
+// Upload sends a file as a browser's FormData does: multipart/form-data, in the "file" field. path
+// is the upload route, like "/files".
+func Upload(t *testing.T, api http.Handler, cookie *http.Cookie, path, name string, content []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("file", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, path, &body)
+	r.Header.Set("Content-Type", form.FormDataContentType())
+	if cookie != nil {
+		r.AddCookie(cookie)
+	}
+	w := httptest.NewRecorder()
+	api.ServeHTTP(w, r)
+	return w
+}
+
+// Contents of files for the upload tests: their first bytes are what the API looks at to know the
+// type, whatever their name says.
+var (
+	PNG = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 64)...)
+	PDF = []byte("%PDF-1.7\n1 0 obj\n<< >>\nendobj\n")
+)
 
 // Decode checks the status of the response and decodes its JSON body into T.
 func Decode[T any](t *testing.T, w *httptest.ResponseRecorder, wantStatus int) T {

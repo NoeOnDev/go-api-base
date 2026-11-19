@@ -47,6 +47,21 @@ func (q *Queries) CreateNote(ctx context.Context, arg CreateNoteParams) (Note, e
 	return i, err
 }
 
+const createNoteAttachment = `-- name: CreateNoteAttachment :exec
+INSERT INTO note_attachments (note_id, file_id)
+VALUES ($1, $2)
+`
+
+type CreateNoteAttachmentParams struct {
+	NoteID int64
+	FileID int64
+}
+
+func (q *Queries) CreateNoteAttachment(ctx context.Context, arg CreateNoteAttachmentParams) error {
+	_, err := q.db.Exec(ctx, createNoteAttachment, arg.NoteID, arg.FileID)
+	return err
+}
+
 const deleteNote = `-- name: DeleteNote :execrows
 DELETE FROM notes
 WHERE id = $1 AND user_id = $2
@@ -59,6 +74,27 @@ type DeleteNoteParams struct {
 
 func (q *Queries) DeleteNote(ctx context.Context, arg DeleteNoteParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteNote, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteNoteAttachment = `-- name: DeleteNoteAttachment :execrows
+DELETE FROM note_attachments a
+USING notes n
+WHERE a.note_id = $1 AND a.file_id = $2 AND n.id = a.note_id AND n.user_id = $3
+`
+
+type DeleteNoteAttachmentParams struct {
+	NoteID int64
+	FileID int64
+	UserID int64
+}
+
+// DeleteNoteAttachment takes a file off a note of the user, and returns whether it was there.
+func (q *Queries) DeleteNoteAttachment(ctx context.Context, arg DeleteNoteAttachmentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteNoteAttachment, arg.NoteID, arg.FileID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -88,6 +124,90 @@ func (q *Queries) GetNote(ctx context.Context, arg GetNoteParams) (Note, error) 
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getNoteID = `-- name: GetNoteID :one
+SELECT id FROM notes
+WHERE id = $1 AND user_id = $2
+`
+
+type GetNoteIDParams struct {
+	ID     int64
+	UserID int64
+}
+
+// GetNoteID tells whether the note is the user's, without reading it.
+func (q *Queries) GetNoteID(ctx context.Context, arg GetNoteIDParams) (int64, error) {
+	row := q.db.QueryRow(ctx, getNoteID, arg.ID, arg.UserID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const listNoteAttachmentIDs = `-- name: ListNoteAttachmentIDs :many
+SELECT file_id FROM note_attachments
+WHERE note_id = $1
+`
+
+// ListNoteAttachmentIDs returns the files of a note, to release them when it is deleted.
+func (q *Queries) ListNoteAttachmentIDs(ctx context.Context, noteID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listNoteAttachmentIDs, noteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var file_id int64
+		if err := rows.Scan(&file_id); err != nil {
+			return nil, err
+		}
+		items = append(items, file_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNoteAttachments = `-- name: ListNoteAttachments :many
+SELECT f.id, f.user_id, f.key, f.name, f.content_type, f.size, f.uploaded_at, f.attached_at, f.deleted_at, f.created_at
+FROM note_attachments a
+JOIN files f ON f.id = a.file_id
+WHERE a.note_id = $1 AND f.deleted_at IS NULL
+ORDER BY a.created_at, f.id
+`
+
+// ListNoteAttachments returns the files of a note that can still be served, the oldest first.
+func (q *Queries) ListNoteAttachments(ctx context.Context, noteID int64) ([]File, error) {
+	rows, err := q.db.Query(ctx, listNoteAttachments, noteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []File{}
+	for rows.Next() {
+		var i File
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Key,
+			&i.Name,
+			&i.ContentType,
+			&i.Size,
+			&i.UploadedAt,
+			&i.AttachedAt,
+			&i.DeletedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listNotes = `-- name: ListNotes :many

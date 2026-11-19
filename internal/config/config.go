@@ -61,6 +61,9 @@ type Config struct {
 	// Mail configures sending emails.
 	Mail Mail
 
+	// Storage is where the uploaded files are kept.
+	Storage Storage
+
 	// JobsMaxWorkers is how many background jobs of the default queue run at once.
 	JobsMaxWorkers int
 
@@ -97,6 +100,30 @@ type Mail struct {
 	SMTPPort int
 	SMTPUser string
 	SMTPPass string
+}
+
+// Supported storage drivers.
+const (
+	StorageDriverLocal = "local"
+	StorageDriverS3    = "s3"
+)
+
+// Storage is where the uploaded files are kept (see docs/files.md).
+type Storage struct {
+	// Driver is "local" (a directory of the server) or "s3" (Amazon S3 or a compatible service).
+	Driver string
+	// Dir is the directory of the local driver.
+	Dir string
+	// S3Bucket and S3Region say where the bucket is. S3Endpoint is the address of a compatible
+	// service (R2, MinIO); empty, Amazon S3. S3PathStyle puts the bucket in the path, as MinIO needs.
+	S3Bucket    string
+	S3Region    string
+	S3Endpoint  string
+	S3PathStyle bool
+	// S3AccessKeyID and S3SecretAccessKey are fixed credentials. Empty, the SDK takes them from the
+	// role of the machine or from the AWS_* variables.
+	S3AccessKeyID     string
+	S3SecretAccessKey string
 }
 
 // IsProduction reports whether the application runs in production.
@@ -227,6 +254,9 @@ func load(rawGetenv func(string) string) (Config, error) {
 	cfg.Mail, err = loadMail(getenv)
 	errs = append(errs, err)
 
+	cfg.Storage, err = loadStorage(getenv)
+	errs = append(errs, err)
+
 	if cfg.JobsMaxWorkers, err = positiveInt(getenv("JOBS_MAX_WORKERS"), 10); err != nil {
 		errs = append(errs, fmt.Errorf("JOBS_MAX_WORKERS %w", err))
 	}
@@ -305,6 +335,48 @@ func loadMail(getenv func(string) string) (Mail, error) {
 }
 
 // baseURL validates an http/https base URL and removes the trailing slash.
+func loadStorage(getenv func(string) string) (Storage, error) {
+	s := Storage{
+		Driver:            valueOr(getenv("STORAGE_DRIVER"), StorageDriverLocal),
+		Dir:               valueOr(getenv("STORAGE_DIR"), "storage"),
+		S3Bucket:          strings.TrimSpace(getenv("S3_BUCKET")),
+		S3Region:          strings.TrimSpace(getenv("S3_REGION")),
+		S3Endpoint:        strings.TrimSpace(getenv("S3_ENDPOINT")),
+		S3AccessKeyID:     strings.TrimSpace(getenv("S3_ACCESS_KEY_ID")),
+		S3SecretAccessKey: getenv("S3_SECRET_ACCESS_KEY"),
+	}
+
+	var errs []error
+
+	var err error
+	if s.S3PathStyle, err = boolOr(getenv("S3_PATH_STYLE"), false); err != nil {
+		errs = append(errs, fmt.Errorf("S3_PATH_STYLE %w", err))
+	}
+	if s.S3Endpoint != "" {
+		if s.S3Endpoint, err = baseURL(s.S3Endpoint); err != nil {
+			errs = append(errs, fmt.Errorf("S3_ENDPOINT: %w", err))
+		}
+	}
+
+	switch s.Driver {
+	case StorageDriverLocal:
+	case StorageDriverS3:
+		if s.S3Bucket == "" {
+			errs = append(errs, errors.New("S3_BUCKET is required with STORAGE_DRIVER=s3"))
+		}
+		if s.S3Region == "" {
+			errs = append(errs, errors.New("S3_REGION is required with STORAGE_DRIVER=s3 (with Cloudflare R2, auto)"))
+		}
+		if (s.S3AccessKeyID == "") != (s.S3SecretAccessKey == "") {
+			errs = append(errs, errors.New("S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY go together: set both, or neither to use the role of the machine"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("STORAGE_DRIVER must be %q or %q, not %q", StorageDriverLocal, StorageDriverS3, s.Driver))
+	}
+
+	return s, errors.Join(errs...)
+}
+
 func baseURL(value string) (string, error) {
 	value = strings.TrimSuffix(strings.TrimSpace(value), "/")
 	u, err := url.Parse(value)

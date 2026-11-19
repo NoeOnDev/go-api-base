@@ -7,6 +7,26 @@ copy, and its `TEMPLATE_VERSION` file says which version it came from. When a te
 Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
 migrations, because they represent the initial schema.
 
+## [Unreleased]
+
+File uploads: on the local disk or in S3, with the permission check on every download, limits per user and a cleanup of the files nobody uses. The notes example shows how a resource uses them. The schema changes: the new `files` and `note_attachments` tables.
+
+### Added
+
+- **File uploads** (`internal/files`, see `docs/files.md`): `POST /files` receives a `multipart/form-data` file, `GET /files/{id}` serves it to its owner or an administrator, and `DELETE /files/{id}` deletes one that nothing uses. A resource uses a file with three calls: `Receive` in its upload route, `files.Attach` in the transaction that links it and `files.Release` in the one that deletes it; `Serve` sends a file after the resource's own permission check.
+- **Where the files are kept** (`internal/storage`): `STORAGE_DRIVER=local` (the `STORAGE_DIR` directory, for development and a single server) or `s3`, for Amazon S3 and the compatible services (Cloudflare R2, MinIO), with the `S3_*` variables. On AWS, without keys: the SDK takes the role of the machine. The bucket stays private.
+- **A new dependency, the official AWS SDK** (`aws-sdk-go-v2`), only for the S3 store: signing the requests by hand would have been security code to maintain against a service that changes. A project that does not use S3 removes it by deleting one file (see "Removing file uploads" in `docs/files.md`).
+- **The `files` table** records whose each file is, its name, its type and its state. Its row is created before the upload and deleted after the bytes, so a failure in the middle never leaves an object in the store that the database does not know about.
+- **The hourly cleanup deletes the files nobody needs** (`files.Purge`): the released ones, those of a deleted account, and the ones uploaded more than a day ago that no resource took.
+- **What keeps an uploaded file from being dangerous:** its type is the one found in its bytes, not the one the request says; only the images are shown in the browser and everything else is downloaded, with `Content-Security-Policy: sandbox`; the bytes are stored under a random key, never under the name sent; and each user has a limit of uploads in a row (30) and of total space (1 GB), in PostgreSQL.
+- **Attachments in the notes example** (`internal/notes/attachments.go`, the `note_attachments` table): `POST`, `GET` and `DELETE` on `/notes/{id}/attachments`. Deleting a note releases its files.
+- **`testutil.Upload`, `testutil.WithStorage`**, and `testutil.PNG` and `testutil.PDF`, for the tests of uploads. `TestS3Real` tries a real bucket when `S3_TEST_BUCKET` is set, like the SMTP test with Mailpit.
+
+### Changed
+
+- **`notes.NewHandler` and `notes.Register` take more arguments** (the pool and the files service; the limit of uploads): the example now has transactions and an upload route.
+- **An upload has its own time limit** (5 minutes), instead of the server's `ReadTimeout` and `WriteTimeout`, which are made for JSON requests.
+
 ## [v0.10.0] - 2026-11-19
 
 Fixes from a review of v0.9.1. `make check` passes again with Go 1.27.4, a project created from the template can regenerate `internal/store`, and four inputs that answered `500` or a wrong value are fixed. An open tab no longer keeps an idle session alive, a queued email is not lost in the middle of a key rotation, and the jobs that fail are seen in the log. The recipes to remove what a project does not use (auth features, the queue, real time, the examples) were followed again on copies of the project, and what did not work as written is fixed. The schema changes: the appointments get `reminded_at`, and the notifications and the time entries an index each.

@@ -17,16 +17,18 @@ Instructions for coding agents (Claude Code, Codex, Copilot) working on this pro
 It runs as a single binary with PostgreSQL, with one instance or several (see "Multiple instances" in
 `docs/decisions.md`).
 It favors the standard library and adds only the essentials: PostgreSQL (pgx), migrations (goose), typed queries (sqlc),
-the job queue (River) and packages from the Go team (`golang.org/x/crypto`, `x/time`, `x/term`, `x/text`).
+the job queue (River), packages from the Go team (`golang.org/x/crypto`, `x/time`, `x/term`, `x/text`) and the AWS SDK for
+the S3 store of the uploaded files.
 
 It comes with complete authentication (cookie sessions, `user`/`admin` roles, profile, password change and reset,
 optional email verification, 2FA with TOTP, sessions per device, email change and account deletion; see `docs/auth.md`),
 email sending, background jobs with River (`docs/jobs.md`), real time with SSE and notifications (`docs/realtime.md`),
+file uploads on the local disk or in S3 (`docs/files.md`),
 user-facing text in several languages (`docs/i18n.md`), and **example resources** that serve as models:
 
 | Resource | What it shows |
 |---|---|
-| `internal/notes` | Protected CRUD with **ownership**: each user sees only their own |
+| `internal/notes` | Protected CRUD with **ownership**: each user sees only their own. Also **files attached to a resource** (`attachments.go`) |
 | `internal/categories` | Public reads, admin-only writes, unique value (409), no deleting while in use (409) |
 | `internal/products` | Relationship with another table (JOIN), filters and search, missing FK (422), data visible by role |
 | `internal/branches` | **Business hours** in the branch's time zone: weekly hours, exceptions per date, the real hours of some days and "open now" (see `docs/time.md`) |
@@ -55,6 +57,8 @@ headings of each guide are listed with `grep -n '^#' docs/*.md`.
 | React frontend, on the same domain or another one | [docs/auth.md](docs/auth.md#from-the-frontend-react), [docs/realtime.md](docs/realtime.md#from-the-frontend-react) |
 | Background and periodic jobs | [docs/jobs.md](docs/jobs.md) |
 | Real time: publishing events and topics with permissions | [docs/realtime.md](docs/realtime.md#publishing-events) |
+| File uploads: configuration (local disk or S3), routes and what an upload accepts | [docs/files.md](docs/files.md) |
+| Using a file in a resource (an avatar, attachments), and who can see it | [docs/files.md](docs/files.md#using-a-file-in-a-resource) |
 | Streaming an AI agent's response | [docs/realtime.md](docs/realtime.md#streaming-an-ai-agents-response) |
 | Multiple instances of the API | [docs/decisions.md](docs/decisions.md#multiple-instances) |
 | Encryption, `ENCRYPTION_KEY` and its rotation | [docs/encryption.md](docs/encryption.md) |
@@ -66,6 +70,7 @@ headings of each guide are listed with `grep -n '^#' docs/*.md`.
 | **Removing** unused auth features (open registration, 2FA, email change…) | [docs/auth.md](docs/auth.md#removing-features) |
 | **Removing** the job queue | [docs/jobs.md](docs/jobs.md#removing-the-queue) |
 | **Removing** real time or only the notifications | [docs/realtime.md](docs/realtime.md#removing-real-time) |
+| **Removing** file uploads, or only S3 | [docs/files.md](docs/files.md#removing-file-uploads) |
 | Why it is built this way (each design decision) | [docs/decisions.md](docs/decisions.md) |
 | What the template leaves out on purpose: check it before proposing a new feature | [docs/decisions.md](docs/decisions.md#what-it-does-not-include), [docs/auth.md](docs/auth.md#what-it-does-not-include) |
 | What changed in each version | [CHANGELOG.md](CHANGELOG.md) |
@@ -112,6 +117,8 @@ internal/mail/        email sending: LogSender, SMTPSender, Recorder (tests), te
 internal/jobs/        background jobs with River: client, workers (workers.go), periodic jobs, MailSender
 internal/realtime/    real time with SSE: Stream, Broker (channels and topics), GET /events and LISTEN/NOTIFY between instances
 internal/notifications/ notifications stored and sent live; auth uses them for the security notices
+internal/storage/     where the bytes of the uploaded files are: Local (a directory), S3 (AWS SDK) and Memory (tests)
+internal/files/       uploaded files: the files table, Receive, Attach, Release, Serve and the cleanup (Purge)
 internal/totp/        TOTP codes for 2FA (RFC 6238), standard library only
 internal/secretbox/   keyring: AES-256-GCM encryption and HMAC with the current key and the previous ones (rotation)
 internal/db/          pgx pool, migrations, PostgreSQL errors and SQL queries (queries/*.sql)
@@ -232,6 +239,20 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 - To stream a long response (an AI agent), `realtime.Open` (with `defer stream.Close()`) and `stream.Send`. After `Open`, errors go as an event,
   not as JSON.
 
+**Files** (see `docs/files.md`)
+- A resource never talks to the store (`internal/storage`): it uses `internal/files` and keeps the `id` of the file
+  (`avatar_id bigint REFERENCES files (id) ON DELETE SET NULL`, or a table in between like `note_attachments`).
+- An upload route reads the file with `filesService.Receive(w, r, files.Rule{MaxBytes: …, Types: …})` and has the
+  per-user limit `files.ByUser(uploads)` inside `RequireUser`. The type is the one found in the bytes; never trust the
+  one the request says, nor the extension.
+- `files.Attach(ctx, q, userID, ids...)` in the transaction that links the file to the resource, and
+  `files.Release(ctx, q, ids...)` in the one that deletes the resource or takes the file off it. Without the release, the
+  file stays in the store forever. See `internal/notes/attachments.go`.
+- A file others can see (a product image) is served from a route of the resource with `filesService.Serve(w, r, id)`,
+  after its own permission check. `GET /files/{id}` only lets the owner and the administrators in.
+- Never write a file to the response by hand, nor show a type other than `files.Images` in the page: files are served
+  from the domain of the session cookie, and `Serve` sets the headers that keep them from running there.
+
 **Database**
 - All SQL lives in `internal/db/queries/*.sql`. After changing it, run `make sqlc`.
 - **Never edit `internal/store`**: it is regenerated.
@@ -271,6 +292,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   use `testutil.DoFromIP`.
 - If the test's API changes the cookie configuration (`WithConfig` with `CookieSecure`), pass the same options to
   `testutil.Login` so the cookie matches.
+- Uploads: `testutil.Upload(t, api, cookie, "/files", "photo.png", testutil.PNG)` sends the form as a browser does. The
+  files of the tests are kept in memory; to look at them, `testutil.WithStorage(storage.NewMemory())`.
 - Real-time events: `testutil.NewServer` (a real HTTP server) and `testutil.OpenEvents`, which returns a reader with
   `Next`, `NextComment` and `Nothing`. To publish from the test, `testutil.WithBroker`. See `internal/notes/events_test.go`.
 - Workers: `rivertest.NewWorker` and `rivertest.RequireInserted`. See `internal/jobs/email_test.go`. To check what a

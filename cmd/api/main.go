@@ -25,6 +25,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/server"
+	"github.com/NoeOnDev/go-api-base/internal/storage"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -104,6 +105,11 @@ func run() error {
 		return err
 	}
 
+	fileStore, err := newStorage(ctx, cfg.Storage)
+	if err != nil {
+		return err
+	}
+
 	// Background jobs: the workers run in this same process.
 	// They start without the signals' ctx: that way the signal does not cut them abruptly, and
 	// shutdown stops them with Stop and its own deadline, letting what is running finish.
@@ -117,6 +123,8 @@ func run() error {
 		TimeZone:           cfg.TimeZone,
 		// The jobs notify like the requests: stored, and live through the broker.
 		Notifier: notifications.NewService(store.New(pool), broker, catalog),
+		// The cleanup deletes the uploaded files nobody needs.
+		Storage: fileStore,
 	})
 	if err != nil {
 		return err
@@ -129,14 +137,15 @@ func run() error {
 	mailer := jobs.NewMailSender(jobsClient, box)
 
 	srv := server.New(cfg.HTTPAddr, server.NewHandler(server.Deps{
-		Logger: logger,
-		DB:     pool,
-		Config: cfg,
-		Mailer: mailer,
-		Broker: broker,
-		Jobs:   jobsClient,
-		Box:    box,
-		I18n:   catalog,
+		Logger:  logger,
+		DB:      pool,
+		Config:  cfg,
+		Mailer:  mailer,
+		Broker:  broker,
+		Jobs:    jobsClient,
+		Box:     box,
+		I18n:    catalog,
+		Storage: fileStore,
 	}), logger)
 	// On shutdown the SSE streams are closed; otherwise, Shutdown would wait until the timeout.
 	srv.RegisterOnShutdown(broker.Close)
@@ -218,6 +227,18 @@ func newMailSender(cfg config.Config, logger *slog.Logger) (mail.Sender, error) 
 
 // newLogger returns a logger in readable text for development and in JSON for production,
 // which is the format that log processing tools expect.
+// newStorage returns where the uploaded files are kept: a directory, or a bucket of S3 (see
+// docs/files.md).
+func newStorage(ctx context.Context, c config.Storage) (storage.Store, error) {
+	if c.Driver == config.StorageDriverS3 {
+		return storage.NewS3(ctx, storage.S3Config{
+			Bucket: c.S3Bucket, Region: c.S3Region, Endpoint: c.S3Endpoint, PathStyle: c.S3PathStyle,
+			AccessKeyID: c.S3AccessKeyID, SecretAccessKey: c.S3SecretAccessKey,
+		})
+	}
+	return storage.NewLocal(c.Dir)
+}
+
 func newLogger(cfg config.Config) *slog.Logger {
 	opts := &slog.HandlerOptions{Level: cfg.LogLevel}
 	if cfg.IsProduction() {

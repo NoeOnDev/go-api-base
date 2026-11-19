@@ -112,7 +112,7 @@ On confirmation the `email_changed` notification is sent. If another account too
 
 ## Deleting the account
 
-**`DELETE /auth/me`** with `{password}` deletes the account and all its data: sessions, tokens, recovery codes, notes and notifications, through `ON DELETE CASCADE`. Its streams are cut, the cookie is deleted and a last email is sent ("your account was deleted"), in case it was not the owner.
+**`DELETE /auth/me`** with `{password}` deletes the account and all its data: sessions, tokens, recovery codes, notes and notifications, through `ON DELETE CASCADE`. Its uploaded files stop being reachable at once, and the hourly cleanup deletes them (see [files.md](files.md#the-life-of-a-file)). Its streams are cut, the cookie is deleted and a last email is sent ("your account was deleted"), in case it was not the owner.
 
 - **The only administrator account cannot be deleted** (`409`): another admin must be appointed first. That way nobody leaves the API without an administrator by mistake.
 - **Every table of a project with user data must reference the user with `ON DELETE CASCADE`** (or `SET NULL`, if the data must stay without an owner, like an invoice). With `RESTRICT`, the deletion fails with `409` and nothing is deleted.
@@ -313,7 +313,7 @@ With invitations, open registration can be removed (see [removing features](#rem
 - **Headers:** `X-Content-Type-Options: nosniff` on every response, `Cache-Control: no-store` on every `/auth` one and, in production with `COOKIE_SECURE=true`, `Strict-Transport-Security` (HSTS, one year) on every response.
 - **2FA**, optional for each user and, with `REQUIRE_ADMIN_TWO_FACTOR=true`, mandatory for administrators (see the [2FA](#2fa-two-factor-authentication) section).
 - **CSRF protection** (Go's `http.CrossOriginProtection`): it rejects with `403` the `POST`/`PUT`/`DELETE` requests the browser sends from another site. Requests without browser headers (`curl`, mobile apps) are not affected.
-- **Cleanup:** an hourly job deletes the expired sessions and tokens, and the keys of the limits that already refilled (see [jobs](jobs.md)).
+- **Cleanup:** an hourly job deletes the expired sessions and tokens, the keys of the limits that already refilled and the uploaded files nobody needs (see [jobs](jobs.md)).
 
 ## From the frontend (React)
 

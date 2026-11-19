@@ -131,6 +131,19 @@ type ClassSessionChange struct {
 	Note          string
 }
 
+type File struct {
+	ID          int64
+	UserID      *int64
+	Key         string
+	Name        string
+	ContentType string
+	Size        int64
+	UploadedAt  *time.Time
+	AttachedAt  *time.Time
+	DeletedAt   *time.Time
+	CreatedAt   time.Time
+}
+
 type Note struct {
 	ID        int64
 	UserID    int64
@@ -138,6 +151,12 @@ type Note struct {
 	Body      string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type NoteAttachment struct {
+	NoteID    int64
+	FileID    int64
+	CreatedAt time.Time
 }
 
 type Notification struct {

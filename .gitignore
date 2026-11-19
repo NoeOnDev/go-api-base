@@ -13,3 +13,6 @@ coverage.html
 .idea/
 .vscode/
 .DS_Store
+
+# Uploaded files with STORAGE_DRIVER=local (the default)
+/storage/

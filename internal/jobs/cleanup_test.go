@@ -3,6 +3,7 @@ package jobs
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/riverqueue/river/rivertest"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/files"
+	"github.com/NoeOnDev/go-api-base/internal/storage"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
@@ -179,5 +182,52 @@ func TestInsertAfterStop(t *testing.T) {
 	var state string
 	if err := pool.QueryRow(t.Context(), "SELECT state FROM river_job WHERE id = $1", res.Job.ID).Scan(&state); err != nil || state != "available" {
 		t.Errorf("the job should stay pending: %q (%v)", state, err)
+	}
+}
+
+// The cleanup also deletes the uploaded files nobody needs, from the store and from their table.
+func TestCleanupDeletesUnusedFiles(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	u, _ := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	st := storage.NewMemory()
+
+	var released int64
+	for _, key := range []string{"2026/11/in-use", "2026/11/released"} {
+		if err := st.Put(t.Context(), key, strings.NewReader("data"), 4, "text/plain"); err != nil {
+			t.Fatal(err)
+		}
+		f, err := q.CreateFile(t.Context(), store.CreateFileParams{UserID: &u.ID, Key: key, Name: "a.txt", ContentType: "text/plain", Size: 4})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := q.MarkFileUploaded(t.Context(), f.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := files.Attach(t.Context(), q, u.ID, f.ID); err != nil {
+			t.Fatal(err)
+		}
+		released = f.ID
+	}
+	if err := files.Release(t.Context(), q, released); err != nil {
+		t.Fatal(err)
+	}
+
+	worker := rivertest.NewWorker(t, riverpgxv5.New(pool), &river.Config{},
+		&cleanupWorker{q: q, logger: slog.New(slog.DiscardHandler), storage: st})
+	tx, err := pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(t.Context())
+	if _, err := worker.Work(t.Context(), t, tx, CleanupArgs{}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if keys := st.Keys(); len(keys) != 1 || keys[0] != "2026/11/in-use" {
+		t.Errorf("objects left = %v, want only the one in use", keys)
+	}
+	if n := count(t, pool, "files"); n != 1 {
+		t.Errorf("%d files left, want 1", n)
 	}
 }

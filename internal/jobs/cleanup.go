@@ -9,6 +9,8 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/NoeOnDev/go-api-base/internal/files"
+	"github.com/NoeOnDev/go-api-base/internal/storage"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -19,7 +21,8 @@ import (
 //   - the notifications read more than notificationRetention ago. Unread ones are left alone;
 //   - the keys of the rate limits that already refilled all their attempts (internal/ratelimit);
 //   - the real-time messages stored because they did not fit in a NOTIFY (internal/realtime):
-//     the other instances read them right away, so they are deleted after realtimeMessageRetention.
+//     the other instances read them right away, so they are deleted after realtimeMessageRetention;
+//   - the uploaded files nobody needs, from the store and from their table (files.Purge).
 type CleanupArgs struct{}
 
 const (
@@ -41,6 +44,8 @@ type cleanupWorker struct {
 	q      *store.Queries
 	logger *slog.Logger
 	idle   time.Duration // idle expiry of the sessions (0: off)
+	// storage is where the uploaded files are. If nil, they are not cleaned.
+	storage storage.Store
 }
 
 // Work runs every deletion even if one fails, and returns the errors together (River retries the
@@ -72,9 +77,15 @@ func (w *cleanupWorker) Work(ctx context.Context, job *river.Job[CleanupArgs]) e
 	if err != nil {
 		errs = append(errs, fmt.Errorf("delete real-time messages: %w", err))
 	}
-	if sessions+tokens+notifications+limits+messages > 0 {
+	var purged int64
+	if w.storage != nil {
+		if purged, err = files.Purge(ctx, w.q, w.storage); err != nil {
+			errs = append(errs, fmt.Errorf("delete unused files: %w", err))
+		}
+	}
+	if sessions+tokens+notifications+limits+messages+purged > 0 {
 		w.logger.Info("cleanup", "sessions", sessions, "tokens", tokens, "notifications", notifications,
-			"rate_limits", limits, "realtime_messages", messages)
+			"rate_limits", limits, "realtime_messages", messages, "files", purged)
 	}
 	return errors.Join(errs...)
 }

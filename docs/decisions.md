@@ -18,6 +18,7 @@ The template comes with a lot already solved (authentication with 2FA, key rotat
   - `golang.org/x/time`: per-IP request limits;
   - `golang.org/x/term`: reading the password in `create-admin` without showing it;
   - `golang.org/x/text`: choosing the language from `Accept-Language` (see `docs/i18n.md`).
+- The AWS SDK (`aws-sdk-go-v2`), only for the S3 store of the uploaded files (see "Uploaded files"). It is the largest of the list, and the only one a project removes without touching anything else, by deleting one file.
 
 ## pgx + sqlc instead of an ORM
 
@@ -182,7 +183,7 @@ The template is versioned with tags (`v0.1.0`, …) and a `CHANGELOG.md`, and th
 ## Example resources
 
 Each example shows something different, and together they cover the most common cases:
-- `notes`: per-user ownership.
+- `notes`: per-user ownership, and files attached to a resource.
 - `categories`: admin writes, a unique value and no deleting while in use.
 - `products`: JOIN, filters, search and an invalid FK.
 - `branches`: business hours, wall-clock times in the branch's zone turned into instants (see [time.md](time.md#modeling-schedules)).
@@ -293,6 +294,17 @@ Decisions:
 - **Limits of 10 connections per user and 1000 in total**, because each one is an open socket and goroutine. Each connection takes about 11 KB.
 - **Multiple instances with PostgreSQL's `LISTEN/NOTIFY`**, without Redis: each broker delivers its own at once and notifies the others. A message larger than 8000 bytes (the maximum of a `NOTIFY`) is stored in `realtime_messages`, and its id travels. If the `LISTEN` connection is cut, on reconnecting it cuts the streams, because it may have lost events (see `docs/realtime.md`).
 
+## Uploaded files
+
+`internal/storage` keeps the bytes and `internal/files` the rest (see [files.md](files.md)). The decisions behind them:
+
+- **A table, not a path in a column.** Laravel's usual way (`$path = $file->store(…)`, and the path in the model) leaves each resource to delete its own files, and the ones it forgets stay forever. With the `files` table, one place knows every object in the store, whose it is and whether something uses it, so one cleanup deletes what is left over.
+- **The row lives longer than the bytes.** It is created before the upload and deleted after the bytes. A failure in the middle leaves a row without bytes, which the cleanup removes, and never bytes without a row, which nothing would find.
+- **Through the API, not straight to the bucket.** The permission is checked on every download with the same session as the rest, the bucket stays private, and the frontend does the same with the local disk and with S3. The cost is the traffic, which only matters with very large files.
+- **The official SDK for S3.** Signing the requests by hand would have saved the dependency, at the price of keeping security code against a service that changes. The SDK also finds the credentials of the machine's role, which is how a company deploys on AWS. TOTP is the opposite case: a closed algorithm of a hundred lines with the test vectors of its RFC, so it is ours.
+- **The type from the bytes, and almost everything downloaded.** Files are served from the domain where the session cookie is valid: a page or an SVG shown there would run with the user's session. Only the images are shown.
+- **Limits per user in PostgreSQL** (uploads in a row, and total space), like the other per-user limits: they hold on every instance.
+
 ## Multiple instances
 
 The API works the same with one instance as with several behind a load balancer, for example to deploy without downtime. What must apply to all of them goes through PostgreSQL, without Redis:
@@ -304,6 +316,7 @@ The API works the same with one instance as with several behind a load balancer,
 | Migrations | An advisory lock: a single instance migrates |
 | Jobs | River spreads the queue among the instances, and a single one (the leader) queues the periodic ones |
 | Real time | The brokers notify each other with `LISTEN/NOTIFY` (see `docs/realtime.md`) |
+| Uploaded files | In the bucket, with `STORAGE_DRIVER=s3`. With `local`, the instances need a shared volume (see `docs/files.md`) |
 
 Kept in each instance, on purpose:
 - **The per-IP limits:** they are a coarse, cheap barrier. With N instances, the effective limit is N times higher.
@@ -323,6 +336,7 @@ A rule for new code: **nothing that must apply to every instance is kept in memo
 - A persistent audit log: the security events go to the logs and to the user's notifications. What to keep, and for how long, depends on each project.
 - Metrics (Prometheus or OpenTelemetry): they add dependencies, and each project uses its own monitoring.
 - An OpenAPI contract: written by hand it falls out of date. The endpoints are in the README and in `docs/auth.md`.
+- Thumbnails, uploads straight from the browser to S3, and antivirus for the uploaded files (see "What it does not include" in [files.md](files.md#what-it-does-not-include)).
 - Deployment files (Dockerfile, systemd units, proxy configuration): each project deploys differently. "Before production" in the README lists what to check, whatever the server.
 
 It is not a to-do list: they are features that depend on each project, and they are added in the project that needs them.

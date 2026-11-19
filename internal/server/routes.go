@@ -20,6 +20,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/categories"
 	"github.com/NoeOnDev/go-api-base/internal/classes"
 	"github.com/NoeOnDev/go-api-base/internal/config"
+	"github.com/NoeOnDev/go-api-base/internal/files"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
@@ -30,6 +31,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/shifts"
+	"github.com/NoeOnDev/go-api-base/internal/storage"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -55,6 +57,9 @@ type Deps struct {
 	// I18n are the catalogs of the user-facing texts (see docs/i18n.md). If nil, one is built with
 	// Config.DefaultLocale (or English, if it is empty).
 	I18n *i18n.Catalog
+	// Storage keeps the uploaded files (see docs/files.md): the local disk or S3 in main. If nil (in
+	// the tests), they are kept in memory.
+	Storage storage.Store
 }
 
 // NewHandler registers every route and applies the common middlewares.
@@ -144,8 +149,18 @@ func NewHandler(d Deps) http.Handler {
 
 	notifications.Register(mux, notificationsService, authService)
 
+	// Uploaded files. The limits are per user, and they are tuned here for each project: how many
+	// uploads in a row (30, then 1 every 10 s), and how much all the files of one user can take.
+	fileStore := d.Storage
+	if fileStore == nil {
+		fileStore = storage.NewMemory()
+	}
+	filesService := files.NewService(d.DB, queries, fileStore, files.Options{UserQuota: 1 << 30}) // 1 GB
+	uploads := ratelimit.New(queries, "upload", 10*time.Second, 30)
+	files.Register(mux, filesService, authService, uploads)
+
 	// API resources. Each new resource is registered here.
-	notes.Register(mux, notes.NewHandler(queries, broker), authService)
+	notes.Register(mux, notes.NewHandler(d.DB, queries, broker, filesService), authService, uploads)
 	categories.Register(mux, categories.NewHandler(queries), authService)
 	products.Register(mux, products.NewHandler(queries), authService)
 	branchesHandler := branches.NewHandler(d.DB, queries)

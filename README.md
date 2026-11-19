@@ -8,6 +8,7 @@ It is complete, but with few dependencies: it favors the standard library and ad
 - **typed queries with sqlc**
 - **the River job queue**, also on PostgreSQL
 - official packages from the Go team for passwords and request limits
+- the official AWS SDK, only for keeping the uploaded files in S3 (a project that does not use S3 removes it)
 
 It runs as a single binary, with PostgreSQL as the only service (no Redis or separate queues). It works the same with **one instance or several** behind a load balancer: sessions, per-account limits, the queue and real time are coordinated through PostgreSQL (see [docs/decisions.md](docs/decisions.md#multiple-instances)).
 
@@ -18,6 +19,7 @@ It includes:
 - **Background jobs** with River, on PostgreSQL (no Redis): retries, scheduled and periodic jobs, and queuing inside a transaction. The workers run in the same binary.
 - **Real time with SSE:** `GET /events` sends the browser the user's events and those of the topics it listens to (with permission). It also works to stream an AI agent's response.
 - **In-app notifications**, stored and sent live. Auth uses them to warn about security changes.
+- **File uploads** on the local disk or in S3 (or a compatible service), served through the API with the permission check, with limits per user and a cleanup of the files nobody uses (see [docs/files.md](docs/files.md)).
 - **Security:** CSRF protection, configurable CORS, attempt limits (per IP, per account in the login and the 2FA, and per recipient in the emails), argon2 with a concurrency cap, `__Host-` cookies in production, `nosniff` and `no-store` headers, and server timeouts.
 - **API basics:**
   - a single JSON error format
@@ -27,7 +29,7 @@ It includes:
   - graceful shutdown
 - **User-facing text in several languages:** English by default and Mexican Spanish, chosen with `Accept-Language`.
 - **Example resources** to copy:
-  - `notes`: each user's data
+  - `notes`: each user's data, with attached files
   - `categories` and `products`: a catalog with relationships, filters and admin permissions
   - `branches`: business hours in the branch's time zone, with holidays (see [docs/time.md](docs/time.md))
   - `appointments`: bookings within those hours, without double bookings, and a reminder the day before
@@ -115,8 +117,10 @@ It includes:
 | `GET` | `/events?topics=` | With a session: SSE stream with the real-time events (see [docs/realtime.md](docs/realtime.md)) |
 | `GET` | `/notifications?unread=` | With a session: the user's notifications and how many are unread |
 | `POST` | `/notifications/{id}/read`, `/notifications/read-all` | With a session: mark them as read |
+| `POST`, `GET`, `DELETE` | `/files`, `/files/{id}` | With a session: upload a file, and see or delete one's own (see [docs/files.md](docs/files.md)) |
 | `GET`, `POST` | `/notes` | With a session; each user sees only their notes |
 | `GET`, `PUT`, `DELETE` | `/notes/{id}` | With a session; another user's note responds `404` |
+| `GET`, `POST`, `DELETE` | `/notes/{id}/attachments`, `/notes/{id}/attachments/{file_id}` | With a session: the files attached to a note |
 | `GET` | `/categories`, `/categories/{id}` | Public |
 | `POST`, `PUT`, `DELETE` | `/categories…` | Admin only |
 | `GET` | `/products?category_id=&q=&active=`, `/products/{id}` | Public: visitors only see active products; the admin sees all |
@@ -150,7 +154,7 @@ All errors have the same shape:
 | `404` | The resource does not exist |
 | `405` | The route exists, but not with that method |
 | `409` | Repeated value, or the resource is in use |
-| `413` | The body is larger than 1 MB |
+| `413` | The JSON body is larger than 1 MB (a file that is too large answers `422` on `file`) |
 | `422` | Validation |
 | `429` | Too many attempts |
 | `500` | Internal error, without details; the cause is in the log with its `request_id` |
@@ -182,6 +186,8 @@ Everything is configured with environment variables. [`.env.example`](.env.examp
 | `MAIL_DRIVER` | `log` | `log` (writes the emails to the log) or `smtp` |
 | `MAIL_FROM` | `no-reply@localhost` | Sender |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | — / `587` | SMTP server details |
+| `STORAGE_DRIVER` | `local` | Where the uploaded files are kept: `local` (the `STORAGE_DIR` directory, `storage` by default) or `s3` (see [docs/files.md](docs/files.md#configuration)) |
+| `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_PATH_STYLE`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | | With `STORAGE_DRIVER=s3`: the bucket and its region, the address of a compatible service (R2, MinIO), and fixed credentials if the machine has no role |
 | `APP_NAME` | `My App` | Name of the application: the emails carry it on top, and the 2FA authenticator app shows it |
 | `DEFAULT_LOCALE` | `en` | Language of the user-facing text when the request does not ask for an available one (see [docs/i18n.md](docs/i18n.md)) |
 | `APP_TIME_ZONE` | `UTC` | Time zone of the users without their own, for the dates the API writes for people (emails) and their days (reports, filters). An IANA name like `America/Mexico_City`. The JSON always carries UTC (see [docs/time.md](docs/time.md)) |
@@ -207,6 +213,7 @@ What to check in the configuration, whatever the server. If `COOKIE_SECURE`, `TR
   - With a CDN in front of the proxy, add the CDN ranges (for example, [Cloudflare's](https://www.cloudflare.com/ips/)) to `TRUSTED_PROXIES` besides the proxy. The proxy must append its IP to the `X-Forwarded-For` the CDN sends, not replace it. Otherwise, every user going through the same CDN node shares the attempt limits.
 - **`MAIL_DRIVER=smtp`** with a real provider, and **`FRONTEND_URL`** with the frontend's domain (the links in the emails point there). With the frontend on another domain, `CORS_ALLOWED_ORIGINS` too. Both with `https://`: the API accepts `http://` without warning, and the links of the emails would travel in the clear.
 - **`APP_NAME`** with the application's name: it is on top of every email and in the authenticator app.
+- **`STORAGE_DRIVER=s3`** with a private bucket, unless the API runs on a single server whose disk is backed up: with `local`, the uploaded files are in a directory of that server, and several instances would each have their own (see [docs/files.md](docs/files.md#configuration)).
 - **Open registration:** anyone can create an account with `POST /auth/register`. If the project is by invitation only, remove it (see [docs/auth.md](docs/auth.md#removing-features)).
 - **`REQUIRE_ADMIN_TWO_FACTOR=true`**, unless the project has a reason not to: an administrator account with only a password is the most valuable one to steal.
 - **`ENCRYPTION_KEY` stored as a secret and backed up apart from the database:** if it is lost, users have to set up 2FA again (see [docs/encryption.md](docs/encryption.md)).
@@ -246,13 +253,15 @@ internal/mail/       email sending (log and SMTP) and templates by language
 internal/jobs/       background jobs (River): workers, periodic jobs and the email queue
 internal/realtime/   real time with SSE: streams, channels and topics
 internal/notifications/ notifications stored and sent live
+internal/storage/    where the uploaded files are kept: the local disk, S3 or memory (tests)
+internal/files/      uploaded files: upload, download with permissions, and cleanup
 internal/totp/       TOTP codes for 2FA (RFC 6238)
 internal/secretbox/  encryption (AES-256-GCM) and HMAC with a keyring of rotatable keys
 internal/db/         connection, migrations, PostgreSQL errors and SQL queries
 internal/store/      code generated by sqlc (do not edit)
 internal/validate/   shared validation rules
 internal/civil/      dates and times without a time zone, and their conversion to instants
-internal/notes/      example: each user's data
+internal/notes/      example: each user's data, with attached files
 internal/categories/ example: catalog, public reads and admin writes
 internal/products/   example: relationships, filters and search
 internal/branches/   example: business hours in the branch's zone, with holidays
@@ -289,9 +298,10 @@ git init
 Then:
 - **Keep `TEMPLATE_VERSION`:** it says which version of the template the project came from (see the [CHANGELOG](CHANGELOG.md)).
 - Keep the authentication.
-- Keep the examples that look like your project and delete the rest. For `notes`, `categories` and `products`: their package, their query (`internal/db/queries`), their migration and their registration in `internal/server/routes.go`; then `make sqlc` and `make check`, which names the catalog keys left unused (delete them from every `internal/i18n/locales/*.json`, and the error codes from the table of [docs/i18n.md](docs/i18n.md#error-codes)). `products` references `categories`: delete it first, or both. The schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples).
+- Keep the examples that look like your project and delete the rest. For `notes`, `categories` and `products`: their package, their query (`internal/db/queries`), their migration and their registration in `internal/server/routes.go` (with `notes`, also `00017_create_note_attachments.sql`, the table of its attached files); then `make sqlc` and `make check`, which names the catalog keys left unused (delete them from every `internal/i18n/locales/*.json`, and the error codes from the table of [docs/i18n.md](docs/i18n.md#error-codes)). `products` references `categories`: delete it first, or both. The schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples).
 - If you don't need some auth feature (open registration, 2FA, email change…), [docs/auth.md](docs/auth.md#removing-features) says what to delete.
 - If you don't need the job queue or real time, [docs/jobs.md](docs/jobs.md#removing-the-queue) and [docs/realtime.md](docs/realtime.md#removing-real-time) explain how to remove them.
+- If you don't need file uploads, or only S3, [docs/files.md](docs/files.md#removing-file-uploads) says what to delete.
 - Add your resources following [docs/adding-a-resource.md](docs/adding-a-resource.md).
 - **Rename the databases** in `.env` (`go_api_base` and `go_api_base_test` in `.env.example`): two projects with the same names would share them, and the tests empty theirs.
 - **`AGENTS.md` and `CHANGELOG.md` are the template's.** In `AGENTS.md`, replace the note of "What it is" that says the repository is a template, and that its original migrations can be edited, with what the project is; start `CHANGELOG.md` over.
@@ -303,6 +313,7 @@ Then:
 - [Languages (i18n)](docs/i18n.md): user-facing text in English and Mexican Spanish, how to add a language and the list of error codes.
 - [Dates, time zones and schedules](docs/time.md): instants in UTC, dates and times without a zone, and how to model schedules.
 - [Background jobs](docs/jobs.md): creating jobs, queuing in a transaction, periodic jobs, retries and how to remove the queue.
+- [Files](docs/files.md): uploads on the local disk or in S3, using a file in a resource, security and how to remove them.
 - [Real time](docs/realtime.md): SSE events from React, topics with permissions, streams for AI agents, multiple instances and how to remove it.
 - [Adding a resource](docs/adding-a-resource.md)
 - [Design decisions](docs/decisions.md): why it is built this way, how it works with multiple instances and what it does not include.

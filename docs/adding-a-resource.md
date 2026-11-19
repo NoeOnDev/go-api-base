@@ -173,6 +173,7 @@ Copy the example package to `internal/orders` and adapt each file:
   - **Nothing slow inside:** compute what takes time beforehand (a hash with `auth.HashPassword`, a call to another API). While the transaction is open, it takes a database connection and can lock rows.
   - **Notices after the commit:** publishing an event (`broker.Publish`) or queuing a job outside the transaction goes after the `BeginFunc`. To queue inside the same transaction, use `InsertTx` (see [docs/jobs.md](jobs.md)).
   - **If two simultaneous requests can step on each other** (read, decide and write), lock the row at the start with `SELECT … FOR UPDATE`, as `issueToken` does with `LockUser`.
+- **Files of the resource** (an image, attachments): see "Using a file in a resource" in [files.md](files.md#using-a-file-in-a-resource). `internal/notes` has them: when you copy it for a resource without files, delete `attachments.go` and its test, its three routes, the `files` field of the handler and the release of the attachments in `delete`.
 - **`routes.go`:** the routes, with the right protection:
 
   ```go

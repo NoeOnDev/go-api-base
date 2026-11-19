@@ -101,6 +101,44 @@ func TestLoadMailSMTP(t *testing.T) {
 	}
 }
 
+func TestLoadStorage(t *testing.T) {
+	// By default, a directory of the server.
+	cfg, err := load(envFrom(map[string]string{"DATABASE_URL": "x"}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := (Storage{Driver: StorageDriverLocal, Dir: "storage"}); cfg.Storage != want {
+		t.Errorf("Storage = %+v, want %+v", cfg.Storage, want)
+	}
+
+	// A compatible service, with fixed keys.
+	cfg, err = load(envFrom(map[string]string{
+		"DATABASE_URL":         "x",
+		"STORAGE_DRIVER":       "s3",
+		"S3_BUCKET":            "files",
+		"S3_REGION":            "auto",
+		"S3_ENDPOINT":          "http://localhost:9000/",
+		"S3_PATH_STYLE":        "true",
+		"S3_ACCESS_KEY_ID":     "key",
+		"S3_SECRET_ACCESS_KEY": "secret",
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := Storage{
+		Driver: StorageDriverS3, Dir: "storage", S3Bucket: "files", S3Region: "auto", S3Endpoint: "http://localhost:9000",
+		S3PathStyle: true, S3AccessKeyID: "key", S3SecretAccessKey: "secret",
+	}
+	if cfg.Storage != want {
+		t.Errorf("Storage = %+v, want %+v", cfg.Storage, want)
+	}
+
+	// On AWS, without keys: the SDK takes them from the role of the machine.
+	if _, err := load(envFrom(map[string]string{"DATABASE_URL": "x", "STORAGE_DRIVER": "s3", "S3_BUCKET": "files", "S3_REGION": "us-east-1"})); err != nil {
+		t.Errorf("S3 without keys: %v", err)
+	}
+}
+
 func TestLoadCustomValues(t *testing.T) {
 	cfg, err := load(envFrom(map[string]string{
 		"APP_ENV":              "production",
@@ -172,6 +210,12 @@ func TestLoadInvalid(t *testing.T) {
 		"invalid workers":      {"DATABASE_URL": "x", "JOBS_MAX_WORKERS": "ten"},
 		"invalid time zone":    {"DATABASE_URL": "x", "APP_TIME_ZONE": "Mars/Base"},
 		"server's time zone":   {"DATABASE_URL": "x", "APP_TIME_ZONE": "Local"},
+		"unknown storage":      {"DATABASE_URL": "x", "STORAGE_DRIVER": "ftp"},
+		"S3 without a bucket":  {"DATABASE_URL": "x", "STORAGE_DRIVER": "s3", "S3_REGION": "us-east-1"},
+		"S3 without a region":  {"DATABASE_URL": "x", "STORAGE_DRIVER": "s3", "S3_BUCKET": "files"},
+		"half the S3 keys":     {"DATABASE_URL": "x", "STORAGE_DRIVER": "s3", "S3_BUCKET": "files", "S3_REGION": "us-east-1", "S3_ACCESS_KEY_ID": "key"},
+		"invalid S3 endpoint":  {"DATABASE_URL": "x", "STORAGE_DRIVER": "s3", "S3_BUCKET": "files", "S3_REGION": "auto", "S3_ENDPOINT": "minio:9000"},
+		"invalid path style":   {"DATABASE_URL": "x", "S3_PATH_STYLE": "maybe"},
 	}
 
 	for name, env := range tests {

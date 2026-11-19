@@ -10,6 +10,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/appointments"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
+	"github.com/NoeOnDev/go-api-base/internal/storage"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -30,6 +31,9 @@ type Deps struct {
 	// Notifier sends the notifications of the jobs, like the appointment reminder
 	// (internal/notifications implements it).
 	Notifier Notifier
+	// Storage is where the uploaded files are: the cleanup deletes the ones nobody needs (see
+	// files.Purge). If nil, it leaves them.
+	Storage storage.Store
 }
 
 // Notifier sends a notification to a user (see internal/notifications).
@@ -40,7 +44,7 @@ type Notifier interface {
 // registerWorkers registers every worker. Each new job is added here, like the routes in
 // server/routes.go.
 func registerWorkers(workers *river.Workers, deps Deps) error {
-	if err := river.AddWorkerSafely(workers, &cleanupWorker{q: deps.Queries, logger: deps.Logger, idle: deps.SessionIdleTimeout}); err != nil {
+	if err := river.AddWorkerSafely(workers, &cleanupWorker{q: deps.Queries, logger: deps.Logger, idle: deps.SessionIdleTimeout, storage: deps.Storage}); err != nil {
 		return err
 	}
 	if err := river.AddWorkerSafely(workers, &sendEmailWorker{sender: deps.Mailer, box: deps.Box, logger: deps.Logger}); err != nil {

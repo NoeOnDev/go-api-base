@@ -7,7 +7,7 @@ copy, and its `TEMPLATE_VERSION` file says which version it came from. When a te
 Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
 migrations, because they represent the initial schema.
 
-## [Unreleased]
+## [v0.10.0] - 2026-11-19
 
 Fixes from a review of v0.9.1. `make check` passes again with Go 1.27.4, a project created from the template can regenerate `internal/store`, and four inputs that answered `500` or a wrong value are fixed. An open tab no longer keeps an idle session alive, a queued email is not lost in the middle of a key rotation, and the jobs that fail are seen in the log. The recipes to remove what a project does not use (auth features, the queue, real time, the examples) were followed again on copies of the project, and what did not work as written is fixed. The schema changes: the appointments get `reminded_at`, and the notifications and the time entries an index each.
 

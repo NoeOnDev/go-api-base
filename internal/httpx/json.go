@@ -1,24 +1,29 @@
 package httpx
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 )
 
 // MaxBodyBytes is the largest accepted request body (1 MB).
 const MaxBodyBytes = 1 << 20
 
 // Decode reads the JSON body of the request into dst. It rejects bodies that are too large,
-// unknown fields and more than one JSON value, and turns the errors into clear messages for the
-// client (always as an *Error).
+// unknown fields, more than one JSON value and the NUL character in a text, and turns the errors
+// into clear messages for the client (always as an *Error).
 func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, MaxBodyBytes)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
+	if err != nil {
+		return decodeError(err)
+	}
 
-	dec := json.NewDecoder(r.Body)
+	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(dst); err != nil {
@@ -30,7 +35,36 @@ func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
 		return BadRequest("multiple_json_values")
 	}
 
+	// PostgreSQL does not store the NUL character in a text: without this, it would be a 500.
+	if hasEscapedNUL(body) {
+		return BadRequest("invalid_characters")
+	}
+
 	return nil
+}
+
+// hasEscapedNUL reports whether a valid JSON has the NUL character in one of its texts. In JSON it
+// can only be written as \u0000 (the byte itself is not valid inside a string), so that escape is
+// looked for, skipping the character each backslash escapes: in \\u0000 the escaped one is the
+// second backslash, and what follows is plain text.
+func hasEscapedNUL(body []byte) bool {
+	for i := 0; i+1 < len(body); i++ {
+		if body[i] != '\\' {
+			continue
+		}
+		if bytes.HasPrefix(body[i+1:], []byte("u0000")) {
+			return true
+		}
+		i++
+	}
+	return false
+}
+
+// ValidText reports whether s can be stored as text: valid UTF-8 and without the NUL character,
+// which PostgreSQL rejects. The body (Decode) and the URL (RejectInvalidText) are already checked;
+// use it for a text that comes from somewhere else, like a header.
+func ValidText(s string) bool {
+	return utf8.ValidString(s) && !strings.ContainsRune(s, 0)
 }
 
 func decodeError(err error) error {

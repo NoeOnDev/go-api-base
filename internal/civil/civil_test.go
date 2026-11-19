@@ -17,13 +17,15 @@ func mustLoad(t *testing.T, name string) *time.Location {
 }
 
 func TestParse(t *testing.T) {
-	for _, s := range []string{"2026-10-31", "2028-02-29", "0001-01-01"} {
+	for _, s := range []string{"2026-10-31", "2028-02-29", "0001-01-01", "9998-12-31"} {
 		d, err := ParseDate(s)
 		if err != nil || d.String() != s || !d.IsValid() {
 			t.Errorf("ParseDate(%q) = %v, %v", s, d, err)
 		}
 	}
-	for _, s := range []string{"", "2026-02-29", "2026-02-31", "2026-13-01", "2026-1-5", "31/10/2026", "2026-10-31T10:00"} {
+	for _, s := range []string{"", "2026-02-29", "2026-02-31", "2026-13-01", "2026-1-5", "31/10/2026", "2026-10-31T10:00",
+		// The first and the last year are left as margin: see minYear.
+		"0000-12-31", "9999-01-01"} {
 		if _, err := ParseDate(s); err == nil {
 			t.Errorf("ParseDate(%q): want an error", s)
 		}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"time"
 )
@@ -259,6 +260,28 @@ func SecurityHeaders(hsts bool) Middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// RejectInvalidText answers 400 invalid_characters to a request whose path or query has a text that
+// PostgreSQL cannot store (see ValidText): ?q=%00 or ?q=%FF would reach a query and come back as a
+// 500. The body is checked by Decode.
+func RejectInvalidText(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		valid := ValidText(r.URL.Path)
+		if valid && r.URL.RawQuery != "" {
+			for key, values := range r.URL.Query() {
+				if !ValidText(key) || slices.ContainsFunc(values, func(v string) bool { return !ValidText(v) }) {
+					valid = false
+					break
+				}
+			}
+		}
+		if !valid {
+			WriteError(w, r, BadRequest("invalid_characters"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // NoStore adds Cache-Control: no-store, so neither the browser nor a proxy keeps the response.

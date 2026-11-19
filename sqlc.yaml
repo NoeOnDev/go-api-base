@@ -32,6 +32,8 @@ sql:
               pointer: true
           # The dates and times without a zone are generated as internal/civil types (see docs/time.md).
           # Their zero value is NULL, so a nullable column uses the same type, without a pointer.
+          # The path is the module's (go.mod): a project created from the template changes it here
+          # too (see "Starting a new project" in the README).
           - db_type: "date"
             go_type: "github.com/NoeOnDev/go-api-base/internal/civil.Date"
           - db_type: "date"

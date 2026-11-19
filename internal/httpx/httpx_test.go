@@ -33,6 +33,9 @@ func TestDecode(t *testing.T) {
 		{"wrong type", `{"age":"thirty"}`, http.StatusBadRequest},
 		{"unknown field", `{"name":"Alice","admin":true}`, http.StatusBadRequest},
 		{"two objects", `{"name":"Alice"}{"name":"Bob"}`, http.StatusBadRequest},
+		{"NUL character", `{"name":"Al\u0000ice"}`, http.StatusBadRequest},
+		{"NUL character after an escaped backslash", `{"name":"\\\u0000"}`, http.StatusBadRequest},
+		{"the text \u0000, with the backslash escaped", `{"name":"Al\\u0000ice"}`, 0},
 		{"too large", `{"name":"` + strings.Repeat("a", MaxBodyBytes) + `"}`, http.StatusRequestEntityTooLarge},
 	}
 
@@ -332,6 +335,33 @@ func TestQuietLogsAtDebug(t *testing.T) {
 	} {
 		if got := logLine(tt.handler); !strings.Contains(got, tt.level) {
 			t.Errorf("%s: want %s in %q", name, tt.level, got)
+		}
+	}
+}
+
+func TestRejectInvalidText(t *testing.T) {
+	h := RejectInvalidText(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	tests := map[string]int{
+		"/products?q=caf%C3%A9&limit=5": http.StatusNoContent,
+		"/products":                     http.StatusNoContent,
+		"/products?q=%00":               http.StatusBadRequest,
+		"/products?q=a&q=%FF":           http.StatusBadRequest,
+		"/products?%00=a":               http.StatusBadRequest,
+		"/notes/%00":                    http.StatusBadRequest,
+		"/notes/%FF":                    http.StatusBadRequest,
+	}
+	for target, want := range tests {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, target, nil))
+		if w.Code != want {
+			t.Errorf("%s: status = %d, want %d", target, w.Code, want)
+		}
+		if want == http.StatusBadRequest {
+			if got := decodeErrorBody(t, w.Body); got.Code != "invalid_characters" {
+				t.Errorf("%s: code = %q", target, got.Code)
+			}
 		}
 	}
 }

@@ -22,6 +22,7 @@
   "errors.empty_body": "The request body is empty.",
   "errors.forbidden": "Only an administrator can do this.",
   "errors.internal_error": "Internal server error.",
+  "errors.invalid_characters": "The request has characters that are not allowed, like the null character.",
   "errors.invalid_credentials": "Incorrect email or password.",
   "errors.invalid_path_id": "The {name} must be a positive whole number.",
   "errors.invitation_accepted": "This user already accepted the invitation.",

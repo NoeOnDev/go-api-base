@@ -318,8 +318,14 @@ func (h *Handler) putChange(w http.ResponseWriter, r *http.Request) error {
 	if !row.LocalStartsAt.IsZero() {
 		day = row.LocalStartsAt.Date()
 	}
+	// That day can have another session (one moved onto a day of the rule): the changed one is
+	// the one of row.Date.
 	sessions := Sessions(ruleOf(c), []Change{change}, day, day, loc)
-	httpx.Write(w, http.StatusOK, sessions[0])
+	i := slices.IndexFunc(sessions, func(s Session) bool { return s.Date == row.Date })
+	if i < 0 {
+		return fmt.Errorf("the session %s of class %d is not among those of its day", row.Date, c.ID)
+	}
+	httpx.Write(w, http.StatusOK, sessions[i])
 	return nil
 }
 

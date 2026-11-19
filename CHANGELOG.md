@@ -7,6 +7,23 @@ copy, and its `TEMPLATE_VERSION` file says which version it came from. When a te
 Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
 migrations, because they represent the initial schema.
 
+## [Unreleased]
+
+Fixes from a review of v0.9.1. `make check` passes again with Go 1.27.4, a project created from the template can regenerate `internal/store`, and four inputs that answered `500` or a wrong value are fixed.
+
+### Changed
+
+- **Go 1.27.4** (`go.mod`): `govulncheck` reports GO-2026-6859 (`net/http`, `MaxBytesReader`) on 1.27.3, so `make check` and CI failed.
+- **A text PostgreSQL cannot store answers `400 invalid_characters`** instead of `500`: the NUL character in a body (`httpx.Decode`) or in a cursor, and NUL or invalid UTF-8 in the path or the query (the new `httpx.RejectInvalidText`, on every route). It happened without a session too: `POST /auth/login` with `\u0000` in the email, `GET /products?q=%00`. `httpx.ValidText` checks a text that comes from somewhere else. The code is in both catalogs and in the table of `docs/i18n.md`.
+- **`civil.ParseDate` accepts the years 0001 to 9998**, in a body and in the URL (see "In a request body" in `docs/time.md`).
+
+### Fixed
+
+- **"Starting a new project" left `sqlc.yaml` with the template's module** (README): `gonew` and the copy recipe only changed the Go files and `go.mod`, so the new project failed `make check` at the sqlc step and `make sqlc` generated code that did not build. Both recipes now change `sqlc.yaml` too.
+- **`PUT /classes/{id}/sessions/{date}` answered with another session** when the session was moved onto a day that has its own (`internal/classes`): the change was stored, but the response was the session of that day, with `moved: false`.
+- **`GET /branches/{id}/schedule?from=9999-12-31` answered `500`** (a panic when encoding an instant of the year 10000), like any date at the edge of the calendar in the examples. Now it is `422` on the date.
+- **The 2FA address was cut by an `APP_NAME` with `&`, `+` or `:`** (`totp.URI`): with "R&D Portal" the authenticator app read the issuer "R". Every reserved character is encoded now, in the name and in the email.
+
 ## [v0.9.1] - 2026-10-31
 
 Fixes from a review of v0.9.0. Reassigning a shift no longer moves it to another person's zone, two foreign keys of the examples get their index, and the appointment reminder says the day instead of "tomorrow", with dates and hours written in the reader's format inside the texts. The schema changes: two new indexes in the original migrations `00013` and `00014`.

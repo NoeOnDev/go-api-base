@@ -89,10 +89,19 @@ func DateTimeOf(t time.Time) DateTime {
 	return DateTime{date: DateOf(t), time: TimeOf(t)}
 }
 
-// ParseDate reads a date in the format 2006-01-02.
+// The years a date read from a text can have. JSON carries an instant only from the year 0 to the
+// 9999 (time.Time fails to encode outside them), and a date becomes instants a bit before or after
+// it: its day in a zone east of Greenwich starts the day before in UTC, and a range or a duration
+// is added to it. A year of margin at each end keeps those instants inside.
+const (
+	minYear = 1
+	maxYear = 9998
+)
+
+// ParseDate reads a date in the format 2006-01-02, from the year 0001 to the 9998 (see minYear).
 func ParseDate(s string) (Date, error) {
 	t, err := time.Parse(time.DateOnly, s)
-	if err != nil {
+	if err != nil || t.Year() < minYear || t.Year() > maxYear {
 		return Date{}, fmt.Errorf("civil: %q is not a date like 2026-10-31", s)
 	}
 	return DateOf(t), nil

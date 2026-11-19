@@ -40,7 +40,7 @@ It includes:
 
 ## Requirements
 
-- Go 1.27.3 or newer.
+- Go 1.27.4 or newer.
 - PostgreSQL, any supported version.
 - `make`.
 - `gcc`, only to build sqlc the first time (`make sqlc`).
@@ -262,16 +262,18 @@ docs/                guides and decisions
 ```bash
 go install golang.org/x/tools/cmd/gonew@latest
 gonew github.com/NoeOnDev/go-api-base github.com/your-user/my-project
+cd my-project
+sed -i 's#github.com/NoeOnDev/go-api-base#github.com/your-user/my-project#g' sqlc.yaml
 ```
 
-`gonew` copies the template and changes the module name and every import.
+`gonew` copies the template and changes the module name and every import of the Go files. `sqlc.yaml` names the module too (the `internal/civil` types of the date columns) and `gonew` does not touch it, hence the `sed`: without it, `make check` says `internal/store` is out of date and `make sqlc` generates code that does not build.
 
 **Copying the folder** (if the repository is private or not published):
 
 ```bash
 cp -r go-api-base my-project && cd my-project && rm -rf .git .env bin
 go mod edit -module github.com/your-user/my-project
-grep -rl 'github.com/NoeOnDev/go-api-base' --include='*.go' --include='go.mod' . | xargs sed -i 's#github.com/NoeOnDev/go-api-base#github.com/your-user/my-project#g'
+grep -rl 'github.com/NoeOnDev/go-api-base' --include='*.go' --include='go.mod' --include='sqlc.yaml' . | xargs sed -i 's#github.com/NoeOnDev/go-api-base#github.com/your-user/my-project#g'
 git init
 ```
 

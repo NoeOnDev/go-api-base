@@ -33,6 +33,7 @@ func TestParseDateRange(t *testing.T) {
 		"?to=2026-02-30":                 "to",
 		"?from=2026-11-02&to=2026-11-01": "to",
 		"?from=2026-11-01&to=2026-12-02": "to",
+		"?from=9999-12-31":               "from", // its instants would not fit in JSON
 	} {
 		_, err := ParseDateRange(httptest.NewRequest("GET", "/x"+query, nil), today, 7, 31)
 		var e *Error

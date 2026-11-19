@@ -164,6 +164,7 @@ func NewHandler(d Deps) http.Handler {
 	//   - Recover inside Logger, so the 500 response of a panic is logged too.
 	//   - CORS before the CSRF protection, to answer the preflights of the allowed origins.
 	//   - The general limit inside CORS, so the preflights do not count.
+	//   - RejectInvalidText last: its 400 counts for the limit and carries the CORS headers.
 	return httpx.Chain(csrfProtection(mux, d.Config.CORSAllowedOrigins),
 		httpx.RequestID(d.Logger),
 		catalog.Middleware,
@@ -172,6 +173,7 @@ func NewHandler(d Deps) http.Handler {
 		httpx.Recover,
 		httpx.CORS(d.Config.CORSAllowedOrigins),
 		limitAll,
+		httpx.RejectInvalidText,
 	)
 }
 

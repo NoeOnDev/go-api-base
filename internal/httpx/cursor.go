@@ -79,7 +79,7 @@ func DecodeCursor[T any](cursor string) (*T, error) {
 		return nil, invalid
 	}
 	var key T
-	if err := json.Unmarshal(b, &key); err != nil {
+	if err := json.Unmarshal(b, &key); err != nil || hasEscapedNUL(b) {
 		return nil, invalid
 	}
 	return &key, nil

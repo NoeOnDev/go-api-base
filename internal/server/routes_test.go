@@ -63,6 +63,21 @@ func TestUnknownRoute(t *testing.T) {
 	}
 }
 
+// A text PostgreSQL cannot store is a 400, not a 500, on public routes too.
+func TestInvalidCharacters(t *testing.T) {
+	api := newAPI(t)
+	for _, tt := range []struct{ method, target, body string }{
+		{http.MethodGet, "/products?q=%00", ""},
+		{http.MethodGet, "/products?q=%FF", ""},
+		{http.MethodPost, "/auth/login", `{"email":"a\u0000@example.com","password":"x"}`},
+	} {
+		w := testutil.Do(t, api, nil, tt.method, tt.target, tt.body)
+		if code := errorCode(t, w); w.Code != http.StatusBadRequest || code != "invalid_characters" {
+			t.Errorf("%s %s: status = %d, code = %q", tt.method, tt.target, w.Code, code)
+		}
+	}
+}
+
 func TestCSRFProtection(t *testing.T) {
 	api := newAPI(t)
 	body := `{"email":"a@b.com","password":"x"}`

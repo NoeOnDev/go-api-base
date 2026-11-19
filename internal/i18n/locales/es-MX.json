@@ -22,6 +22,7 @@
   "errors.empty_body": "El cuerpo de la petición está vacío.",
   "errors.forbidden": "Solo un administrador puede hacer esto.",
   "errors.internal_error": "Error interno del servidor.",
+  "errors.invalid_characters": "La petición tiene caracteres no permitidos, como el carácter nulo.",
   "errors.invalid_credentials": "Email o contraseña incorrectos.",
   "errors.invalid_path_id": "El {name} debe ser un número entero positivo.",
   "errors.invitation_accepted": "Este usuario ya aceptó la invitación.",

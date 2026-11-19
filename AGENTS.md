@@ -137,6 +137,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 **HTTP**
 - Handlers have the signature `func(w, r) error` and are registered with `httpx.Handle`. On an error, just `return err`.
 - Read JSON with `httpx.Decode` and respond with `httpx.Write`. Never write JSON by hand.
+- A text PostgreSQL cannot store (the NUL character, invalid UTF-8) is already answered `400 invalid_characters`, in
+  the body by `httpx.Decode` and in the URL by `httpx.RejectInvalidText`. One from somewhere else (a header): `httpx.ValidText`.
 - Client errors, with a **specific code** that is also the key of its message (`errors.<code>` in the catalogs):
   `httpx.BadRequest("malformed_json")`, `NotFound("order_not_found")`, `Unauthorized(…)`, `Forbidden(…)`,
   `Conflict("invoice_already_paid", "field")` and `Validation(httpx.Fields{"title": i18n.M("validation.required")})`.

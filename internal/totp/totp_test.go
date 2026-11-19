@@ -98,3 +98,26 @@ func TestURI(t *testing.T) {
 		t.Errorf("unexpected parameters: %v", q)
 	}
 }
+
+// A name with reserved characters must not cut the query or the label.
+func TestURIEscapesReservedCharacters(t *testing.T) {
+	const issuer, account = "R&D + C++: Lab", "alice+work@example.com"
+	uri := URI(issuer, account, "JBSWY3DPEHPK3PXP")
+	u, err := url.Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(uri, "+") {
+		t.Errorf("a + would be read as a space: %s", uri)
+	}
+	// The only ":" left in the label is the one between the issuer and the account.
+	if label := strings.TrimPrefix(u.EscapedPath(), "/"); strings.Count(label, ":") != 1 {
+		t.Errorf("label = %s", label)
+	}
+	if u.Path != "/"+issuer+":"+account {
+		t.Errorf("path = %q", u.Path)
+	}
+	if q := u.Query(); q.Get("issuer") != issuer || q.Get("secret") != "JBSWY3DPEHPK3PXP" || len(q) != 5 {
+		t.Errorf("unexpected parameters: %v", q)
+	}
+}

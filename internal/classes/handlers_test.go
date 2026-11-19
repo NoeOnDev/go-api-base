@@ -84,6 +84,15 @@ func TestClasses(t *testing.T) {
 		t.Errorf("October 28 = %+v", got.Data)
 	}
 
+	// Moved onto a day that has its own session, the answer is the moved one, not the other.
+	onto := testutil.Decode[session](t, testutil.Do(t, api, admin, http.MethodPut, path+"/sessions/2026-11-02", `{"starts_at":"2026-11-04T20:00"}`), http.StatusOK)
+	if !onto.Moved || onto.Date != "2026-11-02" || onto.LocalStartsAt != "2026-11-04T20:00" {
+		t.Errorf("moved onto another session's day = %+v", onto)
+	}
+	if w := testutil.Do(t, api, admin, http.MethodDelete, path+"/sessions/2026-11-02", ""); w.Code != http.StatusNoContent {
+		t.Fatalf("DELETE change: status = %d", w.Code)
+	}
+
 	// Removing the change brings the session back to the rule.
 	if w := testutil.Do(t, api, admin, http.MethodDelete, path+"/sessions/2026-10-28", ""); w.Code != http.StatusNoContent {
 		t.Fatalf("DELETE change: status = %d", w.Code)

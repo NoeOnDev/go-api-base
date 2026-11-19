@@ -250,7 +250,7 @@ Any unregistered route responds 404 in JSON. A method not allowed on an existing
 
 ## Go version
 
-`go.mod` requires Go 1.27.3, which includes the October 2026 security fixes (`crypto/x509`, `net/http`, `crypto/tls`).
+`go.mod` requires Go 1.27.4, which includes the security fixes up to November 2026 (the last one, GO-2026-6859 in `net/http`; `govulncheck` fails `make check` with an older one).
 With `GOTOOLCHAIN=auto` (the default), an older Go version downloads the right one automatically.
 
 ## Account features

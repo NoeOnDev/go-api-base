@@ -38,7 +38,7 @@ start, end := civil.DayRange(from, to, location) // the instants of some days, t
 
 ### In a request body
 
-A field with a wrong format (`"starts_on": "31/10/2026"`) does not fail when decoding: `encoding/json` does not say which field the error of a type belongs to. The value arrives invalid, and the resource's validation rejects it with the message of its type, like any other rule:
+A field with a wrong format (`"starts_on": "31/10/2026"`) does not fail when decoding: `encoding/json` does not say which field the error of a type belongs to. The value arrives invalid, and the resource's validation rejects it with the message of its type, like any other rule. A date outside the years 0001 to 9998 is a wrong format too, in a body and in the URL: JSON only carries instants from the year 0 to the 9999, and a date at the very edge becomes instants outside them (its day starts the day before in UTC, or a range is added to it).
 
 ```go
 type eventInput struct {

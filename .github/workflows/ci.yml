@@ -1,5 +1,5 @@
 # Runs make check (gofmt, sqlc up to date, go vet, staticcheck, tests with PostgreSQL and govulncheck)
-# on every push to main and on every pull request.
+# and the tests again with the race detector, on every push to main and on every pull request.
 name: CI
 
 on:
@@ -45,3 +45,6 @@ jobs:
 
       - name: make check
         run: make check
+
+      - name: make test-race
+        run: make test-race

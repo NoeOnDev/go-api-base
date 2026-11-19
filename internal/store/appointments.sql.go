@@ -24,6 +24,38 @@ func (q *Queries) CancelAppointment(ctx context.Context, id int64) error {
 	return err
 }
 
+const countBranchAppointments = `-- name: CountBranchAppointments :one
+SELECT count(*) FROM appointments
+WHERE branch_id = $1 AND starts_at >= $2 AND starts_at < $3
+`
+
+type CountBranchAppointmentsParams struct {
+	BranchID int64
+	Start    time.Time
+	End      time.Time
+}
+
+func (q *Queries) CountBranchAppointments(ctx context.Context, arg CountBranchAppointmentsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countBranchAppointments, arg.BranchID, arg.Start, arg.End)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countUpcomingAppointments = `-- name: CountUpcomingAppointments :one
+SELECT count(*) FROM appointments
+WHERE user_id = $1 AND status = 'booked' AND starts_at > now()
+`
+
+// CountUpcomingAppointments counts the booked appointments of a user that have not started yet, for
+// the limit per person.
+func (q *Queries) CountUpcomingAppointments(ctx context.Context, userID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countUpcomingAppointments, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUserAppointments = `-- name: CountUserAppointments :one
 SELECT count(*) FROM appointments
 WHERE user_id = $1 AND starts_at >= $2 AND starts_at < $3
@@ -45,7 +77,7 @@ func (q *Queries) CountUserAppointments(ctx context.Context, arg CountUserAppoin
 const createAppointment = `-- name: CreateAppointment :one
 INSERT INTO appointments (branch_id, user_id, local_starts_at, time_zone, starts_at, ends_at)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, branch_id, user_id, local_starts_at, time_zone, starts_at, ends_at, status, created_at, updated_at
+RETURNING id, branch_id, user_id, local_starts_at, time_zone, starts_at, ends_at, status, reminded_at, created_at, updated_at
 `
 
 type CreateAppointmentParams struct {
@@ -76,6 +108,7 @@ func (q *Queries) CreateAppointment(ctx context.Context, arg CreateAppointmentPa
 		&i.StartsAt,
 		&i.EndsAt,
 		&i.Status,
+		&i.RemindedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -83,7 +116,7 @@ func (q *Queries) CreateAppointment(ctx context.Context, arg CreateAppointmentPa
 }
 
 const getAppointment = `-- name: GetAppointment :one
-SELECT a.id, a.branch_id, a.user_id, a.local_starts_at, a.time_zone, a.starts_at, a.ends_at, a.status, a.created_at, a.updated_at, b.name AS branch_name
+SELECT a.id, a.branch_id, a.user_id, a.local_starts_at, a.time_zone, a.starts_at, a.ends_at, a.status, a.reminded_at, a.created_at, a.updated_at, b.name AS branch_name
 FROM appointments a
 JOIN branches b ON b.id = a.branch_id
 WHERE a.id = $1
@@ -106,6 +139,7 @@ func (q *Queries) GetAppointment(ctx context.Context, id int64) (GetAppointmentR
 		&i.Appointment.StartsAt,
 		&i.Appointment.EndsAt,
 		&i.Appointment.Status,
+		&i.Appointment.RemindedAt,
 		&i.Appointment.CreatedAt,
 		&i.Appointment.UpdatedAt,
 		&i.BranchName,
@@ -117,13 +151,13 @@ const listBookedRanges = `-- name: ListBookedRanges :many
 SELECT starts_at, ends_at
 FROM appointments
 WHERE branch_id = $1 AND status = 'booked'
-  AND starts_at < $2 AND ends_at > $3
+  AND tstzrange(starts_at, ends_at) && tstzrange($2::timestamptz, $3::timestamptz)
 `
 
 type ListBookedRangesParams struct {
 	BranchID int64
-	End      time.Time
 	Start    time.Time
+	End      time.Time
 }
 
 type ListBookedRangesRow struct {
@@ -132,9 +166,11 @@ type ListBookedRangesRow struct {
 }
 
 // ListBookedRanges returns the booked appointments of a branch that overlap [start, end), to know
-// which slots are taken.
+// which slots are taken. It is written like the appointments_no_overlap constraint, with && on the
+// range, to use its index: with starts_at < end AND ends_at > start, PostgreSQL would read every
+// past appointment of the branch.
 func (q *Queries) ListBookedRanges(ctx context.Context, arg ListBookedRangesParams) ([]ListBookedRangesRow, error) {
-	rows, err := q.db.Query(ctx, listBookedRanges, arg.BranchID, arg.End, arg.Start)
+	rows, err := q.db.Query(ctx, listBookedRanges, arg.BranchID, arg.Start, arg.End)
 	if err != nil {
 		return nil, err
 	}
@@ -154,17 +190,20 @@ func (q *Queries) ListBookedRanges(ctx context.Context, arg ListBookedRangesPara
 }
 
 const listBranchAppointments = `-- name: ListBranchAppointments :many
-SELECT a.id, a.branch_id, a.user_id, a.local_starts_at, a.time_zone, a.starts_at, a.ends_at, a.status, a.created_at, a.updated_at, b.name AS branch_name
+SELECT a.id, a.branch_id, a.user_id, a.local_starts_at, a.time_zone, a.starts_at, a.ends_at, a.status, a.reminded_at, a.created_at, a.updated_at, b.name AS branch_name
 FROM appointments a
 JOIN branches b ON b.id = a.branch_id
 WHERE a.branch_id = $1 AND a.starts_at >= $2 AND a.starts_at < $3
 ORDER BY a.starts_at, a.id
+LIMIT $5 OFFSET $4
 `
 
 type ListBranchAppointmentsParams struct {
 	BranchID int64
 	Start    time.Time
 	End      time.Time
+	Offset   int32
+	Limit    int32
 }
 
 type ListBranchAppointmentsRow struct {
@@ -175,7 +214,13 @@ type ListBranchAppointmentsRow struct {
 // ListBranchAppointments returns the appointments of a branch that start between two instants (a
 // day of the branch), canceled ones included.
 func (q *Queries) ListBranchAppointments(ctx context.Context, arg ListBranchAppointmentsParams) ([]ListBranchAppointmentsRow, error) {
-	rows, err := q.db.Query(ctx, listBranchAppointments, arg.BranchID, arg.Start, arg.End)
+	rows, err := q.db.Query(ctx, listBranchAppointments,
+		arg.BranchID,
+		arg.Start,
+		arg.End,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +237,7 @@ func (q *Queries) ListBranchAppointments(ctx context.Context, arg ListBranchAppo
 			&i.Appointment.StartsAt,
 			&i.Appointment.EndsAt,
 			&i.Appointment.Status,
+			&i.Appointment.RemindedAt,
 			&i.Appointment.CreatedAt,
 			&i.Appointment.UpdatedAt,
 			&i.BranchName,
@@ -207,7 +253,7 @@ func (q *Queries) ListBranchAppointments(ctx context.Context, arg ListBranchAppo
 }
 
 const listUserAppointments = `-- name: ListUserAppointments :many
-SELECT a.id, a.branch_id, a.user_id, a.local_starts_at, a.time_zone, a.starts_at, a.ends_at, a.status, a.created_at, a.updated_at, b.name AS branch_name
+SELECT a.id, a.branch_id, a.user_id, a.local_starts_at, a.time_zone, a.starts_at, a.ends_at, a.status, a.reminded_at, a.created_at, a.updated_at, b.name AS branch_name
 FROM appointments a
 JOIN branches b ON b.id = a.branch_id
 WHERE a.user_id = $1 AND a.starts_at >= $2 AND a.starts_at < $3
@@ -254,6 +300,7 @@ func (q *Queries) ListUserAppointments(ctx context.Context, arg ListUserAppointm
 			&i.Appointment.StartsAt,
 			&i.Appointment.EndsAt,
 			&i.Appointment.Status,
+			&i.Appointment.RemindedAt,
 			&i.Appointment.CreatedAt,
 			&i.Appointment.UpdatedAt,
 			&i.BranchName,
@@ -266,4 +313,17 @@ func (q *Queries) ListUserAppointments(ctx context.Context, arg ListUserAppointm
 		return nil, err
 	}
 	return items, nil
+}
+
+const markAppointmentReminded = `-- name: MarkAppointmentReminded :exec
+UPDATE appointments
+SET reminded_at = now()
+WHERE id = $1 AND reminded_at IS NULL
+`
+
+// MarkAppointmentReminded records that the reminder was sent, so a second run of its job does not
+// send it again.
+func (q *Queries) MarkAppointmentReminded(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, markAppointmentReminded, id)
+	return err
 }

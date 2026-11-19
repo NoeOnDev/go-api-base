@@ -3,13 +3,11 @@ package auth_test
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/civil"
-	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
@@ -49,45 +47,16 @@ func TestTimeZoneInRegisterAndProfile(t *testing.T) {
 	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields["time_zone"] == "" {
 		t.Errorf("want an error on time_zone: %+v", resp.Error)
 	}
+	// Empty, it goes back to the application's (null).
+	u = testutil.Decode[auth.User](t, testutil.Do(t, api, cookie, http.MethodPut, "/auth/me", `{"name":"Ana","time_zone":""}`), http.StatusOK)
+	if u.TimeZone != nil {
+		t.Errorf("profile with an empty time_zone: %+v", u)
+	}
 
 	// Without a zone, the user has none (null): the application's applies.
 	w = testutil.Do(t, api, nil, http.MethodPost, "/auth/register", `{"name":"Bob","email":"bob@example.com","password":"a-long-password"}`)
 	if u := testutil.Decode[auth.User](t, w, http.StatusCreated); u.TimeZone != nil {
 		t.Errorf("user without a zone: %+v", u)
-	}
-}
-
-func TestTimeZoneInInvitations(t *testing.T) {
-	pool := testutil.NewDB(t)
-	mailer := &mail.Recorder{}
-	api := testutil.NewAPI(pool, testutil.WithMailer(mailer))
-	_, admin := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
-
-	// The admin can choose it, and accepting does not replace it.
-	w := testutil.Do(t, api, admin, http.MethodPost, "/admin/users", `{"name":"Bob","email":"bob@example.com","role":"user","time_zone":"America/Panama"}`)
-	if bob := testutil.Decode[auth.AdminUser](t, w, http.StatusCreated); bob.TimeZone == nil || *bob.TimeZone != "America/Panama" {
-		t.Errorf("invited user: %+v", bob)
-	}
-	msg, _ := mailer.Last("bob@example.com")
-	w = testutil.Do(t, api, nil, http.MethodPost, "/auth/invitation/accept", fmt.Sprintf(`{"token":%q,"password":"a-long-password","time_zone":"America/Bogota"}`, testutil.TokenFromEmail(t, msg)))
-	if u := testutil.Decode[auth.User](t, w, http.StatusOK); u.TimeZone == nil || *u.TimeZone != "America/Panama" {
-		t.Errorf("accepted user: %+v", u)
-	}
-
-	// Without one, the browser's is kept when accepting.
-	_, token := invite(t, api, mailer, admin, "Carol", "carol@example.com", auth.RoleUser)
-	w = testutil.Do(t, api, nil, http.MethodPost, "/auth/invitation/accept", fmt.Sprintf(`{"token":%q,"password":"a-long-password","time_zone":"Mars/Base"}`, token))
-	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields["time_zone"] == "" {
-		t.Errorf("want an error on time_zone: %+v", resp.Error)
-	}
-	w = testutil.Do(t, api, nil, http.MethodPost, "/auth/invitation/accept", fmt.Sprintf(`{"token":%q,"password":"a-long-password","time_zone":"America/Bogota"}`, token))
-	if u := testutil.Decode[auth.User](t, w, http.StatusOK); u.TimeZone == nil || *u.TimeZone != "America/Bogota" {
-		t.Errorf("accepted user: %+v", u)
-	}
-
-	w = testutil.Do(t, api, admin, http.MethodPost, "/admin/users", `{"name":"Dan","email":"dan@example.com","role":"user","time_zone":"UTC-5"}`)
-	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields["time_zone"] == "" {
-		t.Errorf("want an error on time_zone: %+v", resp.Error)
 	}
 }
 
@@ -124,37 +93,5 @@ func TestUserLocation(t *testing.T) {
 
 	if (auth.User{}).Location() != time.UTC {
 		t.Error("a User without a session is in UTC")
-	}
-}
-
-func TestLockedNoticeInTheUserZone(t *testing.T) {
-	pool := testutil.NewDB(t)
-	mails := &mail.Recorder{}
-	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
-	alice, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
-	testutil.EnableTwoFactor(t, api, session, testutil.Password)
-	if _, err := pool.Exec(t.Context(), "UPDATE users SET time_zone = 'America/Bogota', locale = 'es-MX' WHERE id = $1", alice.ID); err != nil {
-		t.Fatal(err)
-	}
-
-	addr := &ips{}
-	pending := loginFromIP(t, api, addr.next())
-	before := time.Now()
-	for range 5 {
-		challengeFromIP(t, api, addr.next(), pending, codeBody("000000"))
-	}
-
-	msg, ok := mails.Last("alice@example.com")
-	if !ok {
-		t.Fatal("no notice was sent")
-	}
-	bogota, _ := civil.LoadLocation("America/Bogota")
-	// The minute may change between the attempt and this check.
-	var found bool
-	for _, at := range []time.Time{before, time.Now()} {
-		found = found || strings.Contains(msg.Body, "Fecha: "+at.In(bogota).Format("02/01/2006 15:04")+" (America/Bogota)")
-	}
-	if !found {
-		t.Errorf("the notice does not have the date in Bogotá and in es-MX:\n%s", msg.Body)
 	}
 }

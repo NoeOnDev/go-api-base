@@ -104,6 +104,26 @@ func open(d civil.Date, h Hours, loc *time.Location) (Opening, bool) {
 	return o, o.EndsAt.After(o.StartsAt)
 }
 
+// Merge joins the openings that touch or overlap, sorted by when they start: 18:00-00:00 and
+// 00:00-02:00 of the next day are one opening that closes at 02:00, and so are the hours of a day
+// that crosses midnight and an exception of the next one that starts before it ends. The hours of
+// the clock of a joined opening go from the first OpensAt to the last ClosesAt.
+func Merge(openings []Opening) []Opening {
+	sorted := slices.Clone(openings)
+	slices.SortFunc(sorted, func(a, b Opening) int { return a.StartsAt.Compare(b.StartsAt) })
+	var merged []Opening
+	for _, o := range sorted {
+		if n := len(merged); n > 0 && !o.StartsAt.After(merged[n-1].EndsAt) {
+			if o.EndsAt.After(merged[n-1].EndsAt) {
+				merged[n-1].EndsAt, merged[n-1].ClosesAt = o.EndsAt, o.ClosesAt
+			}
+			continue
+		}
+		merged = append(merged, o)
+	}
+	return merged
+}
+
 // Status is whether a branch is open at a moment.
 type Status struct {
 	Open bool `json:"open"`
@@ -126,21 +146,8 @@ func StatusAt(now time.Time, weekly []WeeklyHours, exceptions []Exception, loc *
 		openings = append(openings, d.Openings...)
 	}
 
-	// Ranges that touch or overlap are one opening: 18:00-00:00 and 00:00-02:00 close at 02:00.
-	slices.SortFunc(openings, func(a, b Opening) int { return a.StartsAt.Compare(b.StartsAt) })
-	var merged []Opening
-	for _, o := range openings {
-		if n := len(merged); n > 0 && !o.StartsAt.After(merged[n-1].EndsAt) {
-			if o.EndsAt.After(merged[n-1].EndsAt) {
-				merged[n-1].EndsAt = o.EndsAt
-			}
-			continue
-		}
-		merged = append(merged, o)
-	}
-
 	var s Status
-	for _, o := range merged {
+	for _, o := range Merge(openings) {
 		switch {
 		case !now.Before(o.StartsAt) && now.Before(o.EndsAt):
 			s.Open = true

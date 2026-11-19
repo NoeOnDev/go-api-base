@@ -205,19 +205,6 @@ func (b *Broker) apply(ctx context.Context, payload string, logger *slog.Logger)
 	}
 }
 
-// shareEvent sends the event to the other instances. Without Listen, it does nothing.
-func (b *Broker) shareEvent(ctx context.Context, channel string, ev Event) {
-	if b.queries() == nil {
-		return
-	}
-	data, err := json.Marshal(ev.Data)
-	if err != nil {
-		httpx.LoggerFrom(ctx).Error("realtime: encode the event for the other instances", "type", ev.Type, "error", err)
-		return
-	}
-	b.share(ctx, message{Kind: kindEvent, Channel: channel, Event: &sharedEvent{ID: ev.ID, Type: ev.Type, Data: data}})
-}
-
 // share sends the message to the other instances. Without Listen, it does nothing. If it fails,
 // it is only logged: like Publish, it is best effort.
 func (b *Broker) share(ctx context.Context, msg message) {

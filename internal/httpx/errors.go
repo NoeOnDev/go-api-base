@@ -62,7 +62,7 @@ func BadRequest(code string, args ...any) *Error {
 	return &Error{Status: http.StatusBadRequest, Code: code, Args: args}
 }
 
-// NotFound means the requested resource does not exist, for example NotFound("note_not_found").
+// NotFound means the requested resource does not exist, for example NotFound("user_not_found").
 func NotFound(code string) *Error {
 	return &Error{Status: http.StatusNotFound, Code: code}
 }

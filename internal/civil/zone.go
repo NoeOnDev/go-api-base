@@ -2,6 +2,7 @@ package civil
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,12 +17,13 @@ const maxZoneNameLen = 64
 var locations sync.Map // name → *time.Location
 
 // LoadLocation loads an IANA time zone, like "America/Mexico_City" or "UTC". Unlike
-// time.LoadLocation, it rejects "" and "Local", which are not zones but "UTC" and "the server's".
+// time.LoadLocation, it rejects "" and "Local", which are not zones but "UTC" and "the server's",
+// and the files of the system's zone directory that are not zones (see notAZone).
 func LoadLocation(name string) (*time.Location, error) {
 	if loc, ok := locations.Load(name); ok {
 		return loc.(*time.Location), nil
 	}
-	if name == "" || name == "Local" || len(name) > maxZoneNameLen {
+	if name == "" || name == "Local" || len(name) > maxZoneNameLen || notAZone(name) {
 		return nil, fmt.Errorf("civil: %q is not a time zone like America/Mexico_City", name)
 	}
 	loc, err := time.LoadLocation(name)
@@ -30,6 +32,20 @@ func LoadLocation(name string) (*time.Location, error) {
 	}
 	locations.Store(name, loc)
 	return loc, nil
+}
+
+// notAZone reports whether name is a file that time.LoadLocation reads from the system's zone
+// directory (/usr/share/zoneinfo) but is not an IANA zone: "localtime" is the server's zone,
+// "posixrules" and "Factory" are placeholders, and the "posix/" and "right/" folders are copies of
+// every zone ("right/" counts the leap seconds, so its hours are off by half a minute). A name
+// stored from one of them would not load on another server, or with the zones inside the binary,
+// and no browser sends them.
+func notAZone(name string) bool {
+	switch name {
+	case "localtime", "posixrules", "Factory":
+		return true
+	}
+	return strings.HasPrefix(name, "posix/") || strings.HasPrefix(name, "right/")
 }
 
 // In returns the instant at which the wall clock of loc shows dt, which must be valid.

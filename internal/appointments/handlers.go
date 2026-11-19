@@ -36,6 +36,15 @@ const (
 	maxListDays = 366
 )
 
+// Limits of the bookings, so one account cannot take every slot of a branch. Tune them for each
+// project.
+const (
+	// maxUpcoming is how many booked appointments that have not started a person can have at once.
+	maxUpcoming = 5
+	// maxDaysAhead is how far ahead an appointment can be booked, in days of the branch.
+	maxDaysAhead = 90
+)
+
 // Handler groups the appointment endpoints.
 type Handler struct {
 	db       *pgxpool.Pool
@@ -79,7 +88,20 @@ var (
 	errBranchNotFound  = httpx.NotFound("branch_not_found")
 	errSlotTaken       = httpx.Conflict("slot_taken", "starts_at")
 	errSlotUnavailable = httpx.Validation(httpx.Fields{"starts_at": i18n.M("validation.slot_unavailable")})
+	errUnknownBranch   = httpx.Validation(httpx.Fields{"branch_id": i18n.M("validation.unknown_branch")})
+	errTooMany         = &httpx.Error{Status: http.StatusConflict, Code: "too_many_appointments", Args: []any{"max", maxUpcoming}}
 )
+
+// tooFarAhead reports whether date is beyond what can be booked: maxDaysAhead days from today of the
+// branch.
+func tooFarAhead(date civil.Date, loc *time.Location) bool {
+	return date.After(civil.DateOf(time.Now().In(loc)).AddDays(maxDaysAhead))
+}
+
+// errTooFarAhead is the error of a date beyond maxDaysAhead, on the field that carries it.
+func errTooFarAhead(field string) error {
+	return httpx.Validation(httpx.Fields{field: i18n.M("validation.too_far_ahead", "days", maxDaysAhead)})
+}
 
 // branchOf finds the branch of the route ({id}) and loads its zone.
 func (h *Handler) branchOf(r *http.Request) (store.Branch, *time.Location, error) {
@@ -104,8 +126,9 @@ func (h *Handler) branchOf(r *http.Request) (store.Branch, *time.Location, error
 // freeSlots returns the slots of date at the branch. With booked false, it ignores the appointments
 // already booked (to tell "outside the hours" from "taken").
 func (h *Handler) freeSlots(r *http.Request, b store.Branch, loc *time.Location, date civil.Date, duration time.Duration, booked bool) ([]Slot, error) {
-	// From the day before: an opening that crosses midnight can have slots on date.
-	days, _, err := h.branches.Schedule(r.Context(), b, date.AddDays(-1), date)
+	// From the day before (an opening that crosses midnight can have slots on date) to the day after
+	// (a slot can end in the opening that continues the one of date).
+	days, _, err := h.branches.Schedule(r.Context(), b, date.AddDays(-1), date.AddDays(1))
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +154,8 @@ func (h *Handler) freeSlots(r *http.Request, b store.Branch, loc *time.Location,
 }
 
 // availability answers GET /branches/{id}/availability?date=&duration=: the free slots of a day
-// (today of the branch by default) for an appointment of duration minutes (30 by default).
+// (today of the branch by default) for an appointment of duration minutes (30 by default). A date
+// beyond maxDaysAhead answers 422, like the booking.
 func (h *Handler) availability(w http.ResponseWriter, r *http.Request) error {
 	b, loc, err := h.branchOf(r)
 	if err != nil {
@@ -140,6 +164,9 @@ func (h *Handler) availability(w http.ResponseWriter, r *http.Request) error {
 	date, err := parseDate(r, civil.DateOf(time.Now().In(loc)))
 	if err != nil {
 		return err
+	}
+	if tooFarAhead(date, loc) {
+		return errTooFarAhead("date")
 	}
 	duration, err := parseDuration(r)
 	if err != nil {
@@ -158,7 +185,8 @@ func (h *Handler) availability(w http.ResponseWriter, r *http.Request) error {
 // book answers POST /appointments with {branch_id, starts_at, duration_minutes?}. starts_at is the
 // hour of the branch's clock and must be one of the slots of its availability: that covers the
 // business hours, the past, the steps of 15 minutes and the hours that do not exist when the clocks
-// change. If someone else took it first, 409 slot_taken.
+// change. If someone else took it first, 409 slot_taken. A date beyond maxDaysAhead answers 422, and
+// a person who already has maxUpcoming appointments to come, 409 too_many_appointments.
 func (h *Handler) book(w http.ResponseWriter, r *http.Request) error {
 	var in bookInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -171,7 +199,7 @@ func (h *Handler) book(w http.ResponseWriter, r *http.Request) error {
 
 	b, err := h.q.GetBranch(r.Context(), in.BranchID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return httpx.Validation(httpx.Fields{"branch_id": i18n.M("validation.unknown_branch")})
+		return errUnknownBranch
 	}
 	if err != nil {
 		return fmt.Errorf("get branch %d: %w", in.BranchID, err)
@@ -179,6 +207,10 @@ func (h *Handler) book(w http.ResponseWriter, r *http.Request) error {
 	loc, err := civil.LoadLocation(b.TimeZone)
 	if err != nil {
 		return fmt.Errorf("zone of branch %d: %w", b.ID, err)
+	}
+
+	if tooFarAhead(in.StartsAt.Date(), loc) {
+		return errTooFarAhead("starts_at")
 	}
 
 	duration := time.Duration(in.DurationMinutes) * time.Minute
@@ -200,13 +232,28 @@ func (h *Handler) book(w http.ResponseWriter, r *http.Request) error {
 	user := auth.MustUser(r.Context())
 	var a store.Appointment
 	err = pgx.BeginFunc(r.Context(), h.db, func(tx pgx.Tx) error {
-		var err error
-		a, err = h.q.WithTx(tx).CreateAppointment(r.Context(), store.CreateAppointmentParams{
+		q := h.q.WithTx(tx)
+		// The limit per person. The user's row is locked first: two bookings sent at once wait for
+		// each other here, so both cannot pass the count with one place left.
+		if err := q.LockUser(r.Context(), user.ID); err != nil {
+			return fmt.Errorf("lock user %d: %w", user.ID, err)
+		}
+		upcoming, err := q.CountUpcomingAppointments(r.Context(), user.ID)
+		if err != nil {
+			return fmt.Errorf("count the appointments of user %d: %w", user.ID, err)
+		}
+		if upcoming >= maxUpcoming {
+			return errTooMany
+		}
+		a, err = q.CreateAppointment(r.Context(), store.CreateAppointmentParams{
 			BranchID: b.ID, UserID: user.ID, LocalStartsAt: slot.LocalStartsAt, TimeZone: b.TimeZone,
 			StartsAt: slot.StartsAt, EndsAt: slot.EndsAt,
 		})
 		if _, ok := db.IsExclusionViolation(err); ok {
 			return errSlotTaken
+		}
+		if constraint, ok := db.IsForeignKeyViolation(err); ok && constraint == "appointments_branch_id_fkey" {
+			return errUnknownBranch // deleted meanwhile
 		}
 		if err != nil {
 			return fmt.Errorf("create appointment: %w", err)
@@ -313,10 +360,15 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// agenda answers GET /branches/{id}/appointments?date=: the appointments of a day of the branch
-// (today by default), canceled ones included. Only for administrators.
+// agenda answers GET /branches/{id}/appointments?date=&limit=&offset=: the appointments of a day of
+// the branch (today by default), canceled ones included. Only for administrators. It goes by pages:
+// the booked ones of a day are few, but nothing limits the canceled ones.
 func (h *Handler) agenda(w http.ResponseWriter, r *http.Request) error {
 	b, loc, err := h.branchOf(r)
+	if err != nil {
+		return err
+	}
+	page, err := httpx.ParsePage(r)
 	if err != nil {
 		return err
 	}
@@ -325,14 +377,23 @@ func (h *Handler) agenda(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	start, end := civil.DayRange(date, date, loc)
-	rows, err := h.q.ListBranchAppointments(r.Context(), store.ListBranchAppointmentsParams{BranchID: b.ID, Start: start, End: end})
+	rows, err := h.q.ListBranchAppointments(r.Context(), store.ListBranchAppointmentsParams{
+		BranchID: b.ID, Start: start, End: end, Limit: page.Limit, Offset: page.Offset,
+	})
 	if err != nil {
 		return fmt.Errorf("list the appointments of branch %d: %w", b.ID, err)
+	}
+	total, err := h.q.CountBranchAppointments(r.Context(), store.CountBranchAppointmentsParams{BranchID: b.ID, Start: start, End: end})
+	if err != nil {
+		return fmt.Errorf("count the appointments of branch %d: %w", b.ID, err)
 	}
 	data := make([]appointmentResponse, len(rows))
 	for i, row := range rows {
 		data[i] = toResponse(row.Appointment, row.BranchName)
 	}
-	httpx.Write(w, http.StatusOK, map[string]any{"date": date, "time_zone": b.TimeZone, "data": data})
+	httpx.Write(w, http.StatusOK, map[string]any{
+		"date": date, "time_zone": b.TimeZone, "data": data,
+		"meta": httpx.PageMeta{Limit: page.Limit, Offset: page.Offset, Total: total},
+	})
 	return nil
 }

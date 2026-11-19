@@ -41,6 +41,7 @@ type Stream struct {
 // It removes the server's WriteTimeout only for this request: with it, the server would cut the
 // stream after 30 seconds. Instead, each write has its own deadline (streamWriteTimeout).
 // The stream ends when the handler returns; to learn that the client left, use r.Context().
+// Call Close with defer right after Open, so the response ends cleanly.
 func Open(w http.ResponseWriter, r *http.Request) (*Stream, error) {
 	rc := http.NewResponseController(w)
 	if err := rc.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
@@ -60,14 +61,28 @@ func Open(w http.ResponseWriter, r *http.Request) (*Stream, error) {
 	return &Stream{w: w, rc: rc}, nil
 }
 
-// Send sends an event and flushes it right away.
-func (s *Stream) Send(ev Event) error {
+// encode checks the event and returns its Data as JSON. Data that is already JSON (the broker
+// encodes each event once, when it is published) goes as it is, without encoding it again for each
+// connection.
+func (ev Event) encode() (json.RawMessage, error) {
 	if strings.ContainsAny(ev.ID, "\r\n") || strings.ContainsAny(ev.Type, "\r\n") {
-		return errors.New("realtime: the event ID and type cannot have line breaks")
+		return nil, errors.New("realtime: the event ID and type cannot have line breaks")
+	}
+	if raw, ok := ev.Data.(json.RawMessage); ok {
+		return raw, nil
 	}
 	data, err := json.Marshal(ev.Data)
 	if err != nil {
-		return fmt.Errorf("realtime: encode event: %w", err)
+		return nil, fmt.Errorf("realtime: encode event: %w", err)
+	}
+	return data, nil
+}
+
+// Send sends an event and flushes it right away.
+func (s *Stream) Send(ev Event) error {
+	data, err := ev.encode()
+	if err != nil {
+		return err
 	}
 
 	var b strings.Builder
@@ -98,6 +113,19 @@ func (s *Stream) Comment(text string) error {
 // needed: if a client stops reading without closing the connection, the write would block as
 // soon as the TCP buffer fills up, and the handler would see neither the logout nor the shutdown.
 var streamWriteTimeout = 10 * time.Second
+
+// Close prepares the end of the stream: call it with defer right after Open. It does not close the
+// connection, which ends when the handler returns.
+//
+// Each write leaves its deadline behind. When the handler returns later than that (a stream writes
+// every 25 seconds, and the deadline is of 10), the server could not write the end of the response
+// and cut the connection instead: the browser reconnected anyway, but it logged an incomplete
+// response, and so did the proxy. Close gives that end a deadline of its own.
+func (s *Stream) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.rc.SetWriteDeadline(time.Now().Add(streamWriteTimeout))
+}
 
 func (s *Stream) write(chunk string) error {
 	s.mu.Lock()

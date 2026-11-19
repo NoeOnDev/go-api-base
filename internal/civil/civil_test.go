@@ -225,7 +225,9 @@ func TestLoadLocation(t *testing.T) {
 			t.Errorf("LoadLocation(%q): %v", name, err)
 		}
 	}
-	for _, name := range []string{"", "Local", "Mars/Base", "america/mexico_city", "../etc/passwd", "-06:00", "America/" + strings.Repeat("x", 64)} {
+	for _, name := range []string{"", "Local", "Mars/Base", "america/mexico_city", "../etc/passwd", "-06:00", "America/" + strings.Repeat("x", 64),
+		// Files of the system's zone directory that are not zones (they load on most Linux servers).
+		"localtime", "posixrules", "Factory", "posix/America/Bogota", "right/America/Bogota"} {
 		if _, err := LoadLocation(name); err == nil {
 			t.Errorf("LoadLocation(%q): want an error", name)
 		}

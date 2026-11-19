@@ -32,9 +32,14 @@ func TestEmailVerificationRequired(t *testing.T) {
 	}
 
 	// Unverified: the protected routes answer 403, but the account is still reachable.
-	resp := testutil.Decode[testutil.APIError](t, testutil.Do(t, api, cookie, http.MethodGet, "/notes", ""), http.StatusForbidden)
+	routes := protected(pool, requireVerification)
+	resp := testutil.Decode[testutil.APIError](t, testutil.Do(t, routes, cookie, http.MethodGet, "/user", ""), http.StatusForbidden)
 	if resp.Error.Code != "email_not_verified" {
 		t.Errorf("code = %q", resp.Error.Code)
+	}
+	// And a public route that shows more to the users (OptionalUser) treats them as anonymous.
+	if who := testutil.Do(t, routes, cookie, http.MethodGet, "/optional", "").Body.String(); who != "anonymous" {
+		t.Errorf("unverified, OptionalUser sees %q, want anonymous", who)
 	}
 	for _, tt := range []struct{ method, path, body string }{
 		{http.MethodGet, "/auth/me", ""},
@@ -62,8 +67,11 @@ func TestEmailVerificationRequired(t *testing.T) {
 	if !me.EmailVerified() {
 		t.Error("the email was not verified")
 	}
-	if w := testutil.Do(t, api, cookie, http.MethodGet, "/notes", ""); w.Code != http.StatusOK {
-		t.Errorf("/notes after verifying: status = %d", w.Code)
+	if w := testutil.Do(t, routes, cookie, http.MethodGet, "/user", ""); w.Code != http.StatusNoContent {
+		t.Errorf("a protected route after verifying: status = %d", w.Code)
+	}
+	if who := testutil.Do(t, routes, cookie, http.MethodGet, "/optional", "").Body.String(); who != "user" {
+		t.Errorf("verified, OptionalUser sees %q, want user", who)
 	}
 
 	// Once verified, asking for another link sends nothing.
@@ -87,20 +95,19 @@ func TestEmailVerificationDisabledByDefault(t *testing.T) {
 	if len(mails.Messages()) != 0 {
 		t.Errorf("should not send emails on registration: %+v", mails.Messages())
 	}
-	if w := testutil.Do(t, api, sessionCookie(t, w), http.MethodGet, "/notes", ""); w.Code != http.StatusOK {
-		t.Errorf("without required verification, /notes should work: status = %d", w.Code)
+	if w := testutil.Do(t, protected(pool), sessionCookie(t, w), http.MethodGet, "/user", ""); w.Code != http.StatusNoContent {
+		t.Errorf("without required verification, a protected route should work: status = %d", w.Code)
 	}
 }
 
 func TestAdminsAreVerified(t *testing.T) {
 	pool := testutil.NewDB(t)
-	api := testutil.NewAPI(pool, testutil.WithConfig(requireVerification))
 	admin, cookie := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
 
 	if !admin.EmailVerified() {
 		t.Error("an admin should be verified when created")
 	}
-	if w := testutil.Do(t, api, cookie, http.MethodPost, "/categories", `{"name":"Drinks","slug":"drinks"}`); w.Code != http.StatusCreated {
+	if w := testutil.Do(t, protected(pool, requireVerification), cookie, http.MethodGet, "/admin", ""); w.Code != http.StatusNoContent {
 		t.Errorf("the admin cannot use protected routes: status = %d", w.Code)
 	}
 }

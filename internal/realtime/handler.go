@@ -82,6 +82,7 @@ func (b *Broker) Handler(sessions Sessions) http.Handler {
 		if err != nil {
 			return err
 		}
+		defer stream.Close()
 		if err := stream.Send(Event{Type: "ready", Data: readyData{Topics: allowed, Rejected: rejected}}); err != nil {
 			return nil // the client is already gone
 		}
@@ -99,6 +100,11 @@ func (b *Broker) Handler(sessions Sessions) http.Handler {
 			case <-lifetime.C:
 				return nil // the browser reconnects, and everything is checked again then
 			case ev := <-sub.events:
+				// select picks at random among what is ready: an event queued just before the
+				// session was closed must not go out after it.
+				if sub.isClosed() {
+					return nil
+				}
 				if err := stream.Send(ev); err != nil {
 					return nil
 				}
@@ -122,17 +128,20 @@ type readyData struct {
 	Rejected []string `json:"rejected"`
 }
 
-// parseTopics reads the list of topics, without repeats.
+// parseTopics reads the list of topics, without repeats. It stops at the first one over the
+// maximum: the list comes from the URL, and looking for repeats in a very long one would take
+// seconds of CPU before rejecting it.
 func parseTopics(raw string) ([]string, error) {
 	var topics []string
 	for t := range strings.SplitSeq(raw, ",") {
 		t = strings.TrimSpace(t)
-		if t != "" && !slices.Contains(topics, t) {
-			topics = append(topics, t)
+		if t == "" || slices.Contains(topics, t) {
+			continue
 		}
-	}
-	if len(topics) > maxTopics {
-		return nil, httpx.BadRequest("too_many_topics", "max", maxTopics)
+		if len(topics) == maxTopics {
+			return nil, httpx.BadRequest("too_many_topics", "max", maxTopics)
+		}
+		topics = append(topics, t)
 	}
 	return topics, nil
 }

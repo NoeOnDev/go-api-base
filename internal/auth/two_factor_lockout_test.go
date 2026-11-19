@@ -6,8 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/civil"
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
@@ -123,7 +125,9 @@ func TestChallengeUserLimitAcrossIPs(t *testing.T) {
 	}
 }
 
-func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
+// A password reset does not give back the two-factor attempts: whoever controls the inbox would get
+// more tries at the code with each reset.
+func TestPasswordResetKeepsTwoFactorLimit(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
@@ -150,7 +154,8 @@ func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
 	// The challenge obtained with the old password no longer works…
 	testutil.Decode[testutil.APIError](t, challengeFromIP(t, api, addr.next(), attacker, codeBody(tf.Code(t))), http.StatusUnauthorized)
 
-	// …and Alice signs in with the new password without waiting for the limit to refill.
+	// …and the new password passes the first step of the login, but the two-factor limit is still
+	// used up: the code has to wait for an attempt to refill, even the right one.
 	w := testutil.DoFromIP(t, api, addr.next(), nil, http.MethodPost, "/auth/login",
 		fmt.Sprintf(`{"email":"alice@example.com","password":%q}`, newPassword))
 	testutil.Decode[map[string]bool](t, w, http.StatusAccepted)
@@ -160,8 +165,9 @@ func TestPasswordResetUnlocksTwoFactor(t *testing.T) {
 			mine = c
 		}
 	}
-	if w := challengeFromIP(t, api, addr.next(), mine, codeBody(tf.Code(t))); w.Code != http.StatusOK {
-		t.Errorf("Alice's login after the reset: status = %d; body: %s", w.Code, w.Body)
+	w = challengeFromIP(t, api, addr.next(), mine, codeBody(tf.Code(t)))
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusTooManyRequests); resp.Error.Code != "too_many_requests" || w.Header().Get("Retry-After") != "360" {
+		t.Errorf("the code after the reset: %+v, Retry-After %q", resp.Error, w.Header().Get("Retry-After"))
 	}
 }
 
@@ -182,4 +188,36 @@ func TestPasswordChangeEndsPendingChallenges(t *testing.T) {
 	}
 
 	testutil.Decode[testutil.APIError](t, challengeFromIP(t, api, addr.next(), attacker, codeBody(tf.Code(t))), http.StatusUnauthorized)
+}
+
+func TestLockedNoticeInTheUserZone(t *testing.T) {
+	pool := testutil.NewDB(t)
+	mails := &mail.Recorder{}
+	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
+	alice, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	testutil.EnableTwoFactor(t, api, session, testutil.Password)
+	if _, err := pool.Exec(t.Context(), "UPDATE users SET time_zone = 'America/Bogota', locale = 'es-MX' WHERE id = $1", alice.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	addr := &ips{}
+	pending := loginFromIP(t, api, addr.next())
+	before := time.Now()
+	for range 5 {
+		challengeFromIP(t, api, addr.next(), pending, codeBody("000000"))
+	}
+
+	msg, ok := mails.Last("alice@example.com")
+	if !ok {
+		t.Fatal("no notice was sent")
+	}
+	bogota, _ := civil.LoadLocation("America/Bogota")
+	// The minute may change between the attempt and this check.
+	var found bool
+	for _, at := range []time.Time{before, time.Now()} {
+		found = found || strings.Contains(msg.Body, "Fecha: "+at.In(bogota).Format("02/01/2006 15:04")+" (America/Bogota)")
+	}
+	if !found {
+		t.Errorf("the notice does not have the date in Bogotá and in es-MX:\n%s", msg.Body)
+	}
 }

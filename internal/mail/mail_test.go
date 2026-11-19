@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"bufio"
 	"bytes"
 	"io"
 	"mime"
@@ -137,3 +138,90 @@ var (
 	_ Sender = LogSender{}
 	_ Sender = (*SMTPSender)(nil)
 )
+
+// A long subject goes in several lines, and reads the same when they are joined back.
+func TestBuildFoldsLongSubject(t *testing.T) {
+	from, _ := netmail.ParseAddress("My App <no-reply@example.com>")
+	for _, subject := range []string{
+		strings.Repeat("Confirm your account ", 60),      // ASCII: it is not encoded
+		strings.Repeat("Confirmación de tu cuenta ", 12), // encoded in several words
+	} {
+		subject = strings.TrimSpace(subject)
+		raw, err := build(from, Message{To: "alice@example.com", Subject: subject, Body: "hello"}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		// 78 is what a line should have at most (998, what it can). The first one can go a bit over: an
+		// encoded word has up to 75 characters, after "Subject: ".
+		for line := range strings.SplitSeq(string(raw), "\r\n") {
+			if len(line) > 78+len("Subject: ") {
+				t.Errorf("a line of %d characters: %.60s…", len(line), line)
+			}
+		}
+		parsed, err := netmail.ReadMessage(bytes.NewReader(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := new(mime.WordDecoder).DecodeHeader(parsed.Header.Get("Subject")); err != nil || got != subject {
+			t.Errorf("subject = %q (%v), want %q", got, err, subject)
+		}
+	}
+}
+
+// The server accepts the email and hangs up without waiting for the QUIT: the email was sent, so
+// Send must not return an error (the worker would send it again).
+func TestSMTPSenderIgnoresAFailedGoodbye(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	accepted := make(chan bool, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		reply := func(s string) { _, _ = io.WriteString(conn, s+"\r\n") }
+		r := bufio.NewReader(conn)
+		reply("220 test")
+		data := false
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			switch cmd := strings.ToUpper(strings.TrimSpace(line)); {
+			case data && cmd == ".":
+				reply("250 accepted")
+				accepted <- true
+				return // hangs up: the QUIT finds the connection closed
+			case data:
+			case strings.HasPrefix(cmd, "EHLO"):
+				reply("250 test")
+			case cmd == "DATA":
+				reply("354 go ahead")
+				data = true
+			default: // MAIL FROM, RCPT TO
+				reply("250 ok")
+			}
+		}
+	}()
+
+	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+	s, err := NewSMTPSender("127.0.0.1", port, "", "", "My App <no-reply@example.com>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Send(t.Context(), Message{To: "alice@example.com", Subject: "Hello", Body: "hello"}); err != nil {
+		t.Errorf("Send: %v, want nil: the server had accepted the email", err)
+	}
+	select {
+	case <-accepted:
+	default:
+		t.Error("the server never got the email")
+	}
+}

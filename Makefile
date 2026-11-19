@@ -1,7 +1,8 @@
 # Project commands. Run "make" or "make help" to see the list.
 
 # Loads .env if it exists, so the variables don't have to be exported by hand in development.
-# Note: make interprets "$" in the values; avoid that character in the passwords of .env.
+# Note: make interprets "$" in the values and cuts them at the first "#": avoid both characters in
+# the values of .env (for example, in a password).
 ifneq (,$(wildcard .env))
 include .env
 export
@@ -11,11 +12,11 @@ endif
 # (verified against Go's checksum database) and builds them the first time; after that
 # it uses the cache. They add nothing to the application's go.mod.
 SQLC_VERSION        := v1.31.1
-GOOSE_VERSION       := v3.29.0
+GOOSE_VERSION       := v3.30.1
 GOVULNCHECK_VERSION := v1.9.0
 STATICCHECK_VERSION := v0.8.2
 # It must match the version of github.com/riverqueue/river in go.mod.
-RIVER_VERSION       := v0.49.0
+RIVER_VERSION       := v0.51.2
 
 SQLC        := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 GOOSE_CLI   := go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
@@ -90,6 +91,12 @@ test: ## Runs the tests (the database ones use TEST_DATABASE_URL)
 	@test -n "$(TEST_DATABASE_URL)" || echo "WARNING: TEST_DATABASE_URL is not set: the integration tests will NOT run (they are skipped). See .env.example."
 	go test -p 1 ./...
 
+.PHONY: test-race
+# The race detector finds two goroutines that touch the same data without a lock (the broker, the
+# rate limiters). It needs gcc and takes about twice as long, so it is not in "check": CI runs it.
+test-race: ## Runs the tests with the race detector (CI does it on every push)
+	go test -race -p 1 ./...
+
 .PHONY: vuln
 vuln: ## Looks for known vulnerabilities in the code and its dependencies
 	$(GOVULNCHECK) ./...
@@ -106,6 +113,7 @@ check: ## Everything that must pass before committing
 	@echo "==> staticcheck"
 	@$(STATICCHECK) ./...
 	@echo "==> go test"
+	@test -n "$(TEST_DATABASE_URL)" || echo "WARNING: TEST_DATABASE_URL is not set: the integration tests will NOT run (they are skipped). See .env.example."
 	@go test -p 1 ./...
 	@echo "==> govulncheck"
 	@$(GOVULNCHECK) ./...

@@ -74,7 +74,8 @@ func (s *Service) location(ctx context.Context, timeZone *string) *time.Location
 // savePassword stores the hash of a new password with the queries q (they can be those of a
 // transaction). It also deletes what was obtained with the previous password, which someone
 // else could have known: the pending two-factor challenges and the pending email change (with
-// it, someone would keep the email and, from there, the account).
+// it, someone would keep the email and, from there, the account). And a pending reset link: whoever
+// changes the password because they suspect someone else got in does not leave that link alive.
 func savePassword(ctx context.Context, q *store.Queries, userID int64, hash string) error {
 	if err := q.UpdateUserPassword(ctx, store.UpdateUserPasswordParams{ID: userID, PasswordHash: &hash}); err != nil {
 		return fmt.Errorf("save the password of user %d: %w", userID, err)
@@ -85,7 +86,47 @@ func savePassword(ctx context.Context, q *store.Queries, userID int64, hash stri
 	if err := q.DeleteUserTokens(ctx, store.DeleteUserTokensParams{UserID: userID, Purpose: purposeEmailChange}); err != nil {
 		return fmt.Errorf("delete the pending email change: %w", err)
 	}
+	if err := q.DeleteUserTokens(ctx, store.DeleteUserTokensParams{UserID: userID, Purpose: purposePasswordReset}); err != nil {
+		return fmt.Errorf("delete the pending reset link: %w", err)
+	}
 	return nil
+}
+
+// Statuses of an account, as the administrators see them. An invited user has not accepted the
+// invitation yet: they have no password (see invitations.go).
+const (
+	StatusActive    = "active"
+	StatusInvited   = "invited"
+	StatusSuspended = "suspended"
+)
+
+// roles are the values a role can have.
+var roles = []string{RoleUser, RoleAdmin}
+
+// AdminUser is a user as the administrators see them: the account and its status.
+type AdminUser struct {
+	User
+	Status      string     `json:"status"`
+	SuspendedAt *time.Time `json:"suspended_at"`
+}
+
+func toAdminUser(u store.User) AdminUser {
+	status := StatusActive
+	switch {
+	case u.SuspendedAt != nil:
+		status = StatusSuspended
+	case u.PasswordHash == nil:
+		status = StatusInvited
+	}
+	return AdminUser{User: toUser(u), Status: status, SuspendedAt: u.SuspendedAt}
+}
+
+// oneOf requires value to be one of the allowed values.
+func oneOf(value string, allowed []string) i18n.Message {
+	if !slices.Contains(allowed, value) {
+		return i18n.M("validation.one_of", "values", strings.Join(allowed, ", "))
+	}
+	return i18n.Message{}
 }
 
 var (

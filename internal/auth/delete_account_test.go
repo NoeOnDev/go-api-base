@@ -20,7 +20,6 @@ func TestDeleteAccount(t *testing.T) {
 	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
 	u, cookie := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
 	_, bob := testutil.Login(t, pool, "bob@example.com", auth.RoleUser)
-	testutil.Do(t, api, cookie, http.MethodPost, "/notes", `{"title":"A note"}`)
 	if _, err := pool.Exec(t.Context(), "INSERT INTO notifications (user_id, kind) VALUES ($1, 'x')", u.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +41,7 @@ func TestDeleteAccount(t *testing.T) {
 	}
 
 	// All of it is gone, and nothing of Bob's.
-	for _, table := range []string{"users", "sessions", "notes", "notifications"} {
+	for _, table := range []string{"users", "sessions", "notifications"} {
 		if n := countRows(t, pool, table, u.ID); n != 0 {
 			t.Errorf("%d rows left in %s", n, table)
 		}

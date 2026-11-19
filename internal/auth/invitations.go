@@ -21,7 +21,10 @@ import (
 // the person chooses their password from the link that reaches them by email. Until then the
 // user has no password and cannot log in. See "Invitations" in docs/auth.md.
 
-var errInvitationAccepted = httpx.Conflict("invitation_accepted", "")
+var (
+	errInvitationAccepted = httpx.Conflict("invitation_accepted", "")
+	errUserSuspended      = httpx.Conflict("user_suspended", "")
+)
 
 type inviteInput struct {
 	Name  string `json:"name"`
@@ -142,12 +145,17 @@ func (s *Service) resendInvitation(w http.ResponseWriter, r *http.Request) error
 	if u.PasswordHash != nil {
 		return errInvitationAccepted
 	}
+	// Suspending an invited account withdraws its invitation, and a new link could not be accepted.
+	if u.SuspendedAt != nil {
+		return errUserSuspended
+	}
 
 	allowed, err := s.allowEmail(r.Context(), purposeInvitation, u.ID)
 	if err != nil {
 		return err
 	}
 	if !allowed {
+		w.Header().Set("Retry-After", s.emailLimiter.RetryAfter())
 		return errTooManyEmails
 	}
 	if err := s.sendInvitation(r.Context(), u, MustUser(r.Context())); err != nil {

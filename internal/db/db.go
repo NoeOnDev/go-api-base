@@ -13,9 +13,12 @@ import (
 )
 
 // defaultMaxConns is the pool size when the URL does not set it. pgx uses 4 (or one per core),
-// which falls short on a small VPS: River holds one connection to listen for new jobs (LISTEN)
-// and shares the rest with the requests and its workers. With 10 there is still plenty of room
-// in PostgreSQL, which allows 100 by default.
+// which falls short on a small VPS: the requests share the pool with River's workers. With 10
+// there is still plenty of room in PostgreSQL, which allows 100 by default.
+//
+// Each instance also keeps two connections outside the pool, to listen (LISTEN): River's, which it
+// takes out of the pool for good, and the one of real time (internal/realtime). So an instance can
+// have up to the size of the pool plus two.
 const defaultMaxConns = 10
 
 // defaultStatementTimeout is how long a statement can run before PostgreSQL cancels it, when the
@@ -60,7 +63,7 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 // statement_timeout in the URL travels as a startup parameter instead, which PgBouncer rejects
 // unless it is configured to accept it; SET works with it too.
 //
-// Dates are always in UTC (see "Time zones" in docs/decisions.md):
+// Dates are always in UTC (see "Dates in UTC" in docs/decisions.md):
 //   - The session's time zone is UTC, unless the URL (or PGTZ) sets another one, so what depends
 //     on it in SQL (now()::date, date_trunc, the text of a date) does not depend on how the
 //     PostgreSQL server is configured. It travels as a startup parameter, which PgBouncer handles.

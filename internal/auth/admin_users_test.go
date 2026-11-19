@@ -10,20 +10,9 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
-type adminUserList struct {
-	Data []auth.AdminUser `json:"data"`
-	Meta struct {
-		Total int64 `json:"total"`
-	} `json:"meta"`
-}
-
-func passwordBody(password string) string { return fmt.Sprintf(`{"password":%q}`, password) }
-
 func roleBody(role, password string) string {
 	return fmt.Sprintf(`{"role":%q,"password":%q}`, role, password)
 }
-
-func userPath(id int64, action string) string { return fmt.Sprintf("/admin/users/%d%s", id, action) }
 
 func TestAdminListUsers(t *testing.T) {
 	pool := testutil.NewDB(t)

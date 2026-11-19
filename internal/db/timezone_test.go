@@ -21,11 +21,10 @@ func TestTimeZoneUTC(t *testing.T) {
 		t.Errorf("TimeZone = %q, want UTC", zone)
 	}
 
-	// Whatever the zone of the process, the dates come in UTC, and so does their JSON.
-	local := time.Local
-	time.Local = time.FixedZone("UTC-6", -6*60*60)
-	t.Cleanup(func() { time.Local = local })
-
+	// Whatever the zone of the process, the dates come in UTC, and so does their JSON. Without the
+	// codec of db.Open they would come in time.Local, which is never the same location as time.UTC,
+	// not even on a server in UTC: the comparison below catches it on any machine. (The test does not
+	// change time.Local to try another zone: the pool reads it from its own goroutines.)
 	var now time.Time
 	if err := pool.QueryRow(t.Context(), "SELECT now()").Scan(&now); err != nil {
 		t.Fatal(err)

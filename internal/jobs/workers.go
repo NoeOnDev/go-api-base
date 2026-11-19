@@ -43,7 +43,7 @@ func registerWorkers(workers *river.Workers, deps Deps) error {
 	if err := river.AddWorkerSafely(workers, &cleanupWorker{q: deps.Queries, logger: deps.Logger, idle: deps.SessionIdleTimeout}); err != nil {
 		return err
 	}
-	if err := river.AddWorkerSafely(workers, &sendEmailWorker{sender: deps.Mailer, box: deps.Box}); err != nil {
+	if err := river.AddWorkerSafely(workers, &sendEmailWorker{sender: deps.Mailer, box: deps.Box, logger: deps.Logger}); err != nil {
 		return err
 	}
 	// Example appointments (internal/appointments): the reminder the day before.

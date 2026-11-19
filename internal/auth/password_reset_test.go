@@ -93,6 +93,28 @@ func TestResetPassword(t *testing.T) {
 	}
 }
 
+// Changing the password cancels a reset link asked for before: whoever changes it because they
+// suspect someone else got in does not leave that link alive.
+func TestPasswordChangeRevokesResetLink(t *testing.T) {
+	pool := testutil.NewDB(t)
+	mails := &mail.Recorder{}
+	api := testutil.NewAPI(pool, testutil.WithMailer(mails))
+	_, session := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+
+	testutil.Do(t, api, nil, http.MethodPost, "/auth/password/forgot", `{"email":"alice@example.com"}`)
+	msg, _ := mails.Last("alice@example.com")
+	token := testutil.TokenFromEmail(t, msg)
+
+	body := fmt.Sprintf(`{"current_password":%q,"password":%q}`, testutil.Password, newPassword)
+	if w := testutil.Do(t, api, session, http.MethodPut, "/auth/password", body); w.Code != http.StatusNoContent {
+		t.Fatalf("password change: status = %d; body: %s", w.Code, w.Body)
+	}
+	w := testutil.Do(t, api, nil, http.MethodPost, "/auth/password/reset", resetBody(token, "another-new-password"))
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields["token"] == "" {
+		t.Errorf("the reset link still works after the password change: %+v", resp.Error)
+	}
+}
+
 func TestResetPasswordInvalidTokens(t *testing.T) {
 	pool := testutil.NewDB(t)
 	mails := &mail.Recorder{}

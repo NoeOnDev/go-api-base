@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -23,7 +24,7 @@ const (
 
 var (
 	// ErrTooManyConnections means the connection limit (per user or in total) was exceeded.
-	ErrTooManyConnections = errors.New("realtime: demasiadas conexiones abiertas")
+	ErrTooManyConnections = errors.New("realtime: too many open connections")
 	// ErrClosed means the broker was closed (the API is shutting down).
 	ErrClosed = errors.New("realtime: the server is shutting down")
 )
@@ -71,6 +72,15 @@ type subscription struct {
 
 func (s *subscription) close() { s.once.Do(func() { close(s.closed) }) }
 
+func (s *subscription) isClosed() bool {
+	select {
+	case <-s.closed:
+		return true
+	default:
+		return false
+	}
+}
+
 // NewBroker creates a broker with the default limits.
 func NewBroker() *Broker {
 	return &Broker{
@@ -99,19 +109,33 @@ func (b *Broker) Authorize(kind string, fn Authorizer) {
 }
 
 // Publish sends the event to every connection listening to the channel, on this instance and
-// (with Listen) on the others. It does not block: if a connection does not read in time, it is
-// closed. It is "best effort": the source of truth is the database, and the frontend asks for
-// the state again when it reconnects.
+// (with Listen) on the others. It does not wait for the connections: if one does not read in time,
+// it is closed. With Listen it does wait for one statement, the NOTIFY that takes the event to the
+// other instances, for shareTimeout at most. It is "best effort": the source of truth is the
+// database, and the frontend asks for the state again when it reconnects.
+//
+// The event is encoded here, once. One that cannot be encoded is not published, and is logged: if
+// it reached the connections, each one would fail to send it and close.
 func (b *Broker) Publish(ctx context.Context, channel string, ev Event) {
+	data, err := ev.encode()
+	if err != nil {
+		httpx.LoggerFrom(ctx).Error("realtime: event not published", "channel", channel, "type", ev.Type, "error", err)
+		return
+	}
+	ev.Data = data
 	b.deliver(channel, ev)
-	b.shareEvent(ctx, channel, ev)
+	b.share(ctx, message{Kind: kindEvent, Channel: channel, Event: &sharedEvent{ID: ev.ID, Type: ev.Type, Data: data}})
 }
 
-// deliver hands the event to the connections of this instance.
+// deliver hands the event to the connections of this instance. One already closed (its session
+// ended, or it was too slow) gets nothing more: it is only waiting for its handler to return.
 func (b *Broker) deliver(channel string, ev Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for sub := range b.channels[channel] {
+		if sub.isClosed() {
+			continue
+		}
 		select {
 		case sub.events <- ev:
 		default:

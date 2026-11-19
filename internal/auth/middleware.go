@@ -19,16 +19,30 @@ type sessionIDKey struct{}
 // With REQUIRE_EMAIL_VERIFICATION on, it also requires a verified email: if it is not, it
 // answers 403 with the code "email_not_verified", so the frontend shows the notice.
 func (s *Service) RequireUser(next http.Handler) http.Handler {
+	return s.session(s.verifiedEmail(next), true)
+}
+
+// RequireUserWithoutActivity is like RequireUser, but the request does not count as activity of
+// the session (see SESSION_IDLE_TIMEOUT). It is for what the browser asks on its own, without the
+// person doing anything: GET /events, which EventSource opens again every few minutes. With
+// RequireUser, a forgotten tab would keep the session alive forever.
+func (s *Service) RequireUserWithoutActivity(next http.Handler) http.Handler {
+	return s.session(s.verifiedEmail(next), false)
+}
+
+// verifiedEmail requires a verified email with REQUIRE_EMAIL_VERIFICATION on. It goes inside
+// session, which sets the user.
+func (s *Service) verifiedEmail(next http.Handler) http.Handler {
 	if !s.opts.RequireVerifiedEmail {
-		return s.requireSession(next)
+		return next
 	}
-	return s.requireSession(httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		if !MustUser(r.Context()).EmailVerified() {
 			return errEmailNotVerified
 		}
 		next.ServeHTTP(w, r)
 		return nil
-	}))
+	})
 }
 
 var (
@@ -40,6 +54,12 @@ var (
 // account itself use it (see the profile, sign out, resend the verification), which must work
 // even if the user has not confirmed their email yet.
 func (s *Service) requireSession(next http.Handler) http.Handler {
+	return s.session(next, true)
+}
+
+// session requires a valid session and stores its user in the context. activity says whether the
+// request counts as activity of the session (see RequireUserWithoutActivity).
+func (s *Service) session(next http.Handler, activity bool) http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		sess, err := s.sessionFromRequest(r)
 		if errors.Is(err, errNoSession) {
@@ -48,7 +68,9 @@ func (s *Service) requireSession(next http.Handler) http.Handler {
 		if err != nil {
 			return err
 		}
-		s.touch(r, sess)
+		if activity {
+			s.touch(r, sess)
+		}
 
 		// From here on, every log line of the request (including the final one) includes the user.
 		httpx.AddLogAttrs(r.Context(), "user_id", sess.user.ID)
@@ -62,6 +84,9 @@ func (s *Service) requireSession(next http.Handler) http.Handler {
 // OptionalUser identifies the user if the request has a valid session, but does not require it:
 // without a session (or with an expired one) the request goes on as anonymous. It is for public
 // routes that show more data to some users; in the handler, it is read with UserFrom.
+//
+// With REQUIRE_EMAIL_VERIFICATION on, a user who has not verified their email goes on as anonymous
+// too: RequireUser would not let them in, so they do not see here what is for the users either.
 func (s *Service) OptionalUser(next http.Handler) http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		sess, err := s.sessionFromRequest(r)
@@ -73,6 +98,10 @@ func (s *Service) OptionalUser(next http.Handler) http.Handler {
 			return err
 		}
 		s.touch(r, sess)
+		if s.opts.RequireVerifiedEmail && !sess.user.EmailVerified() {
+			next.ServeHTTP(w, r)
+			return nil
+		}
 
 		httpx.AddLogAttrs(r.Context(), "user_id", sess.user.ID)
 		ctx := context.WithValue(WithUser(r.Context(), sess.user), sessionIDKey{}, sess.id)

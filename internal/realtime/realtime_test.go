@@ -2,8 +2,10 @@ package realtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/realtime/ssetest"
 )
 
@@ -390,7 +393,9 @@ func TestStuckClientIsReleased(t *testing.T) {
 	// with the TCP buffers full. (Without going past half of the broker's buffer, so it does not cut
 	// it as a slow client: that is not the case being tested.)
 	sub := subscriptionOf(b, 1)
-	big := strings.Repeat("x", 256<<10)
+	// Already encoded, so publishing costs nothing: the events have to pile up faster than the stuck
+	// write gives up (streamWriteTimeout), with the race detector too.
+	big := json.RawMessage(strconv.Quote(strings.Repeat("x", 256<<10)))
 	deadline = time.Now().Add(10 * time.Second)
 	for len(sub.events) < subscriptionBuffer/2 {
 		if time.Now().After(deadline) {
@@ -424,4 +429,97 @@ func connections(b *Broker) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.total
+}
+
+func TestParseTopics(t *testing.T) {
+	topics, err := parseTopics(" project:1, board:7,,project:1 ")
+	if err != nil || fmt.Sprint(topics) != "[project:1 board:7]" {
+		t.Errorf("topics = %v, %v", topics, err)
+	}
+
+	list := func(n int) string {
+		names := make([]string, n)
+		for i := range names {
+			names[i] = fmt.Sprintf("project:%d", i)
+		}
+		return strings.Join(names, ",")
+	}
+	if topics, err := parseTopics(list(maxTopics)); err != nil || len(topics) != maxTopics {
+		t.Errorf("%d topics: %d, %v", maxTopics, len(topics), err)
+	}
+	// Repeats do not count towards the maximum.
+	if _, err := parseTopics(list(maxTopics) + "," + list(maxTopics)); err != nil {
+		t.Errorf("repeated topics: %v", err)
+	}
+	// A very long list is rejected at the first topic over the maximum, without reading the rest:
+	// with the whole megabyte a URL can have, looking for repeats took seconds.
+	long := list(150_000)
+	start := time.Now()
+	var apiErr *httpx.Error
+	if _, err := parseTopics(long); !errors.As(err, &apiErr) || apiErr.Code != "too_many_topics" {
+		t.Errorf("150,000 topics: error = %v", err)
+	}
+	if took := time.Since(start); took > 100*time.Millisecond {
+		t.Errorf("rejecting a long list took %v", took)
+	}
+}
+
+// The stream ends cleanly even if its last write was long ago: the deadline that write left behind
+// had already passed, and the server cut the connection instead of ending the response.
+func TestStreamEndsCleanly(t *testing.T) {
+	old := streamWriteTimeout
+	streamWriteTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { streamWriteTimeout = old })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stream, err := Open(w, r)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer stream.Close()
+		_ = stream.Send(Event{Type: "hello", Data: 1})
+		time.Sleep(4 * streamWriteTimeout) // longer than the deadline of that write
+	}))
+	t.Cleanup(srv.Close)
+
+	resp, err := srv.Client().Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Errorf("the response did not end cleanly: %v", err)
+	}
+	if !strings.Contains(string(body), "event: hello") {
+		t.Errorf("body = %q", body)
+	}
+}
+
+// A connection already closed (its session ended) gets no more events, and an event that cannot be
+// encoded is not published: before, every connection failed to send it and closed.
+func TestClosedConnectionsAndInvalidEvents(t *testing.T) {
+	b := NewBroker()
+	sub, err := b.subscribe(1, "s1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b.PublishToUser(t.Context(), 1, Event{Type: "bad", Data: make(chan int)})
+	b.PublishToUser(t.Context(), 1, Event{Type: "two\nlines", Data: 1})
+	if len(sub.events) != 0 || sub.isClosed() {
+		t.Errorf("an invalid event reached the connection: %d queued, closed %v", len(sub.events), sub.isClosed())
+	}
+
+	b.PublishToUser(t.Context(), 1, Event{Type: "ok", Data: map[string]int{"n": 1}})
+	if ev := <-sub.events; ev.Type != "ok" || string(ev.Data.(json.RawMessage)) != `{"n":1}` {
+		t.Errorf("event = %+v", ev)
+	}
+
+	b.UserSessionsEnded(t.Context(), 1, "")
+	b.PublishToUser(t.Context(), 1, Event{Type: "after", Data: 1})
+	if len(sub.events) != 0 {
+		t.Error("an event was queued for a connection whose session had ended")
+	}
 }

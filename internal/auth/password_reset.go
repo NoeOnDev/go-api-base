@@ -87,8 +87,11 @@ type resetPasswordInput struct {
 // password. It closes every session of the user (in case someone else had signed in) and marks
 // the email as verified, because the user proved they receive emails at that address.
 //
-// It also resets their login and two-factor attempt limits: if someone had used them up, the
-// owner does not have to wait to sign in with the new password.
+// It also resets their login attempt limit: if someone had used it up, the owner does not have to
+// wait to sign in with the new password. The two-factor limit is not reset: whoever controls the
+// inbox could reset the password again and again to get more attempts at the code, exactly when
+// two-factor authentication is the last barrier. If someone used it up, one attempt is back within
+// twoFactorLimitEvery.
 func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 	var in resetPasswordInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -140,7 +143,6 @@ func (s *Service) resetPassword(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("find user %d: %w", userID, err)
 	}
 	s.resetLimit(r.Context(), s.loginLimiter, loginLimitKey(u.Email))
-	s.resetLimit(r.Context(), s.twoFactorLimiter, twoFactorLimitKey(userID))
 	s.notify(r.Context(), userID, NotifyPasswordChanged, nil)
 
 	httpx.Write(w, http.StatusNoContent, nil)

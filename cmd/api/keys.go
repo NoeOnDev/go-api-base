@@ -83,7 +83,7 @@ func runRotateKeys() error {
 		for _, k := range report.QueuedEmails {
 			fmt.Printf("  - key %s: %s\n", k.KeyID, emails(k.Count))
 		}
-		fmt.Println("  They go out on their own in seconds or minutes (if SMTP fails, they are retried); if you remove the key before, they are cancelled.")
+		fmt.Println("  They go out on their own in seconds or minutes (if SMTP fails, they are retried); if you remove the key before, they are discarded after their retries.")
 		fmt.Println("  Wait until they go out and run the command again.")
 	}
 

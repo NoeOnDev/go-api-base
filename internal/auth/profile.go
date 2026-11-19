@@ -15,14 +15,15 @@ import (
 
 type profileInput struct {
 	Name string `json:"name"`
-	// Locale and TimeZone are optional: if one is missing, it does not change.
+	// Locale and TimeZone are optional: if one is missing, it does not change. An empty one ("") goes
+	// back to the default: the default language, or the application's zone.
 	Locale   *string `json:"locale"`
 	TimeZone *string `json:"time_zone"`
 }
 
 // updateProfile answers PUT /auth/me: it changes the user's name and, if given, their language
-// (one of the available ones; see docs/i18n.md) and their time zone (see docs/time.md). The email is not changed here: changing it
-// requires verifying the new address.
+// (one of the available ones; see docs/i18n.md) and their time zone (see docs/time.md); "" goes back
+// to the default one. The email is not changed here: changing it requires verifying the new address.
 func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) error {
 	var in profileInput
 	if err := httpx.Decode(w, r, &in); err != nil {
@@ -33,25 +34,31 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) error {
 	if msg := validate.Required(in.Name, maxNameLen); !msg.IsZero() {
 		fields["name"] = msg
 	}
-	if in.Locale != nil {
+	clearLocale := in.Locale != nil && *in.Locale == ""
+	if in.Locale != nil && !clearLocale {
 		locale, msg := s.lookupLocale(*in.Locale)
 		if !msg.IsZero() {
 			fields["locale"] = msg
 		}
 		in.Locale = &locale
 	}
-	if msg := validateTimeZone(in.TimeZone); !msg.IsZero() {
-		fields["time_zone"] = msg
+	clearTimeZone := in.TimeZone != nil && *in.TimeZone == ""
+	if !clearTimeZone {
+		if msg := validateTimeZone(in.TimeZone); !msg.IsZero() {
+			fields["time_zone"] = msg
+		}
 	}
 	if len(fields) > 0 {
 		return httpx.Validation(fields)
 	}
 
 	u, err := s.q.UpdateUserProfile(r.Context(), store.UpdateUserProfileParams{
-		ID:       MustUser(r.Context()).ID,
-		Name:     in.Name,
-		Locale:   in.Locale,
-		TimeZone: in.TimeZone,
+		ID:            MustUser(r.Context()).ID,
+		Name:          in.Name,
+		Locale:        in.Locale,
+		ClearLocale:   clearLocale,
+		TimeZone:      in.TimeZone,
+		ClearTimeZone: clearTimeZone,
 	})
 	if err != nil {
 		return fmt.Errorf("update the profile: %w", err)

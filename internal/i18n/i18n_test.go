@@ -1,6 +1,7 @@
 package i18n
 
 import (
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -101,19 +102,36 @@ func TestTranslate(t *testing.T) {
 }
 
 func TestTranslateDatesAndTimes(t *testing.T) {
+	// A text of the test, so it does not depend on the key of an example a project can delete. The
+	// formats (format.date, format.time) are those of the catalogs.
+	all, err := embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	withText := texts{}
+	for locale, catalog := range all {
+		withText[locale] = maps.Clone(catalog)
+	}
+	withText["en"]["test.reminder"] = entry{Text: "You have an appointment at {branch} on {date:date} at {time:time}."}
+	withText["es-MX"]["test.reminder"] = entry{Text: "Tienes cita en {branch} el {date:date} a las {time:time}."}
+	c, err := newCatalog(withText, BaseLocale)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	args := []any{"branch", "Clinic", "date", "2026-11-05", "time", "14:30"}
 	for locale, want := range map[string]string{
-		"en":    "Reminder: you have an appointment at Clinic on Nov 5, 2026 at 2:30 PM.",
-		"es-MX": "Recordatorio: tienes cita en Clinic el 05/11/2026 a las 14:30.",
+		"en":    "You have an appointment at Clinic on Nov 5, 2026 at 2:30 PM.",
+		"es-MX": "Tienes cita en Clinic el 05/11/2026 a las 14:30.",
 	} {
-		if got := Default().Translator(locale).T("notifications.appointment_reminder", args...); got != want {
+		if got := c.Translator(locale).T("test.reminder", args...); got != want {
 			t.Errorf("%s: T = %q, want %q", locale, got, want)
 		}
 	}
 
 	// A value in another format goes as it is.
-	got := Default().Translator("es-MX").T("notifications.appointment_reminder", "branch", "Clinic", "date", "soon", "time", "2pm")
-	if want := "Recordatorio: tienes cita en Clinic el soon a las 2pm."; got != want {
+	got := c.Translator("es-MX").T("test.reminder", "branch", "Clinic", "date", "soon", "time", "2pm")
+	if want := "Tienes cita en Clinic el soon a las 2pm."; got != want {
 		t.Errorf("T = %q, want %q", got, want)
 	}
 }

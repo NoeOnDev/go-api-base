@@ -7,11 +7,15 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 )
 
-// Register adds the note routes to the mux. All of them require a session.
+// Register adds the note routes to the mux. All of them require a session and are not cached,
+// because they are each user's data (httpx.NoStore).
 func Register(mux *http.ServeMux, h *Handler, authn *auth.Service) {
-	mux.Handle("GET /notes", authn.RequireUser(httpx.Handle(h.list)))
-	mux.Handle("POST /notes", authn.RequireUser(httpx.Handle(h.create)))
-	mux.Handle("GET /notes/{id}", authn.RequireUser(httpx.Handle(h.get)))
-	mux.Handle("PUT /notes/{id}", authn.RequireUser(httpx.Handle(h.update)))
-	mux.Handle("DELETE /notes/{id}", authn.RequireUser(httpx.Handle(h.delete)))
+	handle := func(pattern string, fn httpx.HandlerFunc) {
+		mux.Handle(pattern, httpx.NoStore(authn.RequireUser(httpx.Handle(fn))))
+	}
+	handle("GET /notes", h.list)
+	handle("POST /notes", h.create)
+	handle("GET /notes/{id}", h.get)
+	handle("PUT /notes/{id}", h.update)
+	handle("DELETE /notes/{id}", h.delete)
 }

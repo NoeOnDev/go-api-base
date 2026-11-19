@@ -115,6 +115,9 @@ func (c Config) Warnings() []string {
 	if !c.CookieSecure {
 		w = append(w, "COOKIE_SECURE=false in production: cookies travel without HTTPS and without the __Host- prefix")
 	}
+	if len(c.TrustedProxies) == 0 {
+		w = append(w, "TRUST_PROXY=false in production: with a proxy in front (Caddy, Nginx, a load balancer), every request comes from its IP, so all the clients share the per-IP rate limits and the sessions record the proxy's IP")
+	}
 	if c.Mail.Driver != MailDriverSMTP {
 		w = append(w, "MAIL_DRIVER=log in production: emails are not sent, they are written to the log")
 	}

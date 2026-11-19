@@ -14,12 +14,13 @@ FROM users
 WHERE id = $1;
 
 -- UpdateUserProfile changes the name and, if given, the language and the time zone (a NULL leaves
--- them as they are).
+-- them as they are). clear_locale and clear_time_zone set them to NULL: the default language and
+-- the application's zone.
 -- name: UpdateUserProfile :one
 UPDATE users
 SET name = sqlc.arg('name'),
-    locale = coalesce(sqlc.narg('locale'), locale),
-    time_zone = coalesce(sqlc.narg('time_zone'), time_zone),
+    locale = CASE WHEN sqlc.arg('clear_locale')::boolean THEN NULL ELSE coalesce(sqlc.narg('locale'), locale) END,
+    time_zone = CASE WHEN sqlc.arg('clear_time_zone')::boolean THEN NULL ELSE coalesce(sqlc.narg('time_zone'), time_zone) END,
     updated_at = now()
 WHERE id = sqlc.arg('id')
 RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at;

@@ -8,16 +8,22 @@ import (
 )
 
 // Register adds the routes: the shifts are assigned by administrators; each user sees theirs and
-// records their time.
+// records their time. None is cached, because they are each person's data (httpx.NoStore).
 func Register(mux *http.ServeMux, h *Handler, authn *auth.Service) {
-	mux.Handle("POST /shifts", authn.RequireAdmin(httpx.Handle(h.create)))
-	mux.Handle("PUT /shifts/{id}", authn.RequireAdmin(httpx.Handle(h.update)))
-	mux.Handle("DELETE /shifts/{id}", authn.RequireAdmin(httpx.Handle(h.delete)))
-	mux.Handle("GET /shifts", authn.RequireUser(httpx.Handle(h.list)))
-	mux.Handle("GET /shifts/{id}", authn.RequireUser(httpx.Handle(h.get)))
+	admin := func(pattern string, fn httpx.HandlerFunc) {
+		mux.Handle(pattern, httpx.NoStore(authn.RequireAdmin(httpx.Handle(fn))))
+	}
+	user := func(pattern string, fn httpx.HandlerFunc) {
+		mux.Handle(pattern, httpx.NoStore(authn.RequireUser(httpx.Handle(fn))))
+	}
+	admin("POST /shifts", h.create)
+	admin("PUT /shifts/{id}", h.update)
+	admin("DELETE /shifts/{id}", h.delete)
+	user("GET /shifts", h.list)
+	user("GET /shifts/{id}", h.get)
 
-	mux.Handle("POST /time-entries/clock-in", authn.RequireUser(httpx.Handle(h.clockIn)))
-	mux.Handle("POST /time-entries/clock-out", authn.RequireUser(httpx.Handle(h.clockOut)))
-	mux.Handle("GET /time-entries", authn.RequireUser(httpx.Handle(h.listEntries)))
-	mux.Handle("GET /time-entries/summary", authn.RequireUser(httpx.Handle(h.summary)))
+	user("POST /time-entries/clock-in", h.clockIn)
+	user("POST /time-entries/clock-out", h.clockOut)
+	user("GET /time-entries", h.listEntries)
+	user("GET /time-entries/summary", h.summary)
 }

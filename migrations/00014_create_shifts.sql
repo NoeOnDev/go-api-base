@@ -44,6 +44,10 @@ CREATE TABLE time_entries (
 -- Only one open entry per person: clocking in twice answers 409 already_clocked_in.
 CREATE UNIQUE INDEX time_entries_one_open_idx ON time_entries (user_id) WHERE clock_out IS NULL;
 CREATE INDEX time_entries_user_id_idx ON time_entries (user_id, clock_in);
+-- The entries of a person that overlap some days (ListTimeEntries), an open one included: its range
+-- has no end. The index above only bounds clock_in from one side, so that search would read all the
+-- history of the person.
+CREATE INDEX time_entries_range_idx ON time_entries USING gist (user_id, tstzrange(clock_in, clock_out));
 -- Deleting a shift sets shift_id to NULL in its entries.
 CREATE INDEX time_entries_shift_id_idx ON time_entries (shift_id);
 

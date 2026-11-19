@@ -67,6 +67,12 @@ func TestUpdateLocale(t *testing.T) {
 	if u := testutil.Decode[auth.User](t, w, http.StatusOK); u.Locale == nil || *u.Locale != "es-MX" {
 		t.Errorf("after changing only the name: locale = %v", u.Locale)
 	}
+	// Empty, it goes back to the default language (null), and the other fields stay.
+	w = testutil.Do(t, api, cookie, http.MethodPut, "/auth/me", `{"name":"Alice Smith","locale":""}`)
+	if u := testutil.Decode[auth.User](t, w, http.StatusOK); u.Locale != nil || u.Name != "Alice Smith" {
+		t.Errorf("with an empty locale: %+v", u)
+	}
+	testutil.Do(t, api, cookie, http.MethodPut, "/auth/me", `{"name":"Alice","locale":"es-MX"}`)
 	// A language without a catalog is rejected, even if there is a close one: the user picks one
 	// from the list.
 	w = testutil.DoWithLanguage(t, api, "es-MX", cookie, http.MethodPut, "/auth/me", `{"name":"Alice","locale":"es-AR"}`)

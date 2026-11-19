@@ -4,15 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
-	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/validate"
 )
@@ -20,40 +17,12 @@ import (
 // User management for administrators: list, see, change the role, suspend and delete. See
 // "Managing users" in docs/auth.md.
 
-// Statuses of an account, as the administrators see them. An invited user has not accepted the
-// invitation yet: they have no password (see invitations.go).
-const (
-	StatusActive    = "active"
-	StatusInvited   = "invited"
-	StatusSuspended = "suspended"
-)
-
-var (
-	roles    = []string{RoleUser, RoleAdmin}
-	statuses = []string{StatusActive, StatusInvited, StatusSuspended}
-)
+// statuses are the values of the ?status= filter of the list.
+var statuses = []string{StatusActive, StatusInvited, StatusSuspended}
 
 // errOwnAccount: an admin does not manage their own account from here, but from /auth/me, which
 // asks for what each change needs (and does not let them suspend themselves).
 var errOwnAccount = httpx.Conflict("own_account", "")
-
-// AdminUser is a user as the administrators see them: the account and its status.
-type AdminUser struct {
-	User
-	Status      string     `json:"status"`
-	SuspendedAt *time.Time `json:"suspended_at"`
-}
-
-func toAdminUser(u store.User) AdminUser {
-	status := StatusActive
-	switch {
-	case u.SuspendedAt != nil:
-		status = StatusSuspended
-	case u.PasswordHash == nil:
-		status = StatusInvited
-	}
-	return AdminUser{User: toUser(u), Status: status, SuspendedAt: u.SuspendedAt}
-}
 
 // userFilters are the optional filters of the list: ?q=alice&role=admin&status=suspended.
 // A nil field means "no filter".
@@ -92,14 +61,6 @@ func parseUserFilters(r *http.Request) (userFilters, error) {
 		return userFilters{}, httpx.Validation(fields)
 	}
 	return f, nil
-}
-
-// oneOf requires value to be one of the allowed values.
-func oneOf(value string, allowed []string) i18n.Message {
-	if !slices.Contains(allowed, value) {
-		return i18n.M("validation.one_of", "values", strings.Join(allowed, ", "))
-	}
-	return i18n.Message{}
 }
 
 // listUsers answers GET /admin/users?q=&role=&status=&limit=20&offset=0, from the newest.

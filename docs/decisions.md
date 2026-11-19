@@ -93,6 +93,7 @@ The links point to the **frontend** (`FRONTEND_URL`), not to the API: the screen
 ## What the API reveals about registered emails
 
 - **The login and "forgot my password" do not reveal it:** they respond the same whether the email exists or not, the login computes an argon2 hash anyway to take the same time, and the per-account limit also counts emails that do not exist.
+- **The time of "forgot my password" is not evened out:** with an email that exists it does a bit more (it stores the token and queues the email, a few milliseconds), so measuring many requests tells them apart. It is left that way because registration already says it openly. A project that removes open registration and cares about it gives that route a fixed minimum time (what Laravel's `Timebox` does): it notes when the handler starts and, before answering, waits until that long has passed.
 - **Registration and email change do:** an email in use responds `409`. Without it, whoever picks the wrong account or was already registered would not know why they cannot go on, and the email change would never be confirmed. It is the usual practice (Laravel does the same on registration), and registration has its per-IP limit, so it is not useful to check many emails quickly.
 
 With that, someone can find out whether an email is registered, although not through the login. What matters is protected: the password cannot be tried without limit, and the login's timing does not tell one email from another.
@@ -158,7 +159,7 @@ They all allow a few attempts in a row and then refill one every so often. There
 
 They use the GCRA algorithm, which gives the same result as the token bucket while storing a single date per key: when it has all its attempts again. Each attempt is a single atomic `INSERT … ON CONFLICT DO UPDATE … WHERE`, so two instances spending at once do not step on each other (`TestLimiterConcurrent` tests it). The key is stored as a SHA-256, because it can be an email, and the hourly cleanup deletes those that already refilled. It costs one write per attempt, which goes unnoticed next to the login's argon2. Redis would do it just as well, but it would be one more service.
 
-The per-account limit has a cost: whoever knows an email can block that login **as long as they keep sending attempts**, and one per minute is enough for them. A password reset resets the login and 2FA limits, but that helps once the attack is over: if it continues, the attacker spends the attempts again. It was accepted because, without the limit, an attack spread over hundreds of IPs tries passwords unchecked, and because the block lasts only as long as the attack.
+The per-account limit has a cost: whoever knows an email can block that login **as long as they keep sending attempts**, and one per minute is enough for them. A password reset resets the login limit, but that helps once the attack is over: if it continues, the attacker spends the attempts again. It was accepted because, without the limit, an attack spread over hundreds of IPs tries passwords unchecked, and because the block lasts only as long as the attack.
 
 If a project needs to avoid that block, the usual technique is OWASP's *device cookies*: a device where the user already logged in does not count toward the limit.
 
@@ -215,7 +216,7 @@ Since each test empties every table, `testutil.NewDB` refuses to run if the test
 
 ## Integration tests in series
 
-The packages share the test database and each test empties it when it starts. That is why `make test` uses `go test -p 1`. At the current scale, all the tests take around a second and a half.
+The packages share the test database and each test empties it when it starts. That is why `make test` uses `go test -p 1`. At the current scale, all the tests take less than a minute.
 
 ## bigint IDs
 
@@ -227,7 +228,7 @@ If you need unguessable IDs, an alternative is UUIDv7: PostgreSQL 18 generates i
 In development, readable text is used, and in production JSON, which is what log tools process.
 Each line of a request carries its `request_id`, which is also returned in the `X-Request-ID` header. That way, an error a user reports can be found in the logs.
 
-`GET /healthz` is logged at `debug` (with `httpx.Quiet`): a monitor calls it every few seconds, and at `info` it would fill the log with identical lines. If the database does not respond, the `503` is logged as an error, like any 5xx.
+`GET /healthz` is logged at `debug` (with `httpx.Quiet`): a monitor calls it every few seconds, and at `info` it would fill the log with identical lines. It has no rate limit, so it asks the database at most once per second, and between checks it answers what the last one found: many calls do not take the connections of the pool. If the database does not respond, the `503` is logged as an error, like any 5xx.
 
 ## Server timeouts
 

@@ -528,26 +528,31 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 const updateUserProfile = `-- name: UpdateUserProfile :one
 UPDATE users
 SET name = $1,
-    locale = coalesce($2, locale),
-    time_zone = coalesce($3, time_zone),
+    locale = CASE WHEN $2::boolean THEN NULL ELSE coalesce($3, locale) END,
+    time_zone = CASE WHEN $4::boolean THEN NULL ELSE coalesce($5, time_zone) END,
     updated_at = now()
-WHERE id = $4
+WHERE id = $6
 RETURNING id, name, email, password_hash, role, email_verified_at, totp_secret, totp_enabled_at, totp_last_step, locale, time_zone, suspended_at, created_at, updated_at
 `
 
 type UpdateUserProfileParams struct {
-	Name     string
-	Locale   *string
-	TimeZone *string
-	ID       int64
+	Name          string
+	ClearLocale   bool
+	Locale        *string
+	ClearTimeZone bool
+	TimeZone      *string
+	ID            int64
 }
 
 // UpdateUserProfile changes the name and, if given, the language and the time zone (a NULL leaves
-// them as they are).
+// them as they are). clear_locale and clear_time_zone set them to NULL: the default language and
+// the application's zone.
 func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
 	row := q.db.QueryRow(ctx, updateUserProfile,
 		arg.Name,
+		arg.ClearLocale,
 		arg.Locale,
+		arg.ClearTimeZone,
 		arg.TimeZone,
 		arg.ID,
 	)

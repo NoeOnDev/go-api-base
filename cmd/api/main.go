@@ -150,7 +150,14 @@ func run() error {
 
 	select {
 	case err := <-serverErr:
-		// ListenAndServe only returns before the shutdown if it could not start (for example, port in use).
+		// ListenAndServe only returns before the shutdown if it could not start (for example, port in
+		// use). The jobs were already running: they stop in order, so one cut halfway is not retried an
+		// hour later (an email sent twice).
+		stopCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer cancel()
+		if stopErr := jobsClient.Stop(stopCtx); stopErr != nil {
+			logger.Warn("jobs left halfway; River will retry them in an hour", "error", stopErr)
+		}
 		return fmt.Errorf("server: %w", err)
 	case <-ctx.Done():
 	}

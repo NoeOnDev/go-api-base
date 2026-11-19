@@ -1,9 +1,12 @@
 package jobs
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -68,24 +71,39 @@ type sendEmailWorker struct {
 	river.WorkerDefaults[SendEmailArgs]
 	sender mail.Sender
 	box    *secretbox.Box
+	logger *slog.Logger // if nil, slog.Default()
 }
 
 func (w *sendEmailWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs]) error {
 	plain, err := w.box.Decrypt(job.Args.Message, emailAAD)
+	if errors.Is(err, secretbox.ErrUnknownKey) {
+		// This instance does not have its key, but another one may: during a rotation, an instance
+		// already restarted with the new key queues emails that one not restarted yet cannot read.
+		// So it is retried, like an SMTP failure, instead of losing the email. If the key was removed
+		// for good, the job is discarded after its last attempt (see errorLogger).
+		return fmt.Errorf("decrypt the email (key %q): %w", secretbox.KeyIDOf(job.Args.Message), err)
+	}
 	if err != nil {
-		// Retrying is useless: the key is missing or the data is damaged.
-		return river.JobCancel(fmt.Errorf("decrypt the email: %w", err))
+		return w.discard(ctx, job, fmt.Errorf("decrypt the email: %w", err))
 	}
 	var msg mail.Message
 	if err := json.Unmarshal(plain, &msg); err != nil {
-		return river.JobCancel(fmt.Errorf("decode the email: %w", err))
+		return w.discard(ctx, job, fmt.Errorf("decode the email: %w", err))
 	}
 	return w.sender.Send(ctx, msg)
 }
 
+// discard cancels the job, because retrying would be useless (the data is damaged), and logs it as
+// an error: River logs a cancelled job only at debug, and an email that will never arrive has to
+// be seen.
+func (w *sendEmailWorker) discard(ctx context.Context, job *river.Job[SendEmailArgs], err error) error {
+	cmp.Or(w.logger, slog.Default()).ErrorContext(ctx, "queued email discarded", "job_id", job.ID, "error", err)
+	return river.JobCancel(err)
+}
+
 // QueuedEmailKeys counts the emails not sent yet (waiting, scheduled, retrying or being sent),
 // by the ID of the key they were encrypted with. rotate-keys uses it: an email encrypted with a
-// previous key is cancelled if the key is removed before it goes out.
+// previous key is discarded, after its retries, if the key is removed before it goes out.
 func QueuedEmailKeys(ctx context.Context, pool *pgxpool.Pool) (map[string]int64, error) {
 	// Without queues or workers, the client only reads and queues: it runs nothing.
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{})

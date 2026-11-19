@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -42,34 +43,38 @@ type cleanupWorker struct {
 	idle   time.Duration // idle expiry of the sessions (0: off)
 }
 
+// Work runs every deletion even if one fails, and returns the errors together (River retries the
+// job): that way a step that keeps failing does not leave the ones after it without running.
 func (w *cleanupWorker) Work(ctx context.Context, job *river.Job[CleanupArgs]) error {
 	var inactiveBefore time.Time
 	if w.idle > 0 {
 		inactiveBefore = time.Now().Add(-w.idle)
 	}
+
+	var errs []error
 	sessions, err := w.q.DeleteExpiredSessions(ctx, inactiveBefore)
 	if err != nil {
-		return fmt.Errorf("delete expired sessions: %w", err)
+		errs = append(errs, fmt.Errorf("delete expired sessions: %w", err))
 	}
 	tokens, err := w.q.DeleteExpiredUserTokens(ctx)
 	if err != nil {
-		return fmt.Errorf("delete expired tokens: %w", err)
+		errs = append(errs, fmt.Errorf("delete expired tokens: %w", err))
 	}
 	notifications, err := w.q.DeleteReadNotificationsBefore(ctx, time.Now().Add(-notificationRetention))
 	if err != nil {
-		return fmt.Errorf("delete old notifications: %w", err)
+		errs = append(errs, fmt.Errorf("delete old notifications: %w", err))
 	}
 	limits, err := w.q.DeleteExpiredRateLimits(ctx)
 	if err != nil {
-		return fmt.Errorf("delete refilled rate limits: %w", err)
+		errs = append(errs, fmt.Errorf("delete refilled rate limits: %w", err))
 	}
 	messages, err := w.q.DeleteRealtimeMessagesBefore(ctx, time.Now().Add(-realtimeMessageRetention))
 	if err != nil {
-		return fmt.Errorf("delete real-time messages: %w", err)
+		errs = append(errs, fmt.Errorf("delete real-time messages: %w", err))
 	}
 	if sessions+tokens+notifications+limits+messages > 0 {
 		w.logger.Info("cleanup", "sessions", sessions, "tokens", tokens, "notifications", notifications,
 			"rate_limits", limits, "realtime_messages", messages)
 	}
-	return nil
+	return errors.Join(errs...)
 }

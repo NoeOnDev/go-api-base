@@ -128,10 +128,22 @@ func TestSendEmailWorkerRetriesOnFailure(t *testing.T) {
 }
 
 func TestSendEmailWorkerCancelsUndecryptable(t *testing.T) {
-	// An email that cannot be decrypted is not retried: it would be useless.
-	res, _ := workEmail(t, &mail.Recorder{}, "00000000:AAAA")
+	// A damaged email, with a key this instance has, is not retried: it would be useless.
+	res, _ := workEmail(t, &mail.Recorder{}, testBox(t).KeyID()+":AAAA")
 	if res.Job.State != rivertype.JobStateCancelled {
 		t.Errorf("state = %s, want cancelled", res.Job.State)
+	}
+}
+
+func TestSendEmailWorkerRetriesUnknownKey(t *testing.T) {
+	// The key may be in another instance (one already restarted in a rotation): the email is not
+	// lost, it is retried.
+	res, err := workEmail(t, &mail.Recorder{}, "00000000:AAAA")
+	if !errors.Is(err, secretbox.ErrUnknownKey) {
+		t.Fatalf("error = %v, want ErrUnknownKey", err)
+	}
+	if retried := res.Job.State == rivertype.JobStateRetryable || res.Job.State == rivertype.JobStateAvailable; !retried {
+		t.Errorf("state = %s, want it to be retried", res.Job.State)
 	}
 }
 
@@ -173,5 +185,21 @@ func TestQueuedEmailKeys(t *testing.T) {
 	}
 	if want := map[string]int64{boxA.KeyID(): 1, boxB.KeyID(): 1}; !maps.Equal(got, want) {
 		t.Errorf("QueuedEmailKeys = %v, want %v", got, want)
+	}
+}
+
+// A job that fails is a warning while it will be retried, and an error on its last attempt.
+func TestErrorLoggerLevels(t *testing.T) {
+	var out bytes.Buffer
+	l := errorLogger{logger: slog.New(slog.NewTextHandler(&out, nil))}
+
+	l.HandleError(t.Context(), &rivertype.JobRow{ID: 1, Kind: "send_email", Attempt: 1, MaxAttempts: 5}, errors.New("SMTP server down"))
+	if got := out.String(); !strings.Contains(got, "level=WARN") || !strings.Contains(got, "SMTP server down") {
+		t.Errorf("a failed attempt: %s", got)
+	}
+	out.Reset()
+	l.HandleError(t.Context(), &rivertype.JobRow{ID: 1, Kind: "send_email", Attempt: 5, MaxAttempts: 5}, errors.New("SMTP server down"))
+	if got := out.String(); !strings.Contains(got, "level=ERROR") || !strings.Contains(got, "kind=send_email") {
+		t.Errorf("the last attempt: %s", got)
 	}
 }

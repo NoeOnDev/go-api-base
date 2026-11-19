@@ -72,7 +72,7 @@ func build(from *mail.Address, msg Message, now time.Time) ([]byte, error) {
 
 	header("From", from.String())
 	header("To", msg.To)
-	header("Subject", mime.QEncoding.Encode("utf-8", msg.Subject))
+	header("Subject", foldHeader("Subject", mime.QEncoding.Encode("utf-8", msg.Subject)))
 	header("Date", now.Format(time.RFC1123Z))
 	header("Message-ID", messageID(from.Address))
 	header("MIME-Version", "1.0")
@@ -109,6 +109,29 @@ func build(from *mail.Address, msg Message, now time.Time) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// foldHeader breaks a long header value into several lines, at its spaces: a line of an email
+// should have at most 78 characters and cannot have more than 998 (RFC 5322), and a long subject
+// goes in one line otherwise. Each line after the first starts with the space it was broken at,
+// which is how whoever reads the email joins them back.
+func foldHeader(name, value string) string {
+	const maxLine = 76
+	var b strings.Builder
+	line := len(name) + len(": ")
+	for i, word := range strings.Split(value, " ") {
+		if i > 0 {
+			if line+1+len(word) > maxLine {
+				b.WriteString("\r\n")
+				line = 0
+			}
+			b.WriteByte(' ')
+			line++
+		}
+		b.WriteString(word)
+		line += len(word)
+	}
+	return b.String()
 }
 
 // writeQuotedPrintable writes body in quoted-printable, with CRLF line endings.

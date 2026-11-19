@@ -82,6 +82,7 @@ sections that exist (`docs/links_test.go`).
 | `make run` | Starts the API (applies the migrations on startup) |
 | `make check` | **Always run it before committing**: gofmt, sqlc diff, go vet, staticcheck, go test and govulncheck |
 | `make test` | Tests (`go test -p 1`; the database ones use `TEST_DATABASE_URL`, and are skipped without it) |
+| `make test-race` | The tests with the race detector (slower; CI runs it). Run it after touching goroutines or shared state |
 | `make sqlc` | Regenerate `internal/store` after changing migrations or queries |
 | `make migrate-new name=create_x` | Create a new migration |
 | `make migrate-up` / `migrate-down` / `migrate-status` | Manage migrations in development |
@@ -174,6 +175,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   (`WHERE id = $1 AND user_id = $2`). Someone else's resource responds 404, not 403. See `internal/notes`.
 - Do not touch the CSRF or CORS protection of `internal/server/routes.go` without asking.
 - `RequireUser` also requires a verified email if `REQUIRE_EMAIL_VERIFICATION=true` (403 `email_not_verified`).
+- A route the browser calls on its own, without the person doing anything (`GET /events`, a poll every minute), uses
+  `authn.RequireUserWithoutActivity(...)`: with `RequireUser` it would keep an idle session alive (`SESSION_IDLE_TIMEOUT`).
 
 **Attempt limits and multiple instances** (see "Attempt limits" and "Multiple instances" in `docs/decisions.md`)
 - Per IP, in memory: `httpx.NewRateLimiter(every, burst).MiddlewareByIP(proxies)`. Each instance counts separately.
@@ -207,6 +210,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   and are stored hashed (see `internal/auth/tokens.go`).
 
 **Background jobs** (see `docs/jobs.md`)
+- A job that a resource queues lives in the resource's package (see `internal/appointments/reminder.go`); inside
+  `internal/jobs` it is an import cycle in the tests. Only the jobs of the base (`send_email`, `cleanup`) are there.
 - Each job is an arguments struct with `Kind()` and a worker with `river.WorkerDefaults`. Register the worker in
   `registerWorkers` and periodic jobs in `periodicJobs` (`internal/jobs/workers.go`). Never change a deployed `Kind`.
 - A periodic job at an hour of the clock uses `jobs.DailyAt` or `jobs.WeeklyAt` with a zone (`deps.TimeZone`), never
@@ -224,7 +229,7 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   without the publisher doing anything different. An event larger than 8 KB travels through the `realtime_messages` table.
 - Each new topic kind needs `broker.Authorize("kind", …)` with the permission check; without it, it is rejected.
   When you take away someone's access, call `broker.DisconnectUser` so they stop listening at once.
-- To stream a long response (an AI agent), `realtime.Open` and `stream.Send`. After `Open`, errors go as an event,
+- To stream a long response (an AI agent), `realtime.Open` (with `defer stream.Close()`) and `stream.Send`. After `Open`, errors go as an event,
   not as JSON.
 
 **Database**
@@ -273,6 +278,9 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 - Real sending over SMTP (`TestSMTPSender`) only runs with `SMTP_TEST_ADDR`, for example `SMTP_TEST_ADDR=localhost:1025`
   with Mailpit (the emails show up at `http://localhost:8025`). Without it, it is skipped; it does not run in CI.
 - Tests that use the database do not use `t.Parallel()`, and the packages run in series (`-p 1`, already in `make test`).
+- A test of the base (`internal/auth`, `internal/server`…) does not use the example resources, which a project can
+  delete: to test a route with `RequireUser`, `RequireAdmin` or `OptionalUser`, `protected(pool, …)` in
+  `internal/auth/helpers_test.go`.
 - Always cover: the happy path, validation (422), not found (404), no session (401) and, if it applies, no permission
   (403) or ownership.
 

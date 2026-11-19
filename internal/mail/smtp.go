@@ -96,7 +96,11 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
 		return fmt.Errorf("smtp: send the email: %w", err)
 	}
 
-	return c.Quit()
+	// The server already accepted the email (w.Close waits for its answer). If saying goodbye fails
+	// (the server hung up first, or the deadline arrived), the email was sent all the same:
+	// returning that error would send it again on the retry.
+	_ = c.Quit()
+	return nil
 }
 
 func (s *SMTPSender) dial(ctx context.Context) (net.Conn, error) {

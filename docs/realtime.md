@@ -33,7 +33,7 @@ It covers the most common cases:
 | `note.created`, `note.updated` | the owner's | The note |
 | `note.deleted` | the owner's | `{"id": 5}` |
 
-The security notifications (`password_changed`, `two_factor_enabled`, `two_factor_disabled`) are sent by auth.
+The security notifications (`password_changed`, `email_changed`, `two_factor_enabled`, `two_factor_disabled`) are sent by auth.
 
 `GET /notifications?unread=&limit=` lists them from the newest, **by cursor**: the response has `meta.next`, and the next page (a "load more") is `?after=` with that value, until it comes `null`. It also has `unread`, for the counter. A notification that arrives live while the list is open goes on top; it does not shift the pages already loaded.
 
@@ -73,7 +73,7 @@ function connect(topics = []) {
 
 `withCredentials: true` is needed only if the frontend is on another domain (with CORS configured). On the same domain, the cookie travels on its own.
 
-**Open the connection when the user can already use the app.** `GET /events` is behind `RequireUser`, so with `REQUIRE_EMAIL_VERIFICATION=true` it responds `403 email_not_verified` while the email is not confirmed. Call `connect()` after the login, only if `email_verified_at` is not `null` (or if verification is not required).
+**Open the connection when the user can already use the app.** `GET /events` is behind `RequireUserWithoutActivity` (`RequireUser`, without counting as activity of the session), so with `REQUIRE_EMAIL_VERIFICATION=true` it responds `403 email_not_verified` while the email is not confirmed. Call `connect()` after the login, only if `email_verified_at` is not `null` (or if verification is not required).
 
 **When the connection cannot be opened**, the `EventSource` stops retrying and stays with `readyState === EventSource.CLOSED`. It happens with a closed session (`401`), with an unverified email when verification is required (`403`), with too many open connections (`429`) or with the API restarting (`503`). The browser does not say which one it was, so it is best to ask the API with a route that goes through the same checks as `/events` (`RequireUser`), like `/notifications`:
 
@@ -114,7 +114,8 @@ h.broker.Publish(r.Context(), "project:42", realtime.Event{Type: "task.moved", D
 ```
 
 - **Publish after saving** (and, with a transaction, after the `Commit`): if the event arrives before the data, the frontend asks for the state and does not find it.
-- `Publish` does not block. If a connection does not read in time (more than 64 pending events), it is closed and the browser reconnects.
+- `Publish` does not wait for the connections: if one does not read in time (more than 64 pending events), it is closed and the browser reconnects. With several instances it does wait for one statement, the `NOTIFY` that takes the event to the others, 5 seconds at most; if the database does not answer, this instance has already delivered it and the error is logged.
+- An event that cannot be encoded as JSON, or with a line break in its type, is not published: it is logged as an error.
 - **From a worker** (`internal/jobs`) it works the same: add the broker to `jobs.Deps`. The workers run in the same process, so they share the broker.
 - For a notification that is also stored, use `notifications.Service.Notify(ctx, userID, "kind", data)`.
 
@@ -153,6 +154,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	defer stream.Close() // so the response ends cleanly, however long ago the last write was
 	// From here on the response has started (status 200): errors go as an event.
 
 	for chunk, err := range h.llm.Stream(r.Context(), in.Message) {
@@ -227,6 +229,7 @@ Each API instance has its broker, with its connections. With `Listen` (called by
 
 - **Each instance delivers its own at once** and sends the message by `NOTIFY`. The others receive it and deliver it to their connections; the one that sent it ignores it.
 - **Large events:** a `NOTIFY` allows less than 8000 bytes. A larger message, like the event of a long note, is stored in the `realtime_messages` table, and only its id travels by `NOTIFY`. The hourly cleanup deletes the old ones. There is no need to watch the size, although a small event (ids and what changed) is still best.
+- **Whoever can connect to the database can listen:** the `realtime` channel has no permissions of its own. Any role of the database sees every event that goes through it, and can notify one it made up or cut someone's streams. Give the database only to what you trust: a user for reports belongs on a replica, or on another database.
 - **If the `LISTEN` connection is cut** (PostgreSQL restarts, the network fails), it reconnects on its own. On reconnecting it cuts the streams open on that instance: some event may have been lost while it was not listening, and on reconnecting the browser asks for the state again.
 - **It uses its own connection**, apart from the pool, which shows up in `pg_stat_activity` as `realtime-listener`. It needs a direct connection to PostgreSQL, or PgBouncer in `session` mode.
 - **The connection limits are per instance:** with 3 instances, a user can reach 30.
@@ -243,12 +246,13 @@ If a project does not need it:
 1. The appointments example notifies its reminders: remove it first (see "Removing the examples" in [time.md](time.md#removing-the-examples)).
 2. Delete `internal/realtime` and `internal/notifications`, the `00009_create_notifications.sql` and `00011_create_realtime_messages.sql` migrations, and the `notifications.sql` and `realtime.sql` queries of `internal/db/queries`.
 3. In `internal/server/routes.go`, remove the `Broker` field of `Deps`, the broker, the notifications service, `GET /events` and `notifications.Register`. In the auth options, remove `Notifier` and `SessionWatcher` (they are optional).
-4. In `internal/notes`, remove the broker, the `PublishToUser` calls and `events_test.go`. In `cmd/api/main.go`, remove the broker, `Listen` and `RegisterOnShutdown`.
+4. In `internal/notes`, remove the broker, the `PublishToUser` calls and `events_test.go`. In `cmd/api/main.go`, remove the broker, `Listen` and `RegisterOnShutdown` (and the `Notifier` of the jobs, if step 1 left it there).
 5. In `internal/jobs/cleanup.go`, remove the deletion of the notifications and of the real-time messages, with their constants (`notificationRetention` and `realtimeMessageRetention`) and their lines in the `CleanupArgs` comment. In `cleanup_test.go`, delete `TestCleanupDeletesOldNotifications` and `TestCleanupDeletesOldRealtimeMessages`.
 6. In `internal/testutil`, delete `events.go` and `WithBroker` (in `http.go`). In the tests of other packages:
    - delete the ones that open a stream with `OpenEvents`: `TestRevokeSessionCutsItsStream` and `TestDeleteAccountCutsStreams` in `internal/auth`, and `TestEventsEndToEnd` in `internal/server`;
    - in `internal/auth`, `TestDeleteAccount` and `TestChangeEmail` also check the `notifications` table: remove those parts.
-7. `make sqlc` (it also deletes the generated code of the queries you removed) and `make check`.
+7. Remove the keys `errors.notification_not_found`, `errors.shutting_down`, `errors.too_many_connections` and `errors.too_many_topics` from the catalogs, and the four codes from the table of [i18n.md](i18n.md#error-codes).
+8. `make sqlc` (it also deletes the generated code of the queries you removed) and `make check`. `authn.RequireUserWithoutActivity` is left without a route that uses it: keep it for a route the browser calls on its own, or delete it.
 
 To remove only the notifications and keep real time:
 1. Remove the appointments example, which notifies its reminders (see "Removing the examples" in [time.md](time.md#removing-the-examples)).
@@ -256,6 +260,7 @@ To remove only the notifications and keep real time:
 3. In `internal/server/routes.go`, remove the notifications service, `notifications.Register` and the `Notifier` of the auth options.
 4. In `internal/jobs/cleanup.go`, remove the deletion of the notifications, `notificationRetention` and its line in the `CleanupArgs` comment; in `cleanup_test.go`, delete `TestCleanupDeletesOldNotifications`.
 5. In `internal/auth`, remove the parts of `TestDeleteAccount` and `TestChangeEmail` that check the `notifications` table.
-6. `make sqlc` and `make check`.
+6. Remove the key `errors.notification_not_found` from the catalogs, and its code from the table of [i18n.md](i18n.md#error-codes).
+7. `make sqlc` and `make check`.
 
 Both recipes were tested on a copy of the project, with a test database created only with the remaining migrations.

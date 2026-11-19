@@ -34,7 +34,7 @@ start, end := civil.DayRange(from, to, location) // the instants of some days, t
 - **The zero value is "none":** it goes to JSON as `null` and to PostgreSQL as `NULL`, so a nullable column uses the same type, without a pointer. `civil.NewTime(0, 0)` is midnight, which is not the zero value.
 - **sqlc generates them** for `date`, `time` and `timestamp` columns (see `sqlc.yaml`).
 - **When the clocks change**, `In` follows the rule of JavaScript's Temporal and Java's java.time: an hour that does not exist (the spring jump) moves forward as long as the jump lasts, and an hour that happens twice (the autumn) is the first time. `Date.Start` is the first instant of a day, even on the days when the clocks jump at midnight.
-- **Time zones** are IANA names (`America/Mexico_City`), loaded with `civil.LoadLocation`, which rejects `""` and `"Local"`. They are validated with `validate.TimeZone`.
+- **Time zones** are IANA names (`America/Mexico_City`), loaded with `civil.LoadLocation`, which rejects `""`, `"Local"` and the files of the server's zone directory that are not zones (`localtime`, `posixrules`…): a name stored from one of them would not load on another server. They are validated with `validate.TimeZone`.
 
 ### In a request body
 
@@ -208,10 +208,10 @@ A user books a time at a branch, within its business hours. Each user sees their
 | Route | What it does |
 |---|---|
 | `GET /branches/{id}/availability?date=&duration=` | Public: the free slots of a day (today of the branch by default), every 15 minutes, for an appointment of `duration` minutes (30 by default, from 15 to 240) |
-| `POST /appointments` `{branch_id, starts_at, duration_minutes?}` | With a session. `starts_at` is the hour of the branch's clock, as the availability gave it (`"2026-11-05T10:00"`), and must be one of its slots: outside the hours, in the past or at 10:05 answers `422`. If someone else took it first, `409 slot_taken` |
+| `POST /appointments` `{branch_id, starts_at, duration_minutes?}` | With a session. `starts_at` is the hour of the branch's clock, as the availability gave it (`"2026-11-05T10:00"`), and must be one of its slots: outside the hours, in the past, at 10:05 or more than 90 days ahead answers `422`. If someone else took it first, `409 slot_taken`; with 5 appointments that have not started yet, `409 too_many_appointments` |
 | `GET /appointments?from=&to=` | The user's appointments that start on those days **of the user's zone** (from today, 30 days, by default) |
 | `GET /appointments/{id}`, `POST /appointments/{id}/cancel` | The owner or an admin; someone else's answers `404`. Canceling frees the slot |
-| `GET /branches/{id}/appointments?date=` | Admin: the agenda of a day of the branch |
+| `GET /branches/{id}/appointments?date=&limit=&offset=` | Admin: the agenda of a day of the branch, canceled ones included, by pages |
 
 ```json
 // POST /appointments → 201
@@ -224,8 +224,10 @@ A user books a time at a branch, within its business hours. Each user sees their
 - **No double bookings:** the table has an `EXCLUDE USING gist (branch_id WITH =, tstzrange(starts_at, ends_at) WITH &&) WHERE (status = 'booked')` constraint. Two requests for the same time, even at the same instant on different instances of the API, cannot both succeed: PostgreSQL stops the second one and the API answers `409` (`db.IsExclusionViolation`). It needs the `btree_gist` extension, which comes with PostgreSQL; the migration installs it. A canceled appointment does not count.
 - **One agenda per branch.** For one per person (a clinic with several doctors), add a `staff_id` and put it in the constraint: `(staff_id WITH =, tstzrange(…) WITH &&)`.
 - **Changing the hours does not touch the booked appointments.** Closing a day with an exception, or changing the weekly hours, leaves the appointments of those days booked: the availability stops offering those slots, but whoever already had one keeps it. A real project decides what to do: refuse the change while there are appointments (`409`), or cancel them and notify each person (with a job, like the reminder).
-- **The reminder:** booking queues, in the same transaction, a job for 24 hours before (`ReminderArgs`, with `InsertTx`). Its worker checks that the appointment is still booked at the same time, and sends a notification: "Reminder: you have an appointment at Clinic on Nov 5, 2026 at 10:00 AM", with the day and the hour of the branch's clock in the reader's format. An appointment in less than 24 hours has no reminder.
-- **The slots** are computed in `internal/appointments/slots.go`, without the database: every 15 real minutes from the start of each opening, so on the day of a daylight saving time change none falls on the hour that does not exist. It depends on `internal/branches`.
+- **A limit per person and how far ahead** (`maxUpcoming` and `maxDaysAhead` in `handlers.go`), so one account cannot book every free slot of a branch: at most 5 booked appointments that have not started, and none beyond 90 days from today of the branch (the availability of a later date answers `422` too). The count goes inside the transaction of the booking, with the user's row locked (`LockUser`): two bookings sent at once wait for each other, so both cannot pass with one place left. Tune both numbers for each project.
+- **The reminder:** booking queues, in the same transaction, a job for 24 hours before (`ReminderArgs`, with `InsertTx`). Its worker checks that the appointment is still booked at the same time, and sends a notification: "Reminder: you have an appointment at Clinic on Nov 5, 2026 at 10:00 AM", with the day and the hour of the branch's clock in the reader's format. An appointment in less than 24 hours has no reminder. The job can run twice (River rescues one whose process died before recording that it had finished), so the worker records that the reminder was sent (`reminded_at`) and checks it first. It notifies and then records: if the process dies between the two, the person gets it twice, which for a reminder is better than not getting it. A job where not even that can happen (a charge) does its work and records it in the same transaction.
+- **The slots** are computed in `internal/appointments/slots.go`, without the database: every 15 real minutes from the start of each opening, so on the day of a daylight saving time change none falls on the hour that does not exist. In the hour that happens twice, only the first time has slots: a slot is booked by its hour of the clock, which means the first of the two. Openings that touch or overlap count as one (`branches.Merge`): with 18:00 to 00:00 and 00:00 to 02:00, an appointment of an hour fits at 23:30. It depends on `internal/branches`.
+- **The overlap searches use the index of the constraint:** the taken slots are found with `tstzrange(starts_at, ends_at) && tstzrange($start, $end)`, written like the `EXCLUDE`. With `starts_at < $end AND ends_at > $start`, PostgreSQL reads every past appointment of the branch.
 
 ## Example: shifts (`shifts`)
 
@@ -233,7 +235,7 @@ An administrator assigns shifts; each user sees theirs, clocks in and out, and s
 
 | Route | What it does |
 |---|---|
-| `POST /shifts` `{user_id, starts_at, ends_at, time_zone?, note?}`, `PUT /shifts/{id}`, `DELETE /shifts/{id}` | Admin. The hours are of the clock of the place: `"2026-11-02T22:00"` to `"2026-11-03T06:00"` is a night shift. The zone is the shift's, or the worker's if it is missing. At most 24 hours. If the person already has a shift at that time, `409 shift_overlap`. A `PUT` with another `user_id` reassigns the shift |
+| `POST /shifts` `{user_id, starts_at, ends_at, time_zone?, note?}`, `PUT /shifts/{id}`, `DELETE /shifts/{id}` | Admin. The hours are of the clock of the place: `"2026-11-02T22:00"` to `"2026-11-03T06:00"` is a night shift. The zone is the shift's, or the worker's if it is missing. At most 24 hours. If the person already has a shift at that time, `409 shift_overlap`. A `PUT` with another `user_id` reassigns the shift, and the entries the previous person clocked in it stop belonging to it (they keep their hours) |
 | `GET /shifts?user_id=&from=&to=`, `GET /shifts/{id}` | The shifts that overlap those days of the zone of whoever asks (from today, a week, by default). The admin sees everyone's, or those of `user_id`; a user, only theirs |
 | `POST /time-entries/clock-in`, `POST /time-entries/clock-out` | Clocking in and out, now. The entry belongs to the shift going on (or starting within the hour). Clocking in twice answers `409 already_clocked_in`; clocking out without an open entry, `409 not_clocked_in` |
 | `GET /time-entries?user_id=&from=&to=` | The entries of those days of the worker's clock |
@@ -249,6 +251,7 @@ An administrator assigns shifts; each user sees theirs, clocks in and out, and s
 - **The night of a change lasts one hour less or more:** that night of March, from 22:00 to 06:00 there are 7 real hours, and `duration_minutes` says so. The pay of a night shift is computed from the instants, not from the hours of the clock.
 - **The time worked is split by days of the worker's clock** (`SplitByDay`, in `internal/shifts/schedule.go`): an entry from 22:00 to 06:00 counts 2 hours on the first day and 6 on the second, and an open one counts until now. Each day lasts what it really lasts: 23 or 25 hours when the clocks change.
 - **One open entry per person:** a partial unique index (`ON time_entries (user_id) WHERE clock_out IS NULL`).
+- **The entries of some days use an index on their range** (`time_entries_range_idx`, on `tstzrange(clock_in, clock_out)`): the search is written with `&&`, like the one of the shifts. An open entry has a range without an end, so it counts for any later day.
 
 ## Example: repeating classes (`classes`)
 
@@ -286,7 +289,7 @@ The schedule examples are independent from the rest of the template, except that
 **`appointments`:**
 1. Delete `internal/appointments`, the `00013_create_appointments.sql` migration and the `appointments.sql` query.
 2. In `internal/server/routes.go`, remove `appointments.Register`. In `internal/jobs/workers.go`, remove the registration of `appointments.NewReminderWorker`; if no other job notifies, also the `Notifier` field of `Deps` and its interface, and the `Notifier` line in `cmd/api/main.go`.
-3. Remove the keys `errors.appointment_not_found`, `errors.slot_taken`, `validation.slot_unavailable`, `validation.unknown_branch`, `validation.duration_minutes` and `notifications.appointment_reminder` from the catalogs, and the two codes from the table of [i18n.md](i18n.md#error-codes).
+3. Remove the keys `errors.appointment_not_found`, `errors.slot_taken`, `errors.too_many_appointments`, `validation.slot_unavailable`, `validation.unknown_branch`, `validation.duration_minutes`, `validation.too_far_ahead` and `notifications.appointment_reminder` from the catalogs, and the three codes from the table of [i18n.md](i18n.md#error-codes).
 
 **`shifts`:**
 1. Delete `internal/shifts`, the `00014_create_shifts.sql` migration and the `shifts.sql` query.

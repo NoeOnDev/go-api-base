@@ -154,6 +154,8 @@ Copy the example package to `internal/orders` and adapt each file:
     | each new code | its message in `internal/i18n/locales/*.json` (`"errors.order_not_found": "…"`) and a row in the table of [languages](i18n.md) |
     | anything else | wrap it with context: `fmt.Errorf("create order: %w", err)` |
 
+    The three `db.Is…Violation` helpers return the name of the constraint and whether the error is that one: `if _, ok := db.IsUniqueViolation(err); ok { … }`.
+
 - **Several changes that belong together, in a transaction.** If an operation makes more than one write and everything or nothing must happen (for example, creating the order and decrementing the stock), use `pgx.BeginFunc` with the transaction's queries (`q.WithTx(tx)`). If the function returns an error, everything is rolled back:
 
   ```go
@@ -174,10 +176,12 @@ Copy the example package to `internal/orders` and adapt each file:
 - **`routes.go`:** the routes, with the right protection:
 
   ```go
-  mux.Handle("GET /orders", authn.RequireUser(httpx.Handle(h.list)))
-  mux.Handle("PUT /orders/{id}/cancel", authn.RequireUser(httpx.Handle(h.cancel)))
-  mux.Handle("GET /admin/orders", authn.RequireAdmin(httpx.Handle(h.listAll)))
+  mux.Handle("GET /orders", httpx.NoStore(authn.RequireUser(httpx.Handle(h.list))))
+  mux.Handle("PUT /orders/{id}/cancel", httpx.NoStore(authn.RequireUser(httpx.Handle(h.cancel))))
+  mux.Handle("GET /admin/orders", httpx.NoStore(authn.RequireAdmin(httpx.Handle(h.listAll))))
   ```
+
+  `httpx.NoStore` (`Cache-Control: no-store`) goes on the routes with data of a person, like these orders, so neither the browser nor a proxy keeps the response (see `internal/notes/routes.go`). Data that is the same for everyone, like the categories, does not need it.
 
 - **`handlers_test.go`:** with `testutil.NewDB`, `testutil.Login`, `testutil.NewAPI`, `testutil.Do` and `testutil.Decode`, as in `internal/products`. Cover:
   - the happy path;

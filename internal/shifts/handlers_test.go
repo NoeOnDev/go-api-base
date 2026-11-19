@@ -192,5 +192,18 @@ func TestTimeEntries(t *testing.T) {
 	if out.ID != in.ID || out.ClockOut == nil {
 		t.Errorf("clock out = %+v", out)
 	}
+
+	// The shift is reassigned to Bob: María's entry keeps its hours, but no longer belongs to a shift
+	// that is not hers (GET /shifts/{id} would answer her 404).
+	bobUser := testutil.Decode[auth.User](t, testutil.Do(t, api, bob, http.MethodGet, "/auth/me", ""), http.StatusOK)
+	testutil.Decode[shift](t, testutil.Do(t, api, admin, http.MethodPut, fmt.Sprintf("/shifts/%d", current.ID), shiftBody(bobUser.ID,
+		now.Add(-time.Hour).Format("2006-01-02T15:04"), now.Add(2*time.Hour).Format("2006-01-02T15:04"), "UTC")), http.StatusOK)
+	var shiftID *int64
+	if err := pool.QueryRow(t.Context(), "SELECT shift_id FROM time_entries WHERE id = $1", in.ID).Scan(&shiftID); err != nil {
+		t.Fatal(err)
+	}
+	if shiftID != nil {
+		t.Errorf("María's entry still belongs to the shift %d, now Bob's", *shiftID)
+	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodPost, "/time-entries/clock-in", ""), http.StatusUnauthorized)
 }

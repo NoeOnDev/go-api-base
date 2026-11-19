@@ -6,6 +6,7 @@
 package notifications
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -58,15 +59,26 @@ type Response struct {
 func toResponse(n store.Notification, t i18n.Translator) Response {
 	resp := Response{ID: n.ID, Kind: n.Kind, Data: n.Data, ReadAt: n.ReadAt, CreatedAt: n.CreatedAt}
 	if key := "notifications." + n.Kind; t.Has(key) {
-		var data map[string]any
-		_ = json.Unmarshal(n.Data, &data) // if Data is not an object, the text goes without its values
-		args := make([]any, 0, 2*len(data))
-		for k, v := range data {
-			args = append(args, k, v)
-		}
-		resp.Message = t.T(key, args...)
+		resp.Message = t.T(key, messageArgs(n.Data)...)
 	}
 	return resp
+}
+
+// messageArgs returns the values of data, a JSON object, as the key/value pairs that fill in the
+// text of a notification. If data is not an object, the text goes without its values.
+//
+// The numbers are kept as they were written (json.Number): decoded as float64, an order number
+// like 1234567 would be written "1.234567e+06" in the text.
+func messageArgs(data json.RawMessage) []any {
+	var values map[string]any
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	_ = dec.Decode(&values)
+	args := make([]any, 0, 2*len(values))
+	for k, v := range values {
+		args = append(args, k, v)
+	}
+	return args
 }
 
 // Notify stores the notification and sends it live to the user's open connections.

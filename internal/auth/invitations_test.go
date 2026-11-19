@@ -158,14 +158,28 @@ func TestResendInvitation(t *testing.T) {
 		}
 	}
 	w := testutil.Do(t, api, admin, http.MethodPost, userPath(bob.ID, "/invitation"), "")
-	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusTooManyRequests); resp.Error.Code != "too_many_emails" {
-		t.Errorf("code = %q, want too_many_emails", resp.Error.Code)
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusTooManyRequests); resp.Error.Code != "too_many_emails" || w.Header().Get("Retry-After") != "1200" {
+		t.Errorf("code = %q, Retry-After = %q; want too_many_emails and 1200", resp.Error.Code, w.Header().Get("Retry-After"))
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, admin, http.MethodPost, userPath(999999, "/invitation"), ""), http.StatusNotFound)
 
 	msg, _ = mailer.Last("bob@example.com")
 	if token := testutil.TokenFromEmail(t, msg); token == newToken {
 		t.Error("each resend should issue a new link")
+	}
+
+	// Suspending an invited account withdraws the invitation: it is not sent again.
+	carol, _ := invite(t, api, mailer, admin, "Carol", "carol@example.com", auth.RoleUser)
+	if w := testutil.Do(t, api, admin, http.MethodPost, userPath(carol.ID, "/suspend"), ""); w.Code != http.StatusOK {
+		t.Fatalf("suspend: status = %d; body: %s", w.Code, w.Body)
+	}
+	sent := len(mailer.Messages())
+	w = testutil.Do(t, api, admin, http.MethodPost, userPath(carol.ID, "/invitation"), "")
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusConflict); resp.Error.Code != "user_suspended" {
+		t.Errorf("code = %q, want user_suspended", resp.Error.Code)
+	}
+	if len(mailer.Messages()) != sent {
+		t.Error("a suspended user should not get another invitation")
 	}
 }
 
@@ -214,5 +228,39 @@ func TestInvitedUsersAndSuspension(t *testing.T) {
 	w = testutil.Do(t, api, admin, http.MethodDelete, "/auth/me", passwordBody(testutil.Password))
 	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusConflict); resp.Error.Code != "last_admin" {
 		t.Errorf("code = %q, want last_admin", resp.Error.Code)
+	}
+}
+
+func TestTimeZoneInInvitations(t *testing.T) {
+	pool := testutil.NewDB(t)
+	mailer := &mail.Recorder{}
+	api := testutil.NewAPI(pool, testutil.WithMailer(mailer))
+	_, admin := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
+
+	// The admin can choose it, and accepting does not replace it.
+	w := testutil.Do(t, api, admin, http.MethodPost, "/admin/users", `{"name":"Bob","email":"bob@example.com","role":"user","time_zone":"America/Panama"}`)
+	if bob := testutil.Decode[auth.AdminUser](t, w, http.StatusCreated); bob.TimeZone == nil || *bob.TimeZone != "America/Panama" {
+		t.Errorf("invited user: %+v", bob)
+	}
+	msg, _ := mailer.Last("bob@example.com")
+	w = testutil.Do(t, api, nil, http.MethodPost, "/auth/invitation/accept", fmt.Sprintf(`{"token":%q,"password":"a-long-password","time_zone":"America/Bogota"}`, testutil.TokenFromEmail(t, msg)))
+	if u := testutil.Decode[auth.User](t, w, http.StatusOK); u.TimeZone == nil || *u.TimeZone != "America/Panama" {
+		t.Errorf("accepted user: %+v", u)
+	}
+
+	// Without one, the browser's is kept when accepting.
+	_, token := invite(t, api, mailer, admin, "Carol", "carol@example.com", auth.RoleUser)
+	w = testutil.Do(t, api, nil, http.MethodPost, "/auth/invitation/accept", fmt.Sprintf(`{"token":%q,"password":"a-long-password","time_zone":"Mars/Base"}`, token))
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields["time_zone"] == "" {
+		t.Errorf("want an error on time_zone: %+v", resp.Error)
+	}
+	w = testutil.Do(t, api, nil, http.MethodPost, "/auth/invitation/accept", fmt.Sprintf(`{"token":%q,"password":"a-long-password","time_zone":"America/Bogota"}`, token))
+	if u := testutil.Decode[auth.User](t, w, http.StatusOK); u.TimeZone == nil || *u.TimeZone != "America/Bogota" {
+		t.Errorf("accepted user: %+v", u)
+	}
+
+	w = testutil.Do(t, api, admin, http.MethodPost, "/admin/users", `{"name":"Dan","email":"dan@example.com","role":"user","time_zone":"UTC-5"}`)
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields["time_zone"] == "" {
+		t.Errorf("want an error on time_zone: %+v", resp.Error)
 	}
 }

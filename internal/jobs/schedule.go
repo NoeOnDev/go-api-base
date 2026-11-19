@@ -13,8 +13,9 @@ import (
 // in loc: jobs.DailyAt(8, 0, deps.TimeZone). It is Laravel's ->dailyAt('08:00')->timezone(…).
 //
 // It follows the clock, not a fixed interval: after a daylight saving time change, 08:00 is still
-// 08:00 in loc. An hour that does not exist that day (the spring jump) runs when the clock jumps,
-// and one that happens twice (the autumn) runs only the first time (see civil.DateTime.In).
+// 08:00 in loc. An hour that does not exist that day (the spring jump) runs as much later as the
+// jump lasts (02:30 runs at 03:30), and one that happens twice (the autumn) runs only the first
+// time (see civil.DateTime.In).
 // It panics with an hour out of 00:00-23:59: it is a mistake in the code.
 func DailyAt(hour, minute int, loc *time.Location) river.PeriodicSchedule {
 	return localSchedule{at: mustTime("DailyAt", hour, minute), loc: loc}

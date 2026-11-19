@@ -148,10 +148,13 @@ All errors have the same shape:
 | `401` | No session |
 | `403` | No permission, or a request from another origin |
 | `404` | The resource does not exist |
+| `405` | The route exists, but not with that method |
 | `409` | Repeated value, or the resource is in use |
+| `413` | The body is larger than 1 MB |
 | `422` | Validation |
 | `429` | Too many attempts |
 | `500` | Internal error, without details; the cause is in the log with its `request_id` |
+| `503` | The database does not answer (`/healthz`), the API is shutting down or 2FA cannot be used |
 
 Each error also has a specific `code` (`email_taken`, `slug_taken`, `invalid_credentials`…), and `message` comes in the language that `Accept-Language` asks for: English by default, or Mexican Spanish. The full list of codes and how to add a language are in [docs/i18n.md](docs/i18n.md).
 
@@ -163,7 +166,7 @@ Everything is configured with environment variables. [`.env.example`](.env.examp
 |---|---|---|
 | `APP_ENV` | `development` | `production` turns on JSON logs and the `Secure` cookie |
 | `HTTP_ADDR` | `:8080` | Server address |
-| `DATABASE_URL` | (required) | PostgreSQL connection. The pool has 10 connections unless the URL sets another size (`?pool_max_conns=20`), and a statement is cancelled after 10 seconds unless the URL sets another limit (`?statement_timeout=30000`, in milliseconds; `0` turns it off) |
+| `DATABASE_URL` | (required) | PostgreSQL connection. The pool has 10 connections (one per core, on a server with more than 10) unless the URL sets another size (`?pool_max_conns=20`), and a statement is cancelled after 10 seconds unless the URL sets another limit (`?statement_timeout=30000`, in milliseconds; `0` turns it off) |
 | `TEST_DATABASE_URL` | | Database of the integration tests |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 | `SHUTDOWN_TIMEOUT` | `10s` | Maximum wait when the server shuts down |
@@ -179,32 +182,37 @@ Everything is configured with environment variables. [`.env.example`](.env.examp
 | `MAIL_DRIVER` | `log` | `log` (writes the emails to the log) or `smtp` |
 | `MAIL_FROM` | `no-reply@localhost` | Sender |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` | — / `587` | SMTP server details |
-| `APP_NAME` | `My App` | Name shown by the 2FA authenticator app |
+| `APP_NAME` | `My App` | Name of the application: the emails carry it on top, and the 2FA authenticator app shows it |
 | `DEFAULT_LOCALE` | `en` | Language of the user-facing text when the request does not ask for an available one (see [docs/i18n.md](docs/i18n.md)) |
 | `APP_TIME_ZONE` | `UTC` | Time zone of the users without their own, for the dates the API writes for people (emails) and their days (reports, filters). An IANA name like `America/Mexico_City`. The JSON always carries UTC (see [docs/time.md](docs/time.md)) |
-| `ENCRYPTION_KEY` | (required) | Key to encrypt the 2FA secret. Generate it with `make key` (see [docs/encryption.md](docs/encryption.md)) |
+| `ENCRYPTION_KEY` | (required) | Key to encrypt the 2FA secret and the emails waiting in the queue. Generate it with `make key` (see [docs/encryption.md](docs/encryption.md)) |
 | `ENCRYPTION_PREVIOUS_KEYS` | | Previous keys, only during a rotation |
 | `JOBS_MAX_WORKERS` | `10` | Background jobs that run at once (emails have their own queue of 4) |
 | `GOMEMLIMIT` | (no limit) | Go's own variable, not the template's. With it, the garbage collector frees memory before reaching that value. In production, around 70% of the server's RAM is a good choice (with 1 GB, `700MiB`) |
 
-Values with spaces go in quotes: `APP_NAME="My App"`.
+Values with spaces go in quotes: `APP_NAME="My App"`. `make` reads `.env` and cuts a value at the first `#`, and it interprets `$`: avoid both characters in the values (for example, in a password).
+
+`ADMIN_PASSWORD` is not part of `.env`: `make create-admin` reads it from the environment if it is set (to create the administrator from a script), and asks for the password in the terminal if it is not.
 
 ### Before production
 
-What to check in the configuration, whatever the server. If `COOKIE_SECURE` or `MAIL_DRIVER` are wrong in production, or if `FRONTEND_URL` or `MAIL_FROM` still point to `localhost`, the API warns about it in the log on startup.
+What to check in the configuration, whatever the server. If `COOKIE_SECURE`, `TRUST_PROXY` or `MAIL_DRIVER` are wrong in production, or if `FRONTEND_URL` or `MAIL_FROM` still point to `localhost`, the API warns about it in the log on startup.
 
 - **`APP_ENV=production`:** JSON logs and `Secure` cookies with the `__Host-` prefix.
 - **HTTPS in front of the API:** the API speaks HTTP, and the proxy or load balancer terminates TLS. Without HTTPS, `Secure` cookies do not travel and nobody can log in.
 - **HSTS:** in production with `COOKIE_SECURE=true` the API sends `Strict-Transport-Security: max-age=31536000` on its own responses. The frontend's domain needs it too: set it in the proxy, and add `includeSubDomains` only if every subdomain has HTTPS.
-- **`TRUST_PROXY=true` only if there is a proxy in front, and with the API port closed to the internet.**
+- **`TRUST_PROXY=true` with a proxy in front (the usual way to have HTTPS), and with the API port closed to the internet.** Without it, every request comes from the proxy's IP: all the clients share the per-IP limits (the login allows one attempt every 3 seconds for everyone) and the sessions record the proxy's IP. The API warns at startup. Leave it `false` only if nothing is in front.
   - With the proxy on the same server, make the API listen only there: `HTTP_ADDR=127.0.0.1:8080`, and also `TRUSTED_PROXIES=127.0.0.1`.
   - If your provider has a private network shared between customers, always set the exact IP of the proxy with `TRUSTED_PROXIES`.
   - With a CDN in front of the proxy, add the CDN ranges (for example, [Cloudflare's](https://www.cloudflare.com/ips/)) to `TRUSTED_PROXIES` besides the proxy. The proxy must append its IP to the `X-Forwarded-For` the CDN sends, not replace it. Otherwise, every user going through the same CDN node shares the attempt limits.
-- **`MAIL_DRIVER=smtp`** with a real provider, and **`FRONTEND_URL`** with the frontend's domain (the links in the emails point there). With the frontend on another domain, `CORS_ALLOWED_ORIGINS` too.
+- **`MAIL_DRIVER=smtp`** with a real provider, and **`FRONTEND_URL`** with the frontend's domain (the links in the emails point there). With the frontend on another domain, `CORS_ALLOWED_ORIGINS` too. Both with `https://`: the API accepts `http://` without warning, and the links of the emails would travel in the clear.
+- **`APP_NAME`** with the application's name: it is on top of every email and in the authenticator app.
+- **Open registration:** anyone can create an account with `POST /auth/register`. If the project is by invitation only, remove it (see [docs/auth.md](docs/auth.md#removing-features)).
 - **`REQUIRE_ADMIN_TWO_FACTOR=true`**, unless the project has a reason not to: an administrator account with only a password is the most valuable one to steal.
 - **`ENCRYPTION_KEY` stored as a secret and backed up apart from the database:** if it is lost, users have to set up 2FA again (see [docs/encryption.md](docs/encryption.md)).
 - **`APP_TIME_ZONE`** with the business's zone if the system is used in a single place (`America/Panama`). For users in several zones, leave `UTC` and have the frontend send each user's (see [docs/time.md](docs/time.md)).
 - **`GOMEMLIMIT`** around 70% of the server's RAM.
+- **The process manager waits longer than `SHUTDOWN_TIMEOUT`** before killing the process (10 seconds by default): `TimeoutStopSec` in systemd, `stop_grace_period` in Docker Compose. Otherwise, the requests and jobs still running are cut halfway.
 - **A direct connection to PostgreSQL**, or PgBouncer in `session` mode. Real time and River listen with `LISTEN`, which does not work with PgBouncer in `transaction` mode.
 
 ## Commands
@@ -215,6 +223,7 @@ Run `make` to see the full list. The main ones:
 |---|---|
 | `make run` | Starts the API |
 | `make check` | gofmt, sqlc up to date, go vet, staticcheck, tests and govulncheck. Run it before each commit |
+| `make test-race` | The tests with the race detector (CI runs it on every push) |
 | `make sqlc` | Regenerates the database code after changing migrations or queries |
 | `make migrate-new name=create_x` | Creates a migration |
 | `make create-admin email=…` | Creates an administrator |
@@ -280,10 +289,12 @@ git init
 Then:
 - **Keep `TEMPLATE_VERSION`:** it says which version of the template the project came from (see the [CHANGELOG](CHANGELOG.md)).
 - Keep the authentication.
-- Keep the examples that look like your project and delete the rest (their package, queries, migrations and registration in `internal/server/routes.go`; the schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples)).
+- Keep the examples that look like your project and delete the rest. For `notes`, `categories` and `products`: their package, their query (`internal/db/queries`), their migration and their registration in `internal/server/routes.go`; then `make sqlc` and `make check`, which names the catalog keys left unused (delete them from every `internal/i18n/locales/*.json`, and the error codes from the table of [docs/i18n.md](docs/i18n.md#error-codes)). `products` references `categories`: delete it first, or both. The schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples).
 - If you don't need some auth feature (open registration, 2FA, email change…), [docs/auth.md](docs/auth.md#removing-features) says what to delete.
 - If you don't need the job queue or real time, [docs/jobs.md](docs/jobs.md#removing-the-queue) and [docs/realtime.md](docs/realtime.md#removing-real-time) explain how to remove them.
 - Add your resources following [docs/adding-a-resource.md](docs/adding-a-resource.md).
+- **Rename the databases** in `.env` (`go_api_base` and `go_api_base_test` in `.env.example`): two projects with the same names would share them, and the tests empty theirs.
+- **`AGENTS.md` and `CHANGELOG.md` are the template's.** In `AGENTS.md`, replace the note of "What it is" that says the repository is a template, and that its original migrations can be edited, with what the project is; start `CHANGELOG.md` over.
 
 ## Documentation
 

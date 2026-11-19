@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -145,11 +146,25 @@ func TestBookAndCancel(t *testing.T) {
 	testutil.Decode[appointment](t, testutil.Do(t, f.api, f.bob, http.MethodPost, "/appointments", fmt.Sprintf(`{"branch_id":%d,"starts_at":%q}`, f.branchID, f.slotAt)), http.StatusCreated)
 
 	// The agenda of the day, only for admins, with the canceled one.
-	agenda := testutil.Decode[struct {
+	type agendaPage struct {
 		Data []appointment `json:"data"`
-	}](t, testutil.Do(t, f.api, f.admin, http.MethodGet, f.branchPath+"/appointments?date="+f.date.String(), ""), http.StatusOK)
-	if len(agenda.Data) != 2 || agenda.Data[0].Status != "canceled" || agenda.Data[1].Status != "booked" {
-		t.Errorf("agenda = %+v", agenda.Data)
+		Meta struct {
+			Total int64 `json:"total"`
+		} `json:"meta"`
+	}
+	w = testutil.Do(t, f.api, f.admin, http.MethodGet, f.branchPath+"/appointments?date="+f.date.String(), "")
+	agenda := testutil.Decode[agendaPage](t, w, http.StatusOK)
+	if len(agenda.Data) != 2 || agenda.Meta.Total != 2 || agenda.Data[0].Status != "canceled" || agenda.Data[1].Status != "booked" {
+		t.Errorf("agenda = %+v", agenda)
+	}
+	// It has other people's appointments: it is not cached.
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control of the agenda = %q, want no-store", got)
+	}
+	// By pages: the second appointment of the day.
+	second := testutil.Decode[agendaPage](t, testutil.Do(t, f.api, f.admin, http.MethodGet, f.branchPath+"/appointments?limit=1&offset=1&date="+f.date.String(), ""), http.StatusOK)
+	if len(second.Data) != 1 || second.Meta.Total != 2 || second.Data[0].Status != "booked" {
+		t.Errorf("second page of the agenda = %+v", second)
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, f.api, f.alice, http.MethodGet, f.branchPath+"/appointments", ""), http.StatusForbidden)
 }
@@ -184,6 +199,46 @@ func TestBookingValidation(t *testing.T) {
 		testutil.Decode[testutil.APIError](t, testutil.Do(t, f.api, nil, http.MethodGet, f.branchPath+"/availability"+q, ""), http.StatusUnprocessableEntity)
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, f.api, nil, http.MethodGet, "/branches/999/availability", ""), http.StatusNotFound)
+}
+
+// One account cannot take every slot of a branch: at most 5 appointments that have not started, and
+// none beyond 90 days.
+func TestBookingLimits(t *testing.T) {
+	f := setup(t)
+	book := func(hour int) *httptest.ResponseRecorder {
+		body := fmt.Sprintf(`{"branch_id":%d,"starts_at":"%sT%02d:00"}`, f.branchID, f.date, hour)
+		return testutil.Do(t, f.api, f.alice, http.MethodPost, "/appointments", body)
+	}
+	var first appointment
+	for i := range 5 {
+		a := testutil.Decode[appointment](t, book(9+i), http.StatusCreated)
+		if i == 0 {
+			first = a
+		}
+	}
+	if resp := testutil.Decode[testutil.APIError](t, book(14), http.StatusConflict); resp.Error.Code != "too_many_appointments" || !strings.Contains(resp.Error.Message, "5") {
+		t.Errorf("sixth appointment: %+v", resp.Error)
+	}
+	// The limit is per person, and a canceled appointment does not count.
+	body := fmt.Sprintf(`{"branch_id":%d,"starts_at":"%sT14:00"}`, f.branchID, f.date)
+	testutil.Decode[appointment](t, testutil.Do(t, f.api, f.bob, http.MethodPost, "/appointments", body), http.StatusCreated)
+	testutil.Decode[appointment](t, testutil.Do(t, f.api, f.alice, http.MethodPost, fmt.Sprintf("/appointments/%d/cancel", first.ID), ""), http.StatusOK)
+	testutil.Decode[appointment](t, book(15), http.StatusCreated)
+
+	// 90 days from today of the branch can be booked; 91 cannot, and has no availability either.
+	today := civil.DateOf(time.Now().In(f.bogota))
+	last, beyond := today.AddDays(90), today.AddDays(91)
+	body = fmt.Sprintf(`{"branch_id":%d,"starts_at":"%sT10:00"}`, f.branchID, beyond)
+	w := testutil.Do(t, f.api, f.bob, http.MethodPost, "/appointments", body)
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); !strings.Contains(resp.Error.Fields["starts_at"], "90") {
+		t.Errorf("beyond the limit: %+v", resp.Error)
+	}
+	w = testutil.Do(t, f.api, nil, http.MethodGet, f.branchPath+"/availability?date="+beyond.String(), "")
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields["date"] == "" {
+		t.Errorf("availability beyond the limit: %+v", resp.Error)
+	}
+	body = fmt.Sprintf(`{"branch_id":%d,"starts_at":"%sT10:00"}`, f.branchID, last)
+	testutil.Decode[appointment](t, testutil.Do(t, f.api, f.bob, http.MethodPost, "/appointments", body), http.StatusCreated)
 }
 
 // TestConcurrentBookings sends the same slot at once: only one booking succeeds.
@@ -291,6 +346,12 @@ func TestReminderWorker(t *testing.T) {
 	n := notifier.sent[0]
 	if n.userID != f.aliceID || n.kind != appointments.NotifyReminder || n.data["branch"] != "Clinic" || n.data["date"] != a.LocalStartsAt[:10] || n.data["time"] != "10:00" || n.data["time_zone"] != "America/Bogota" {
 		t.Errorf("notification = %+v", n)
+	}
+
+	// The job can run twice (River rescues one whose process died): the second time sends nothing.
+	work(appointments.ReminderArgs{AppointmentID: a.ID, StartsAt: startsAt})
+	if len(notifier.sent) != 1 {
+		t.Fatalf("a second run sent the reminder again: %d notifications", len(notifier.sent))
 	}
 
 	// An appointment at another time (the arguments are old), canceled or deleted: nothing.

@@ -20,7 +20,9 @@ CREATE TABLE appointments (
     starts_at       timestamptz NOT NULL,
     ends_at         timestamptz NOT NULL CHECK (ends_at > starts_at),
     status          text        NOT NULL DEFAULT 'booked' CHECK (status IN ('booked', 'canceled')),
-    created_at      timestamptz NOT NULL DEFAULT now(),
+    -- When the reminder was sent. Its job can run twice, and checks this first.
+    reminded_at     timestamptz,
+    created_at     timestamptz NOT NULL DEFAULT now(),
     updated_at      timestamptz NOT NULL DEFAULT now(),
     -- Two booked appointments of the same branch cannot overlap, even if they arrive at the same time
     -- to different instances of the API: the second one fails (409 slot_taken). The canceled ones do

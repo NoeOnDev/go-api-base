@@ -169,19 +169,20 @@ func (q *Queries) GetWorkerTimeZone(ctx context.Context, id int64) (*string, err
 const listShifts = `-- name: ListShifts :many
 SELECT id, user_id, time_zone, local_starts_at, local_ends_at, starts_at, ends_at, note, created_at, updated_at FROM shifts
 WHERE ($1::bigint IS NULL OR user_id = $1)
-  AND starts_at < $2 AND ends_at > $3
+  AND tstzrange(starts_at, ends_at) && tstzrange($2::timestamptz, $3::timestamptz)
 ORDER BY starts_at, id
 `
 
 type ListShiftsParams struct {
 	UserID *int64
-	End    time.Time
 	Start  time.Time
+	End    time.Time
 }
 
-// ListShifts returns the shifts that overlap [start, end), of one user or of everyone.
+// ListShifts returns the shifts that overlap [start, end), of one user or of everyone. It is written
+// like the shifts_no_overlap constraint, with && on the range, to use its index.
 func (q *Queries) ListShifts(ctx context.Context, arg ListShiftsParams) ([]Shift, error) {
-	rows, err := q.db.Query(ctx, listShifts, arg.UserID, arg.End, arg.Start)
+	rows, err := q.db.Query(ctx, listShifts, arg.UserID, arg.Start, arg.End)
 	if err != nil {
 		return nil, err
 	}
@@ -213,20 +214,24 @@ func (q *Queries) ListShifts(ctx context.Context, arg ListShiftsParams) ([]Shift
 
 const listTimeEntries = `-- name: ListTimeEntries :many
 SELECT id, user_id, shift_id, clock_in, clock_out, created_at FROM time_entries
-WHERE user_id = $1 AND clock_in < $2::timestamptz
-  AND coalesce(clock_out, now()) > $3::timestamptz
+WHERE user_id = $1
+  AND tstzrange(clock_in, clock_out) && tstzrange($2::timestamptz, $3::timestamptz)
+  AND coalesce(clock_out, now()) > $2::timestamptz
 ORDER BY clock_in, id
 `
 
 type ListTimeEntriesParams struct {
 	UserID int64
-	End    time.Time
 	Start  time.Time
+	End    time.Time
 }
 
 // ListTimeEntries returns a user's entries that overlap [start, end); an open one counts until now.
+// The && on the range is written like the time_entries_range_idx index, to use it (the range of an
+// open entry has no end); the last condition leaves out an open entry when the days asked for have
+// not arrived yet.
 func (q *Queries) ListTimeEntries(ctx context.Context, arg ListTimeEntriesParams) ([]TimeEntry, error) {
-	rows, err := q.db.Query(ctx, listTimeEntries, arg.UserID, arg.End, arg.Start)
+	rows, err := q.db.Query(ctx, listTimeEntries, arg.UserID, arg.Start, arg.End)
 	if err != nil {
 		return nil, err
 	}
@@ -253,11 +258,15 @@ func (q *Queries) ListTimeEntries(ctx context.Context, arg ListTimeEntriesParams
 }
 
 const updateShift = `-- name: UpdateShift :one
+WITH detached AS (
+    UPDATE time_entries SET shift_id = NULL
+    WHERE shift_id = $1 AND user_id <> $2
+)
 UPDATE shifts
 SET user_id = $2, time_zone = $3, local_starts_at = $4, local_ends_at = $5, starts_at = $6, ends_at = $7,
     note = $8, updated_at = now()
-WHERE id = $1
-RETURNING id, user_id, time_zone, local_starts_at, local_ends_at, starts_at, ends_at, note, created_at, updated_at
+WHERE shifts.id = $1
+RETURNING shifts.id, shifts.user_id, shifts.time_zone, shifts.local_starts_at, shifts.local_ends_at, shifts.starts_at, shifts.ends_at, shifts.note, shifts.created_at, shifts.updated_at
 `
 
 type UpdateShiftParams struct {
@@ -272,7 +281,8 @@ type UpdateShiftParams struct {
 }
 
 // UpdateShift replaces a shift, also its person: reassigning it checks that it does not overlap the
-// shifts of the new one.
+// shifts of the new one, and the entries of the previous person stop belonging to the shift (they
+// keep their hours). It is one statement: if the shift overlaps, the entries are left as they were.
 func (q *Queries) UpdateShift(ctx context.Context, arg UpdateShiftParams) (Shift, error) {
 	row := q.db.QueryRow(ctx, updateShift,
 		arg.ID,

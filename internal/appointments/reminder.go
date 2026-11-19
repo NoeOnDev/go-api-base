@@ -48,8 +48,14 @@ func NewReminderWorker(q *store.Queries, notifier Notifier) *ReminderWorker {
 	return &ReminderWorker{q: q, notifier: notifier}
 }
 
-// Work sends the reminder, if the appointment is still booked at the same time. It can run twice
-// (a retry), so it checks first instead of trusting the arguments.
+// Work sends the reminder, if the appointment is still booked at the same time: it reads the
+// appointment again instead of trusting the arguments, which are from when it was booked.
+//
+// It can run twice (a retry, or a job River rescues because the process died before recording that
+// it had finished), so it records in the appointment that the reminder was sent (reminded_at) and
+// checks it first. It notifies and then records, in that order: if the process dies between the two,
+// the user gets the reminder twice, which is better than the opposite, not getting it. A job where
+// not even that can happen (a charge) does its work and records it in the same transaction.
 func (w *ReminderWorker) Work(ctx context.Context, job *river.Job[ReminderArgs]) error {
 	if w.notifier == nil {
 		return errors.New("appointment reminder: no notifier")
@@ -62,13 +68,13 @@ func (w *ReminderWorker) Work(ctx context.Context, job *river.Job[ReminderArgs])
 		return fmt.Errorf("find appointment %d: %w", job.Args.AppointmentID, err)
 	}
 	a := row.Appointment
-	if a.Status != statusBooked || !a.StartsAt.Equal(job.Args.StartsAt) {
+	if a.Status != statusBooked || !a.StartsAt.Equal(job.Args.StartsAt) || a.RemindedAt != nil {
 		return nil
 	}
 	// The day and hour of the branch's clock: the appointment is there. The text writes them in the
 	// reader's format ({date:date}, {time:time}); the frontend has starts_at to show it in another
 	// zone.
-	return w.notifier.Notify(ctx, a.UserID, NotifyReminder, map[string]any{
+	err = w.notifier.Notify(ctx, a.UserID, NotifyReminder, map[string]any{
 		"appointment_id": a.ID,
 		"branch":         row.BranchName,
 		"date":           a.LocalStartsAt.Date().String(),
@@ -76,4 +82,11 @@ func (w *ReminderWorker) Work(ctx context.Context, job *river.Job[ReminderArgs])
 		"time_zone":      a.TimeZone,
 		"starts_at":      a.StartsAt,
 	})
+	if err != nil {
+		return fmt.Errorf("remind appointment %d: %w", a.ID, err)
+	}
+	if err := w.q.MarkAppointmentReminded(ctx, a.ID); err != nil {
+		return fmt.Errorf("record the reminder of appointment %d: %w", a.ID, err)
+	}
+	return nil
 }

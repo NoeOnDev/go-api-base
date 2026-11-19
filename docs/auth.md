@@ -82,9 +82,9 @@ The user is returned like this (it never includes the password):
 
 ## Profile and password change
 
-- **`PUT /auth/me`** changes the name and, if present, the language (`locale`: one of the available ones, like `en` or `es-MX`) and the time zone (`time_zone`). The language decides which language the emails and notifications reach the user in; registration stores the one the browser asked for (see [languages](i18n.md)). The email is changed separately (see "Changing the email"), because the new address must be verified.
+- **`PUT /auth/me`** changes the name and, if present, the language (`locale`: one of the available ones, like `en` or `es-MX`) and the time zone (`time_zone`). The language decides which language the emails and notifications reach the user in; registration stores the one the browser asked for (see [languages](i18n.md)). A field that is missing does not change, and an empty one (`"locale": ""`, `"time_zone": ""`) goes back to the default: the default language, or the application's zone. The email is changed separately (see "Changing the email"), because the new address must be verified.
 - **`time_zone`** is an IANA name, like `America/Mexico_City`: the zone of the dates the API writes for the user (the emails) and of their days (a report "for today"). `null` is the application's, `APP_TIME_ZONE`. There is no header for it, so the frontend sends the browser's, `Intl.DateTimeFormat().resolvedOptions().timeZone`, when registering and when accepting an invitation. The dates of the JSON always travel in UTC, and the frontend shows them in the user's zone (see [time.md](time.md)).
-- **`PUT /auth/password`** asks for the current password, so someone who finds the session open cannot change it. Changing it **closes every other session** of the user while the current one stays active, and **cancels a pending email change** (see "Changing the email").
+- **`PUT /auth/password`** asks for the current password, so someone who finds the session open cannot change it. Changing it **closes every other session** of the user while the current one stays active, and **cancels a pending email change** (see "Changing the email") and a reset link asked for before.
 
 ## Sessions per device
 
@@ -94,7 +94,7 @@ Each session stores the browser (user agent), the IP it started from and its las
 - **`DELETE /auth/sessions/{id}`** closes one, for example that of a device the user does not recognize. Its `GET /events` streams are cut at once. The current one is closed with `POST /auth/logout`.
 - **`POST /auth/sessions/revoke-others`** with `{password}` closes all the others. It asks for the password, like Laravel Jetstream, because it is a bulk action: that way someone with a stolen session cannot kick the owner out of all their devices.
 
-**Idle expiry (optional):** with `SESSION_IDLE_TIMEOUT` (for example `30m`), a session without activity for that long stops working, besides the fixed `SESSION_TTL` expiry. It must be at least 15 minutes, because activity is stored every 5. An open `GET /events` stream does not count as activity: a forgotten tab does not keep the session alive. Sessions expired by inactivity do not show up in `GET /auth/sessions` either.
+**Idle expiry (optional):** with `SESSION_IDLE_TIMEOUT` (for example `30m`), a session without activity for that long stops working, besides the fixed `SESSION_TTL` expiry. It must be at least 15 minutes, because activity is stored every 5. An open `GET /events` stream does not count as activity, and neither does the browser opening it again every few minutes: a forgotten tab does not keep the session alive. That route is protected with `RequireUserWithoutActivity` instead of `RequireUser`; use it for any other route the browser calls on its own, without the person doing anything (a poll every minute). Sessions expired by inactivity do not show up in `GET /auth/sessions` either.
 
 ## Changing the email
 
@@ -133,7 +133,7 @@ Asking for a new link invalidates the previous one. If the password does not mee
 With **`REQUIRE_EMAIL_VERIFICATION=true`**:
 
 1. On registration, the user gets an email with a link to **`FRONTEND_URL/verify-email?token=…`**, which expires in 24 hours.
-2. Until they open it, the protected routes (`RequireUser`, `RequireAdmin`) respond **`403` with the `email_not_verified` code**. The frontend should show a notice with a button to send the email again (`POST /auth/email/resend`).
+2. Until they open it, the protected routes (`RequireUser`, `RequireAdmin`) respond **`403` with the `email_not_verified` code**, and a public route that shows more to the users (`OptionalUser`) treats them as anonymous. The frontend should show a notice with a button to send the email again (`POST /auth/email/resend`).
 3. The frontend's `/verify-email` screen takes the `token` and calls `POST /auth/email/verify` with `{token}`.
 
 While unverified, the user can still use `/auth/me` (which has `email_verified_at: null`), edit their profile, log out and ask for another link. Admins created with `create-admin` are verified.
@@ -276,7 +276,7 @@ For systems without open registration (an internal tool, a client's team), an ad
 **To keep in mind:**
 
 - **Until they accept, nobody can log in to the account:** the login answers the usual `401`, without revealing that the invitation is pending.
-- **Sending it again:** `POST /admin/users/{id}/invitation` sends a new link, and the previous one stops working. It has the per-recipient email limit (`429 too_many_emails`), and answers `409 invitation_accepted` if the account is already active.
+- **Sending it again:** `POST /admin/users/{id}/invitation` sends a new link, and the previous one stops working. It has the per-recipient email limit (`429 too_many_emails`), and answers `409 invitation_accepted` if the account is already active, or `409 user_suspended` if it is suspended: the link could not be accepted, so no email is sent.
 - **"Forgot my password" also works:** an invited user can set their password from there, which also activates the account. After that, the invitation link no longer works, so it cannot overwrite that password.
 - **Withdrawing an invitation:** delete the user (`DELETE /admin/users/{id}`), or suspend them, which also deletes the link.
 - **The email is reserved** from the invitation on: registering with it answers `409`.
@@ -290,7 +290,7 @@ With invitations, open registration can be removed (see [removing features](#rem
 - **Login without leaks:** it always responds the same `401` and takes the same time whether the email exists or not. "Forgot my password" also always responds the same. Registration does say whether an email is in use (`409`), because otherwise the user would not know why it fails.
 - **Single-use tokens** to reset the password and verify the email: only their SHA-256 is stored in the database, they expire, and they are validated and deleted in a single operation, so they cannot be used twice.
 - **Sessions are closed on a password change or reset**, in case someone had logged in with the previous one.
-- **A new password cuts half-finished 2FA logins and pending email changes:** changing or resetting it deletes the challenges and the email change link, which were obtained with the previous one. A reset also resets the user's 2FA attempt limit, in case someone with the old password had used it up.
+- **A new password cuts half-finished 2FA logins, pending email changes and reset links:** changing or resetting it deletes the challenges and the email change link, which were obtained with the previous one, and a reset link asked for before, which whoever changes the password out of suspicion does not want alive. A reset does not give back the user's 2FA attempts: whoever controls the inbox would get more tries at the code with each reset. If someone with the old password used them up, one is back within 6 minutes.
 - **Request limits per group of routes**, each one separately (the second step of 2FA does not spend the login attempts). Past them, the API responds `429` with `Retry-After`. The values are together in `internal/server/routes.go`, to adjust them:
 
   | Group | Routes | Per | Limit |
@@ -299,9 +299,9 @@ With invitations, open registration can be removed (see [removing features](#rem
   | Login | `POST /auth/login` | IP | 20 in a row, then 1 every 3 s |
   | Registration | `POST /auth/register` | IP | 10 in a row, then 1 every 10 s |
   | 2FA | `POST /auth/two-factor/challenge` | IP | 20 in a row, then 1 every 3 s |
-  | Tokens | `reset`, `email/verify` | IP | 10 in a row, then 1 every 6 s |
+  | Tokens | `reset`, `email/verify`, `email/confirm`, `invitation/accept` | IP | 10 in a row, then 1 every 6 s |
   | Emails | `forgot`, `resend` | IP | 10 in a row, then 1 per minute |
-  | Account | changing the password and managing 2FA | **user** | 5 in a row, then 1 every 12 s |
+  | Account | what asks for the password or closes sessions: changing the password or the email, deleting the account, turning 2FA on or off and its recovery codes, closing a session or all the others and, for administrators, changing a role, deleting a user and inviting another administrator | **user** | 5 in a row, then 1 every 12 s |
 
   The IP ones are generous because many people can share an IP (an office, a university, mobile data). IPv6 addresses are counted per `/64` block. The account ones go per user, so users behind the same IP do not get mixed up.
 - **Per-user limits**, even if the requests come from many IPs:
@@ -327,7 +327,8 @@ With invitations, open registration can be removed (see [removing features](#rem
 - the second step of the login (the 2FA code) when the login responds `202`. If that step responds `401` (for example, `two_factor_locked`), go back to the login screen;
 - in the profile, turning 2FA on (QR code, code and recovery codes) and off;
 - in the profile, the sessions per device (with "close" and "close all the others"), changing the email and deleting the account;
-- `/confirm-email`, the one of the email link to confirm a new email.
+- `/confirm-email`, the one of the email link to confirm a new email;
+- `/accept-invitation`, the one of the invitation's link, where the person chooses their password (see [Invitations](#invitations)).
 
 ### Same domain (recommended)
 
@@ -394,11 +395,11 @@ if user.IsAdmin() { … } // admin permissions: never compare user.Role
 
 ## Removing features
 
-All the routes are in `internal/auth/routes.go`. To remove a feature, delete its routes, its files and its tests, and make the changes in the last column. What several features share is in files that are not deleted: `account.go` (including deleting a user, which `DELETE /auth/me` and the admins use), `session.go`, `tokens.go` and `emails.go`, and in the tests, `helpers_test.go`. The email templates are in each language folder (`emails/en/`, `emails/es-MX/`): delete them from all of them.
+All the routes are in `internal/auth/routes.go`. To remove a feature, delete its routes, its files and its tests, and make the changes in the last column. What several features share is in files that are not deleted: `account.go` (including deleting a user, which `DELETE /auth/me` and the admins use, and what the invitations and the user management share: the roles and a user as the administrators see them), `session.go`, `tokens.go` and `emails.go`, and in the tests, `helpers_test.go`. The email templates are in each language folder (`emails/en/`, `emails/es-MX/`): delete them from all of them.
 
 | Feature | Routes | Files to delete | Also |
 |---|---|---|---|
-| Open registration (only invited users and admins created with `create-admin`) | `POST /auth/register` | The `register` function of `handlers.go`, and the `TestRegister…` tests of `handlers_test.go` | Several tests create the user with `POST /auth/register`: move them to `testutil.Login` |
+| Open registration (only invited users and admins created with `create-admin`) | `POST /auth/register` | The `register` function of `handlers.go`, and the `TestRegister…` tests of `handlers_test.go` with `failingMailer`, which only they use | Several tests create the user with `POST /auth/register`: move them to `testutil.Login` |
 | Profile and password change | `PUT /auth/me`, `PUT /auth/password` | `profile.go`, `account_test.go` | |
 | Sessions per device | `/auth/sessions…` | `sessions.go`, `sessions_test.go` | |
 | Changing the email | `PUT /auth/email`, `/auth/email/confirm` | `email_change.go`, `email_change_test.go`, `emails/*/email_change*.*` | |
@@ -406,12 +407,15 @@ All the routes are in `internal/auth/routes.go`. To remove a feature, delete its
 | Resetting the password | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go`, `password_reset_test.go`, `emails/*/password_reset.*` | |
 | Verifying the email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go`, `email_verification_test.go`, `emails/*/verify_email.*` | In `register` (`handlers.go`), the `if s.opts.RequireVerifiedEmail` block. Leave `REQUIRE_EMAIL_VERIFICATION=false` |
 | Invitations | `POST /admin/users`, `/admin/users/{id}/invitation`, `/auth/invitation/accept` | `invitations.go`, `invitations_test.go`, `emails/*/invitation.*` | Optionally, the `invitation` purpose (`tokens.go` and the CHECK of migration `00006`) and the `SetInitialPassword` query (then, `make sqlc`). `password_hash` can stay nullable: a user without a password cannot log in |
-| Managing users | `/admin/users…` | `admin_users.go`, `admin_users_test.go` | Optionally, the suspension: the `SuspendedAt` checks of `Authenticate` (`auth.go`) and `forgotPassword` (`password_reset.go`), the `suspended_at` column (migration `00001`, `users.sql` and the `GetSessionUser` filter of `sessions.sql`) and the user queries of the list, the role and the suspension (then, `make sqlc`) |
-| 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/*/two_factor_locked.*` | In `handlers.go`, the login's `if u.TwoFactorEnabled` block; in `auth.go`, `twoFactorLimiter`; in `password_reset.go`, its `resetLimit`; in `keys.go`, the call to `rotateTwoFactorKeys`. Optionally, also `internal/totp`, `testutil/twofactor.go` (with `TestTwoFactorChangesNotify` of `internal/notifications`) and migration `00007` with `recovery_codes.sql` (then, `make sqlc`) |
+| Managing users | `GET /admin/users`, `GET /admin/users/{id}`, `/admin/users/{id}/role`, `…/suspend`, `…/unsuspend` and `DELETE /admin/users/{id}` (`POST /admin/users` and `…/invitation` belong to the invitations) | `admin_users.go`, `admin_users_test.go` | Optionally, the suspension: the `SuspendedAt` checks of `Authenticate` (`auth.go`) and `forgotPassword` (`password_reset.go`), the `suspended_at` column (migration `00001`, `users.sql` and the `GetSessionUser` filter of `sessions.sql`) and the user queries of the list, the role and the suspension (then, `make sqlc`) |
+| 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/*/two_factor_locked.*` | In `handlers.go`, the login's `if u.TwoFactorEnabled` block; in `auth.go`, `twoFactorLimiter`; in `keys.go`, the call to `rotateTwoFactorKeys`; in `internal/notifications`, `TestTwoFactorChangesNotify`. Leave `REQUIRE_ADMIN_TWO_FACTOR=false`: with `true`, no administrator could use the admin routes. Optionally, also `internal/totp`, `testutil/twofactor.go` and migration `00007` with `recovery_codes.sql` (then, `make sqlc`) |
 
-Finally, `make check`. If a test of another feature fails, it is one that used the feature you removed: to set up the case, or to test how the two combine (for example, that changing the password cancels a pending email change). Delete that case, or move its setup to `testutil.Login`.
+Finally, `make fmt` and `make check`, which says what is left:
 
-Each recipe was tested separately, on a copy of the project: it compiles, passes `go vet` and staticcheck, and the failing tests are only the ones above. To remove several features, follow the steps of each one; if something is left unused, staticcheck points it out. If you change auth, keep this table up to date.
+- **Catalog keys that nothing uses any more** (`TestCatalogMatchesCode` names them): delete them from every `internal/i18n/locales/*.json`, and the `errors.…` ones from the table of [i18n.md](i18n.md#error-codes) too.
+- **Tests of another feature that fail:** they used the feature you removed, to set up the case or to test how the two combine (for example, that changing the password cancels a pending email change). Delete that case, or move its setup to `testutil.Login`.
+
+Each recipe was tested separately, on a copy of the project: it compiles and passes `go vet` and staticcheck, and `make check` reports only those two things. To remove several features, follow the steps of each one; if something is left unused, staticcheck points it out. If you change auth, keep this table up to date.
 
 ## What it does not include
 

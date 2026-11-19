@@ -223,18 +223,19 @@ func TestProductionWarnings(t *testing.T) {
 	}
 	// With the development defaults: FRONTEND_URL and MAIL_FROM on localhost.
 	w := risky.Warnings()
-	for _, variable := range []string{"COOKIE_SECURE", "MAIL_DRIVER", "FRONTEND_URL", "MAIL_FROM"} {
+	for _, variable := range []string{"COOKIE_SECURE", "TRUST_PROXY", "MAIL_DRIVER", "FRONTEND_URL", "MAIL_FROM"} {
 		if !slices.ContainsFunc(w, func(s string) bool { return strings.HasPrefix(s, variable) }) {
 			t.Errorf("missing the warning about %s: %q", variable, w)
 		}
 	}
-	if len(w) != 4 {
-		t.Errorf("want 4 warnings: %q", w)
+	if len(w) != 5 {
+		t.Errorf("want 5 warnings: %q", w)
 	}
 
 	loopback, err := load(envFrom(map[string]string{
 		"APP_ENV":      "production",
 		"DATABASE_URL": "x",
+		"TRUST_PROXY":  "true",
 		"MAIL_DRIVER":  "smtp",
 		"SMTP_HOST":    "smtp.example.com",
 		"MAIL_FROM":    "My App <no-reply@example.com>",
@@ -250,6 +251,7 @@ func TestProductionWarnings(t *testing.T) {
 	safe, err := load(envFrom(map[string]string{
 		"APP_ENV":      "production",
 		"DATABASE_URL": "x",
+		"TRUST_PROXY":  "true",
 		"MAIL_DRIVER":  "smtp",
 		"SMTP_HOST":    "smtp.example.com",
 		"MAIL_FROM":    "no-reply@example.com",

@@ -26,7 +26,7 @@ type KeyReport struct {
 	OldRecoveryCodes []KeyUsage
 	// QueuedEmails counts, per old key, the queued emails encrypted with it that have not been sent
 	// yet (see AddQueuedEmails). They go out on their own in seconds or minutes; if the key is
-	// removed before, they are cancelled.
+	// removed before, they are discarded after their retries.
 	QueuedEmails []KeyCount
 	// RemovableKeys are the previous keys that no data uses anymore: they can be removed from
 	// ENCRYPTION_PREVIOUS_KEYS.

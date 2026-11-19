@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -135,8 +137,10 @@ func NewHandler(d Deps) http.Handler {
 		})
 	}
 
-	// Real time: an SSE stream with the events of the user and of the topics they ask for.
-	mux.Handle("GET /events", authService.RequireUser(broker.Handler(authService)))
+	// Real time: an SSE stream with the events of the user and of the topics they ask for. The
+	// browser opens it again on its own every few minutes, so it does not count as activity of the
+	// session: a forgotten tab does not keep it alive (SESSION_IDLE_TIMEOUT).
+	mux.Handle("GET /events", authService.RequireUserWithoutActivity(broker.Handler(authService)))
 
 	notifications.Register(mux, notificationsService, authService)
 
@@ -150,8 +154,13 @@ func NewHandler(d Deps) http.Handler {
 	shifts.Register(mux, shifts.NewHandler(queries, d.Config.TimeZone), authService)
 	classes.Register(mux, classes.NewHandler(queries, d.Config.TimeZone), authService)
 
-	// Any unregistered route answers 404 with the API error format.
+	// Any unregistered route answers 404 with the API error format, or 405 with the Allow header if
+	// the path exists with another method (a DELETE where only POST is registered).
 	mux.Handle("/", httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		if allowed := allowedMethods(mux, r); len(allowed) > 0 {
+			w.Header().Set("Allow", strings.Join(allowed, ", "))
+			return &httpx.Error{Status: http.StatusMethodNotAllowed, Code: "method_not_allowed"}
+		}
 		return httpx.NotFound("route_not_found")
 	}))
 
@@ -195,14 +204,50 @@ func csrfProtection(next http.Handler, trustedOrigins []string) http.Handler {
 	return cop.Handler(next)
 }
 
+// allowedMethods returns the methods the path of r is registered with, when r came with another one
+// (and so fell on the "/" route). The mux does not say it once there is a "/" route, so it is asked
+// method by method.
+func allowedMethods(mux *http.ServeMux, r *http.Request) []string {
+	var allowed []string
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		probe := r.Clone(r.Context())
+		probe.Method = method
+		if _, pattern := mux.Handler(probe); pattern != "/" && pattern != "" {
+			allowed = append(allowed, method)
+		}
+	}
+	return allowed
+}
+
+// healthEvery is how often /healthz really asks the database. It has no rate limit (a monitor or a
+// load balancer calls it often), so without this each call would take a connection of the pool:
+// between checks it answers what the last one found.
+const healthEvery = time.Second
+
 // health reports whether the server is alive and can talk to the database.
 // It answers 503 if the database does not answer, so a monitor or a load balancer notices.
 func health(pool *pgxpool.Pool) http.HandlerFunc {
+	var (
+		mu      sync.Mutex
+		checked time.Time
+		lastErr error
+	)
+	// check pings the database at most every healthEvery. The calls that arrive meanwhile wait for
+	// the one in progress and share its answer.
+	check := func(ctx context.Context) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if time.Since(checked) >= healthEvery {
+			// Without the cancel of the request: the answer is for the next calls too.
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			defer cancel()
+			lastErr = pool.Ping(ctx)
+			checked = time.Now()
+		}
+		return lastErr
+	}
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-
-		if err := pool.Ping(ctx); err != nil {
+		if err := check(r.Context()); err != nil {
 			httpx.LoggerFrom(r.Context()).Warn("health check: the database does not answer", "error", err)
 			return &httpx.Error{Status: http.StatusServiceUnavailable, Code: "unavailable"}
 		}

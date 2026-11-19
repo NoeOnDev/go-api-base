@@ -146,6 +146,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	if _, ok := db.IsExclusionViolation(err); ok {
 		return errOverlap
 	}
+	if _, ok := db.IsForeignKeyViolation(err); ok {
+		return errUnknownWorker // deleted after readShift found them
+	}
 	if err != nil {
 		return fmt.Errorf("create shift: %w", err)
 	}
@@ -174,6 +177,9 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 	}
 	if _, ok := db.IsExclusionViolation(err); ok {
 		return errOverlap
+	}
+	if _, ok := db.IsForeignKeyViolation(err); ok {
+		return errUnknownWorker // deleted after readShift found them
 	}
 	if err != nil {
 		return fmt.Errorf("update shift %d: %w", id, err)

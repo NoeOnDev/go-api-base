@@ -142,3 +142,48 @@ func failSessionDeletes(t *testing.T, exec func(sql string) error) {
 		}
 	}
 }
+
+// What the tests of the invitations and of the user management share: both use /admin/users.
+
+type adminUserList struct {
+	Data []auth.AdminUser `json:"data"`
+	Meta struct {
+		Total int64 `json:"total"`
+	} `json:"meta"`
+}
+
+func passwordBody(password string) string { return fmt.Sprintf(`{"password":%q}`, password) }
+
+func userPath(id int64, action string) string { return fmt.Sprintf("/admin/users/%d%s", id, action) }
+
+// protected returns routes that depend only on auth, to test its middlewares without the example
+// resources of the template, which a project can delete: GET /user asks for a session
+// (RequireUser), GET /admin for an administrator (RequireAdmin), and GET /optional answers who
+// asks, "admin", "user" or "anonymous" (OptionalUser). change adjusts the configuration, like
+// testutil.WithConfig. The cookies of testutil.Login and of the API work on them.
+func protected(pool *pgxpool.Pool, change ...func(*config.Config)) http.Handler {
+	var cfg config.Config
+	for _, c := range change {
+		c(&cfg)
+	}
+	authn := auth.NewService(pool, auth.Options{
+		RequireVerifiedEmail:  cfg.RequireEmailVerification,
+		RequireAdminTwoFactor: cfg.RequireAdminTwoFactor,
+	})
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /user", authn.RequireUser(ok))
+	mux.Handle("GET /admin", authn.RequireAdmin(ok))
+	mux.Handle("GET /optional", authn.OptionalUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		who := "anonymous"
+		if u, ok := auth.UserFrom(r.Context()); ok {
+			who = "user"
+			if u.IsAdmin() {
+				who = "admin"
+			}
+		}
+		fmt.Fprint(w, who)
+	})))
+	return mux
+}

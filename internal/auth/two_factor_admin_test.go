@@ -17,23 +17,22 @@ func requireAdminTwoFactor(c *config.Config) { c.RequireAdminTwoFactor = true }
 func TestRequireAdminTwoFactor(t *testing.T) {
 	pool := testutil.NewDB(t)
 	api := testutil.NewAPI(pool, testutil.WithConfig(requireAdminTwoFactor))
+	routes := protected(pool, requireAdminTwoFactor)
 	_, admin := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
 
-	// An inactive product, created through an API without the option: only admins see it.
-	plain := testutil.NewAPI(pool)
-	category := testutil.Decode[struct{ ID int64 }](t,
-		testutil.Do(t, plain, admin, http.MethodPost, "/categories", `{"name":"Drinks","slug":"drinks"}`), http.StatusCreated)
-	body := fmt.Sprintf(`{"category_id":%d,"name":"Old tea","slug":"old-tea","price_cents":100,"stock":0,"active":false}`, category.ID)
-	product := testutil.Decode[struct{ ID int64 }](t,
-		testutil.Do(t, plain, admin, http.MethodPost, "/products", body), http.StatusCreated)
-	productPath := fmt.Sprintf("/products/%d", product.ID)
-
-	w := testutil.Do(t, api, admin, http.MethodPost, "/categories", `{"name":"Food","slug":"food"}`)
-	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusForbidden); resp.Error.Code != "admin_two_factor_required" {
-		t.Errorf("code = %q, want admin_two_factor_required", resp.Error.Code)
+	// GET /admin/users goes through the whole API: it also checks that the option reaches auth.
+	for _, tt := range []struct {
+		handler http.Handler
+		path    string
+	}{{api, "/admin/users"}, {routes, "/admin"}} {
+		w := testutil.Do(t, tt.handler, admin, http.MethodGet, tt.path, "")
+		if resp := testutil.Decode[testutil.APIError](t, w, http.StatusForbidden); resp.Error.Code != "admin_two_factor_required" {
+			t.Errorf("%s: code = %q, want admin_two_factor_required", tt.path, resp.Error.Code)
+		}
 	}
-	if w := testutil.Do(t, api, admin, http.MethodGet, productPath, ""); w.Code != http.StatusNotFound {
-		t.Errorf("inactive product without two-factor authentication: status = %d, want 404", w.Code)
+	// A route with OptionalUser treats them as any user: it does not show what only admins see.
+	if who := testutil.Do(t, routes, admin, http.MethodGet, "/optional", "").Body.String(); who != "user" {
+		t.Errorf("without two-factor authentication, OptionalUser sees %q, want user", who)
 	}
 
 	// The account routes only ask for a session: the admin can turn it on.
@@ -42,10 +41,14 @@ func TestRequireAdminTwoFactor(t *testing.T) {
 	}
 	testutil.EnableTwoFactor(t, api, admin, testutil.Password)
 
-	testutil.Decode[struct{ ID int64 }](t,
-		testutil.Do(t, api, admin, http.MethodPost, "/categories", `{"name":"Food","slug":"food"}`), http.StatusCreated)
-	if w := testutil.Do(t, api, admin, http.MethodGet, productPath, ""); w.Code != http.StatusOK {
-		t.Errorf("inactive product with two-factor authentication: status = %d, want 200", w.Code)
+	if w := testutil.Do(t, api, admin, http.MethodGet, "/admin/users", ""); w.Code != http.StatusOK {
+		t.Errorf("/admin/users with two-factor authentication: status = %d", w.Code)
+	}
+	if w := testutil.Do(t, routes, admin, http.MethodGet, "/admin", ""); w.Code != http.StatusNoContent {
+		t.Errorf("/admin with two-factor authentication: status = %d", w.Code)
+	}
+	if who := testutil.Do(t, routes, admin, http.MethodGet, "/optional", "").Body.String(); who != "admin" {
+		t.Errorf("with two-factor authentication, OptionalUser sees %q, want admin", who)
 	}
 }
 

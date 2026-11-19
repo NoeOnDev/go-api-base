@@ -71,6 +71,7 @@ type Appointment struct {
 	StartsAt      time.Time
 	EndsAt        time.Time
 	Status        string
+	RemindedAt    *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

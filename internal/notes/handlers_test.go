@@ -57,7 +57,11 @@ func TestNotesCRUD(t *testing.T) {
 	if created.ID == 0 || created.Title != "My note" || created.Body != "hello" {
 		t.Fatalf("unexpected created note: %+v", created)
 	}
-	// The dates go in UTC, whatever the zone of the server (see "Time zones" in docs/decisions.md).
+	// Each user's data is not cached (httpx.NoStore in routes.go).
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+	// The dates go in UTC, whatever the zone of the server (see "Dates in UTC" in docs/decisions.md).
 	if !strings.HasSuffix(created.CreatedAt, "Z") || !strings.HasSuffix(created.UpdatedAt, "Z") {
 		t.Errorf("dates = %q and %q, want them in UTC (with Z)", created.CreatedAt, created.UpdatedAt)
 	}

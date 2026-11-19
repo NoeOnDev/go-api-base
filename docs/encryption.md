@@ -8,8 +8,9 @@
 |---|---|---|
 | 2FA secret | Encrypted with AES-256-GCM | The API needs to read it to check the codes |
 | 2FA recovery codes | HMAC-SHA256 | They are only compared; without the key, they cannot be brute-forced |
+| Emails waiting in the queue | Encrypted with AES-256-GCM | A reset or invitation email carries a link with a token, and the worker needs to read it to send it (see [jobs](jobs.md#sensitive-data-in-the-arguments)) |
 
-Both are **bound to their user**: the secret is encrypted with the user's id as associated data (`users.totp_secret:<id>`), and the HMAC is computed over the code and the id. If someone with write access to the database copies their own secret or codes to another user's row, they are useless to log in as that user.
+The first two are **bound to their user**: the secret is encrypted with the user's id as associated data (`users.totp_secret:<id>`), and the HMAC is computed over the code and the id. If someone with write access to the database copies their own secret or codes to another user's row, they are useless to log in as that user.
 
 Everything else **does not depend on this key**, on purpose:
 
@@ -19,17 +20,17 @@ Everything else **does not depend on this key**, on purpose:
 | Reset and verification tokens | Random, 256 bits; in the database, their SHA-256 | With 2²⁵⁶ options, a fast hash is enough |
 | Passwords | argon2id, with a random salt | The protection is that the algorithm is slow, not a key |
 
-That is why **changing the key logs nobody out** and only affects users with 2FA.
+That is why **changing the key logs nobody out**: it only affects users with 2FA and the emails that were still in the queue (see the rotation below).
 
 ## Compared with Laravel's `APP_KEY`
 
-Laravel uses a single key for everything: encrypting the cookies (including the session one), `Crypt::encrypt()`, signed URLs and Fortify's 2FA. Here the key protects only 2FA, so the damage of a leak is smaller:
+Laravel uses a single key for everything: encrypting the cookies (including the session one), `Crypt::encrypt()`, signed URLs and Fortify's 2FA. Here the key protects only 2FA and the emails in the queue, so the damage of a leak is smaller:
 
 | The attacker gets… | Laravel (sessions in the database) | This template |
 |---|---|---|
 | Only a database backup | Logs in as any user with an open session (the IDs are in plain text) | Nothing directly; they can only try to crack passwords, and argon2id makes it very costly |
 | Only the key | Decrypts cookies and signs URLs (for example, verifies any email) | Nothing: the key alone gives access to no data |
-| The database and the key | Reads the 2FA secrets and every recovery code | Reads the 2FA secrets; the recovery codes need brute force. They still lack each user's password |
+| The database and the key | Reads the 2FA secrets and every recovery code | Reads the 2FA secrets, and the emails still stored in the queue: a reset or invitation link that has not expired or been used lets them into that account. The recovery codes need brute force, and they still lack each user's password |
 
 ## Generating and storing the key
 
@@ -61,6 +62,8 @@ Each encrypted value carries the identifier of its key (`52bf1807:…`), so the 
    ```
 
    From then on, new values are encrypted with the new key, and old ones are still read with the previous one. Each time a user uses their 2FA, their secret is encrypted again with the new key.
+
+   With several instances restarted one at a time, one already restarted queues emails with the new key, and one not restarted yet cannot read them. It does not lose them: the email is retried, like an SMTP failure (5 attempts in about 6 minutes), until an instance with the key takes it. Finish the restart within that time.
 3. **Run `make rotate-keys`** (or `./api rotate-keys` on the server). It encrypts again every 2FA secret that is left and reports:
    - the secrets that could not be decrypted;
    - how many users have **recovery codes** of the previous key;
@@ -69,7 +72,7 @@ Each encrypted value carries the identifier of its key (`52bf1807:…`), so the 
 
    If something still depends on the previous key, the command ends with an error.
 4. **Recovery codes:** they cannot be recomputed without the original code (that is why they are safe). The users the report lists have to **regenerate them from their profile** (`POST /auth/two-factor/recovery-codes`). Meanwhile, their old codes keep working.
-5. **When the report says "Done"**, remove the key from `ENCRYPTION_PREVIOUS_KEYS` and restart. "Done" includes that no queued emails encrypted with it are left: an email encrypted with the key you remove can no longer be sent (it is cancelled). They usually go out in seconds; if SMTP was down, one may be retrying. In that case, wait and run `make rotate-keys` again.
+5. **When the report says "Done"**, remove the key from `ENCRYPTION_PREVIOUS_KEYS` and restart. "Done" includes that no queued emails encrypted with it are left: an email encrypted with the key you remove can no longer be sent (it is retried and, after its last attempt, discarded, with an error in the log). They usually go out in seconds; if SMTP was down, one may be retrying. In that case, wait and run `make rotate-keys` again.
 
 If you cannot wait for everyone to regenerate their codes (for example, because the key leaked), you can remove it anyway. Those users lose their old recovery codes, but **their authenticator app keeps working**, because their secret is already under the new key. They can generate new codes from their profile.
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
@@ -34,12 +36,20 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	userID, err := consumeToken(r.Context(), s.q, in.Token, purposeEmailVerification)
+	// All or nothing: if marking the email fails, the link still works.
+	err := pgx.BeginFunc(r.Context(), s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		userID, err := consumeToken(r.Context(), q, in.Token, purposeEmailVerification)
+		if err != nil {
+			return err
+		}
+		if err := q.MarkEmailVerified(r.Context(), userID); err != nil {
+			return fmt.Errorf("mark the email verified: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-	if err := s.q.MarkEmailVerified(r.Context(), userID); err != nil {
-		return fmt.Errorf("mark the email verified: %w", err)
 	}
 
 	httpx.Write(w, http.StatusNoContent, nil)

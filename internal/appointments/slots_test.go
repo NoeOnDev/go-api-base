@@ -1,6 +1,7 @@
 package appointments
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func weekly(day time.Weekday, opens, closes string) branches.WeeklyHours {
 
 func openings(weekly []branches.WeeklyHours, date civil.Date, loc *time.Location) []branches.Opening {
 	var o []branches.Opening
-	for _, d := range branches.Days(weekly, nil, date.AddDays(-1), date, loc) {
+	for _, d := range branches.Days(weekly, nil, date.AddDays(-1), date.AddDays(1), loc) {
 		o = append(o, d.Openings...)
 	}
 	return o
@@ -97,5 +98,54 @@ func TestSlotsAcrossMidnightAndDaylightSavingTime(t *testing.T) {
 			t.Errorf("slots on the jump = %v, want %v", got, want)
 			break
 		}
+	}
+}
+
+func TestSlotsInTheRepeatedHour(t *testing.T) {
+	// In New York the clocks go back from 02:00 to 01:00 on November 1, 2026: 01:00 to 01:59 happens
+	// twice. A bar open from Saturday 22:00 to 03:00 has slots only the first time: the second could
+	// not be booked, because a slot is booked by its hour of the clock.
+	ny := load(t, "America/New_York")
+	sunday := civil.NewDate(2026, time.November, 1)
+	bar := []branches.WeeklyHours{weekly(time.Saturday, "22:00", "03:00")}
+	before := time.Date(2026, time.October, 1, 0, 0, 0, 0, time.UTC)
+
+	got := slots(openings(bar, sunday, ny), sunday, 30*time.Minute, before, nil, ny)
+	want := []string{"00:00", "00:15", "00:30", "00:45", "01:00", "01:15", "01:30", "01:45", "02:00", "02:15", "02:30"}
+	if fmt.Sprint(locals(got)) != fmt.Sprint(want) {
+		t.Fatalf("slots = %v, want %v", locals(got), want)
+	}
+	// 01:00 is the first of the two: at 05:00 UTC, still in summer time.
+	if at := got[4].StartsAt.Format(time.RFC3339); at != "2026-11-01T05:00:00Z" {
+		t.Errorf("01:00 = %s, want the first time, 05:00 UTC", at)
+	}
+	// And each slot is the one its hour of the clock means.
+	for _, s := range got {
+		if !s.LocalStartsAt.In(ny).Equal(s.StartsAt) {
+			t.Errorf("the slot %s is at %s, but booking it would be at %s", s.LocalStartsAt, s.StartsAt, s.LocalStartsAt.In(ny))
+		}
+	}
+}
+
+func TestSlotsJoinOpenings(t *testing.T) {
+	bogota := load(t, "America/Bogota")
+	past := time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC)
+	monday := civil.NewDate(2026, time.November, 2)
+
+	// Two ranges that touch at midnight are one opening: an appointment of an hour fits at 23:30.
+	touching := []branches.WeeklyHours{weekly(time.Monday, "18:00", "00:00"), weekly(time.Tuesday, "00:00", "02:00")}
+	got := locals(slots(openings(touching, monday, bogota), monday, time.Hour, past, nil, bogota))
+	if len(got) != 24 || got[0] != "18:00" || got[23] != "23:45" {
+		t.Errorf("Monday with ranges that touch = %v, want 18:00 to 23:45", got)
+	}
+
+	// Two ranges that overlap (the Monday night and an exception of the Tuesday) do not repeat slots.
+	tuesday := monday.AddDays(1)
+	night := branches.Days([]branches.WeeklyHours{weekly(time.Monday, "20:00", "02:00")}, nil, monday, monday, bogota)[0].Openings
+	early := branches.Days([]branches.WeeklyHours{weekly(time.Tuesday, "01:00", "03:00")}, nil, tuesday, tuesday, bogota)[0].Openings
+	got = locals(slots(append(night, early...), tuesday, 30*time.Minute, past, nil, bogota))
+	want := []string{"00:00", "00:15", "00:30", "00:45", "01:00", "01:15", "01:30", "01:45", "02:00", "02:15", "02:30"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("Tuesday with ranges that overlap = %v, want %v", got, want)
 	}
 }

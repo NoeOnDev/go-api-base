@@ -84,13 +84,19 @@ func writeError(err error, action string) error {
 	return fmt.Errorf("%s: %w", action, err)
 }
 
-// list answers GET /products?limit=20&offset=0&category_id=3&q=café&active=true.
+// list answers GET /products?limit=20&offset=0&category_id=3&q=café&active=true&sort=-price.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	page, err := httpx.ParsePage(r)
 	if err != nil {
 		return err
 	}
 	f, err := parseFilters(r)
+	if err != nil {
+		return err
+	}
+	// The newest first, unless ?sort= asks for another order. Each column here has its CASE in the
+	// ListProducts query.
+	sort, err := httpx.ParseSort(r, "-created_at", "name", "price", "created_at")
 	if err != nil {
 		return err
 	}
@@ -106,6 +112,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 		CategoryID: f.CategoryID,
 		Search:     f.Search,
 		Active:     f.Active,
+		Sort:       sort,
 		Limit:      page.Limit,
 		Offset:     page.Offset,
 	})

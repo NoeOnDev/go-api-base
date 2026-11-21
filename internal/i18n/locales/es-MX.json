@@ -112,6 +112,7 @@
   "validation.same_as_start": "No puede ser igual al inicio.",
   "validation.same_email": "Ya es tu email actual.",
   "validation.slot_unavailable": "Ese horario no está disponible; elige uno de los espacios libres.",
+  "validation.sort": "Debe ser uno de: {allowed} (con - delante para orden descendente).",
   "validation.time": "Debe ser una hora como 09:30 (reloj de 24 horas).",
   "validation.time_zone": "Debe ser una zona horaria como America/Mexico_City.",
   "validation.too_far_ahead": "Puede ser como máximo dentro de {days} días.",

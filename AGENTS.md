@@ -91,6 +91,7 @@ sections that exist (`docs/links_test.go`).
 | `make sqlc` | Regenerate `internal/store` after changing migrations or queries |
 | `make migrate-new name=create_x` | Create a new migration |
 | `make migrate-up` / `migrate-down` / `migrate-status` | Manage migrations in development |
+| `make seed` | Fill the development database: an admin, a user and example data (password from `SEED_PASSWORD` or the terminal). Safe to run again; it refuses in production |
 | `make create-admin email=… name=…` | Create an administrator (password from `ADMIN_PASSWORD` or the terminal) |
 | `make key` / `make rotate-keys` | Generate an `ENCRYPTION_KEY` / finish a rotation (see `docs/encryption.md`) |
 | `make river-migration version=N` | SQL of a new River migration, when updating it (see `docs/jobs.md`) |
@@ -103,7 +104,7 @@ their own `go.mod`**: `gonew` does not copy them.
 ## Structure
 
 ```
-cmd/api/              startup (main.go) and the create-admin (admin.go), generate-key and rotate-keys (keys.go) subcommands
+cmd/api/              startup (main.go) and the create-admin (admin.go), seed (seed.go), generate-key and rotate-keys (keys.go) subcommands
 internal/config/      configuration from environment variables
 internal/httpx/       JSON, errors, pagination, middlewares, CORS, per-IP request limits, client IP
 internal/server/      http.Server with timeouts, routes, CSRF and middleware order (routes.go)
@@ -161,6 +162,9 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   or by cursor" in `docs/adding-a-resource.md`). Route IDs with `httpx.PathID(r, "id")` and dates with
   `httpx.PathDate(r, "date")`. A range of days (`?from=2026-11-01&to=2026-11-07`) with `httpx.ParseDateRange`, which
   caps how many days it covers.
+- A list the client can sort: `httpx.ParseSort(r, "-created_at", "name", "price", "created_at")` and one `CASE` per
+  order in the query (see `ListProducts` and "Sorting a list" in `docs/adding-a-resource.md`). Never build an
+  `ORDER BY` from a text of the request.
 - Each resource defines its own response struct; do not return the `internal/store` structs directly.
 - The user's time zone, for their days (a filter "from 2026-10-01 to 2026-10-31", a report "for today"), is
   `auth.MustUser(ctx).Location()`: their own or `APP_TIME_ZONE`. A date written for a person (an email) uses
@@ -271,6 +275,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 - Optional filters in sqlc: `sqlc.narg('x')::type IS NULL OR column = sqlc.narg('x')`. Escape `%` and `_` in `ILIKE`
   searches. `ILIKE '%…%'` does not use indexes: if the table grows, `pg_trgm` (see `docs/adding-a-resource.md`).
 - Money in cents (`bigint`), never `float`.
+- Example data for development goes in a seeder of `cmd/api/seed.go` (`make seed`), not in a migration: a seeder
+  does nothing if its data is already there, and never runs in production.
 - A moment in time (`created_at`, `expires_at`) is a `timestamptz`, never `timestamp`. The pool reads it in UTC and the JSON
   carries it with `Z`; the frontend shows it in the user's zone (see "Dates in UTC" in `docs/decisions.md`).
 - A calendar date is a `date` and a wall-clock time a `time` or a `timestamp`, with the zone in another column. sqlc
@@ -310,7 +316,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 ## Adding a resource
 
 Follow `docs/adding-a-resource.md`: migration → queries → `make sqlc` → resource package
-(handlers, validation, routes, tests) → register in `internal/server/routes.go` → `make check`.
+(handlers, validation, routes, tests) → register in `internal/server/routes.go` → a seeder in `cmd/api/seed.go` if the
+frontend needs data to start → `make check`.
 Use `internal/notes` as the model if the data belongs to each user, or `internal/categories`/`products` if it is shared.
 
 ## Notes for the gopls MCP

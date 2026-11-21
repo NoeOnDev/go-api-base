@@ -365,3 +365,29 @@ func TestRejectInvalidText(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSort(t *testing.T) {
+	parse := func(query string) (string, error) {
+		return ParseSort(httptest.NewRequest(http.MethodGet, "/products?"+query, nil), "-created_at", "name", "price", "created_at")
+	}
+	for query, want := range map[string]string{
+		"":                 "-created_at", // the default
+		"sort=":            "-created_at",
+		"sort=name":        "name",
+		"sort=-price":      "-price",
+		"sort=-created_at": "-created_at",
+	} {
+		if got, err := parse(query); err != nil || got != want {
+			t.Errorf("ParseSort(%q) = %q, %v; want %q", query, got, err, want)
+		}
+	}
+
+	// Only the columns of the list, written exactly: a text of the client never reaches the query.
+	for _, query := range []string{"sort=stock", "sort=--name", "sort=name,price", "sort=NAME", "sort=-", "sort=name%3BDROP+TABLE+products", "sort=+name"} {
+		_, err := parse(query)
+		var apiErr *Error
+		if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnprocessableEntity || apiErr.Fields["sort"].IsZero() {
+			t.Errorf("ParseSort(%q) = %v, want a validation error on sort", query, err)
+		}
+	}
+}

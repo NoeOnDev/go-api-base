@@ -39,12 +39,14 @@ func main() {
 		err = run()
 	case os.Args[1] == "create-admin":
 		err = runCreateAdmin(os.Args[2:])
+	case os.Args[1] == "seed":
+		err = runSeed()
 	case os.Args[1] == "generate-key":
 		err = runGenerateKey()
 	case os.Args[1] == "rotate-keys":
 		err = runRotateKeys()
 	default:
-		err = fmt.Errorf("unknown command %q (available: create-admin, generate-key, rotate-keys)", os.Args[1])
+		err = fmt.Errorf("unknown command %q (available: create-admin, seed, generate-key, rotate-keys)", os.Args[1])
 	}
 
 	if err != nil {

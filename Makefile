@@ -56,6 +56,10 @@ create-admin: ## Creates an administrator: make create-admin email=admin@example
 	@test -n "$(email)" || { echo "Missing the email: make create-admin email=admin@example.com"; exit 1; }
 	go run ./cmd/api create-admin -email "$(email)" -name "$(or $(name),Administrator)"
 
+.PHONY: seed
+seed: ## Fills the development database with accounts and example data (password: SEED_PASSWORD or the terminal)
+	@go run ./cmd/api seed
+
 .PHONY: sqlc
 sqlc: ## Regenerates internal/store from the migrations and queries
 	@# All of internal/store is generated. It is deleted first, because sqlc does not delete the code of a query that no longer exists.

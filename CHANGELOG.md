@@ -7,6 +7,19 @@ copy, and its `TEMPLATE_VERSION` file says which version it came from. When a te
 Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
 migrations, because they represent the initial schema.
 
+## [Unreleased]
+
+Two things every project ends up writing: example data for development, and lists the client can sort.
+
+### Added
+
+- **`make seed`** (`cmd/api/seed.go`): fills the development database with an administrator (`admin@example.com`) and a user (`user@example.com`), with the password of `SEED_PASSWORD` or the one asked for in the terminal, plus example data: a catalog, some notes and a branch with its hours. It is the equivalent of Laravel's seeders. Running it again adds nothing, and it refuses to run with `APP_ENV=production`. Each resource adds its own seeder (see "Seed data" in `docs/adding-a-resource.md`).
+- **Sorting a list with `?sort=`** (`httpx.ParseSort`): the name of a column, with `-` in front for descending. It only lets through the columns the handler names, and the query has one `CASE` per order, so a text of the request never reaches the SQL. `GET /products` takes `?sort=` with `name`, `price` or `created_at` (see "Sorting a list" in `docs/adding-a-resource.md`).
+
+### Changed
+
+- **"Quick start" in the README uses `make seed`** instead of `make create-admin`, which stays for production and for an administrator with your own email.
+
 ## [v0.11.0] - 2026-11-21
 
 File uploads: on the local disk or in S3, with the permission check on every download, limits per user and a cleanup of the files nobody uses. The notes example shows how a resource uses them. The schema changes: the new `files` and `note_attachments` tables.

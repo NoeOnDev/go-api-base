@@ -2,7 +2,9 @@ package httpx
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/NoeOnDev/go-api-base/internal/i18n"
 )
@@ -60,6 +62,22 @@ func ParsePage(r *http.Request) (Page, error) {
 		return Page{}, Validation(fields)
 	}
 	return page, nil
+}
+
+// ParseSort reads the order of a list from ?sort=: the name of a column, with "-" in front for
+// descending (?sort=price, ?sort=-price). def is the order without the parameter, and allowed the
+// columns a client can sort by. It returns one of them, with its "-" if it came: the query compares
+// it with each case it knows (see ListProducts in internal/db/queries/products.sql), so a text of
+// the client never reaches the SQL. Anything else is a validation error on sort.
+func ParseSort(r *http.Request, def string, allowed ...string) (string, error) {
+	v := r.URL.Query().Get("sort")
+	if v == "" {
+		return def, nil
+	}
+	if slices.Contains(allowed, strings.TrimPrefix(v, "-")) {
+		return v, nil
+	}
+	return "", Validation(Fields{"sort": i18n.M("validation.sort", "allowed", strings.Join(allowed, ", "))})
 }
 
 // parseLimit reads ?limit= (from 1 to MaxLimit). Without it, 0 and no message.

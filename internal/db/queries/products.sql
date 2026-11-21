@@ -1,5 +1,9 @@
 -- The ILIKE '%…%' search does not use indexes; if the table grows, see pg_trgm in
 -- docs/adding-a-resource.md.
+--
+-- The order comes from ?sort= (httpx.ParseSort): the SQL of a query is fixed, so each order the list
+-- accepts is a CASE that only applies when sort names it, and the others are NULL for every row and
+-- do not sort. The id at the end breaks the ties, so the pages do not repeat rows.
 -- name: ListProducts :many
 SELECT p.id, p.category_id, c.name AS category_name, p.name, p.slug, p.description,
        p.price_cents, p.stock, p.active, p.created_at, p.updated_at
@@ -8,7 +12,14 @@ JOIN categories c ON c.id = p.category_id
 WHERE (sqlc.narg('category_id')::bigint IS NULL OR p.category_id = sqlc.narg('category_id'))
   AND (sqlc.narg('search')::text IS NULL OR p.name ILIKE '%' || sqlc.narg('search') || '%')
   AND (sqlc.narg('active')::boolean IS NULL OR p.active = sqlc.narg('active'))
-ORDER BY p.id DESC
+ORDER BY
+  CASE WHEN sqlc.arg('sort')::text = 'name' THEN p.name END,
+  CASE WHEN sqlc.arg('sort')::text = '-name' THEN p.name END DESC,
+  CASE WHEN sqlc.arg('sort')::text = 'price' THEN p.price_cents END,
+  CASE WHEN sqlc.arg('sort')::text = '-price' THEN p.price_cents END DESC,
+  CASE WHEN sqlc.arg('sort')::text = 'created_at' THEN p.created_at END,
+  CASE WHEN sqlc.arg('sort')::text = '-created_at' THEN p.created_at END DESC,
+  p.id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: CountProducts :one

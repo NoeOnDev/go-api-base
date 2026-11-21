@@ -74,11 +74,13 @@ It includes:
 
    Without Mailpit, with `MAIL_DRIVER=log`, the emails (and their links) show up in the API's log.
 
-4. **Create the administrator.** The command applies the migrations and asks for the password:
+4. **Fill the database.** The command applies the migrations, asks for a password and creates an administrator (`admin@example.com`) and a user (`user@example.com`) with it, plus example data: a catalog, some notes and a branch. It is for development, and running it again adds nothing:
 
    ```bash
-   make create-admin email=admin@example.com name="Admin"
+   make seed
    ```
+
+   For only an administrator, with your own email (what production uses): `make create-admin email=admin@example.com name="Admin"`.
 
 5. **Start the API:**
 
@@ -94,6 +96,7 @@ It includes:
    curl -b cookies.txt -X POST localhost:8080/notes -d '{"title":"My first note"}'
    curl -b cookies.txt localhost:8080/notes
    curl 'localhost:8080/products?q=café'
+   curl 'localhost:8080/products?sort=-price'
    ```
 
 ## Endpoints
@@ -123,7 +126,7 @@ It includes:
 | `GET`, `POST`, `DELETE` | `/notes/{id}/attachments`, `/notes/{id}/attachments/{file_id}` | With a session: the files attached to a note |
 | `GET` | `/categories`, `/categories/{id}` | Public |
 | `POST`, `PUT`, `DELETE` | `/categories…` | Admin only |
-| `GET` | `/products?category_id=&q=&active=`, `/products/{id}` | Public: visitors only see active products; the admin sees all |
+| `GET` | `/products?category_id=&q=&active=&sort=`, `/products/{id}` | Public: visitors only see active products; the admin sees all |
 | `POST`, `PUT`, `DELETE` | `/products…` | Admin only |
 | `GET` | `/branches`, `/branches/{id}`, `/schedule?from=&to=`, `/status`, `/exceptions` | Public: branches with their weekly hours, the real hours of some days, whether it is open now, and the holidays |
 | `POST`, `PUT`, `DELETE` | `/branches…`, `/branches/{id}/hours`, `/branches/{id}/exceptions/{date}` | Admin only |
@@ -136,7 +139,7 @@ It includes:
 | `GET` | `/classes`, `/classes/{id}`, `/classes/{id}/sessions?from=&to=`, `/classes/sessions?from=&to=` | Public: the classes and their sessions, or those of every class |
 | `POST`, `PUT`, `DELETE` | `/classes…`, `/classes/{id}/sessions/{date}` | Admin only: the classes, and canceling or moving one session |
 
-Lists accept `?limit=` (from 1 to 100, 20 by default) and `?offset=` (up to 10000), and respond `{"data": [...], "meta": {"limit", "offset", "total"}}`. A huge offset makes the query slow, because PostgreSQL reads and discards the previous rows.
+Lists accept `?limit=` (from 1 to 100, 20 by default) and `?offset=` (up to 10000), and respond `{"data": [...], "meta": {"limit", "offset", "total"}}`. A huge offset makes the query slow, because PostgreSQL reads and discards the previous rows. A list that can be sorted takes `?sort=` with one of its columns, and `-` in front for descending (`/products?sort=-price`); another value answers `422`.
 
 `/notifications` is paginated **by cursor**, like a "load more": it responds `{"data": [...], "meta": {"limit", "next"}}`, and the next page is `?after=` with the value of `next` (`null` on the last one). There is no total, and every page is just as fast. See when to use each one in [docs/adding-a-resource.md](docs/adding-a-resource.md#lists-by-page-or-by-cursor).
 
@@ -198,7 +201,7 @@ Everything is configured with environment variables. [`.env.example`](.env.examp
 
 Values with spaces go in quotes: `APP_NAME="My App"`. `make` reads `.env` and cuts a value at the first `#`, and it interprets `$`: avoid both characters in the values (for example, in a password).
 
-`ADMIN_PASSWORD` is not part of `.env`: `make create-admin` reads it from the environment if it is set (to create the administrator from a script), and asks for the password in the terminal if it is not.
+`ADMIN_PASSWORD` is not part of `.env`: `make create-admin` reads it from the environment if it is set (to create the administrator from a script), and asks for the password in the terminal if it is not. `make seed` does the same with `SEED_PASSWORD`, which can go in the `.env` of a development machine so the seed runs without asking.
 
 ### Before production
 
@@ -233,6 +236,7 @@ Run `make` to see the full list. The main ones:
 | `make test-race` | The tests with the race detector (CI runs it on every push) |
 | `make sqlc` | Regenerates the database code after changing migrations or queries |
 | `make migrate-new name=create_x` | Creates a migration |
+| `make seed` | Fills the development database with two accounts and example data |
 | `make create-admin email=…` | Creates an administrator |
 | `make key` | Generates a key for `ENCRYPTION_KEY` |
 | `make rotate-keys` | Finishes a rotation of `ENCRYPTION_KEY` (see [docs/encryption.md](docs/encryption.md)) |
@@ -242,7 +246,7 @@ Run `make` to see the full list. The main ones:
 ## Structure
 
 ```
-cmd/api/             application startup and the create-admin, generate-key and rotate-keys commands
+cmd/api/             application startup and the create-admin, seed, generate-key and rotate-keys commands
 internal/config/     environment variables
 internal/httpx/      JSON, errors, pagination, middlewares, CORS and per-IP request limits
 internal/server/     server, routes and CSRF protection
@@ -298,7 +302,7 @@ git init
 Then:
 - **Keep `TEMPLATE_VERSION`:** it says which version of the template the project came from (see the [CHANGELOG](CHANGELOG.md)).
 - Keep the authentication.
-- Keep the examples that look like your project and delete the rest. For `notes`, `categories` and `products`: their package, their query (`internal/db/queries`), their migration and their registration in `internal/server/routes.go` (with `notes`, also `00017_create_note_attachments.sql`, the table of its attached files); then `make sqlc` and `make check`, which names the catalog keys left unused (delete them from every `internal/i18n/locales/*.json`, and the error codes from the table of [docs/i18n.md](docs/i18n.md#error-codes)). `products` references `categories`: delete it first, or both. The schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples).
+- Keep the examples that look like your project and delete the rest. For `notes`, `categories` and `products`: their package, their query (`internal/db/queries`), their migration, their registration in `internal/server/routes.go` and their seeder in `cmd/api/seed.go` (with `notes`, also `00017_create_note_attachments.sql`, the table of its attached files; `seedCatalog` is the seeder of `categories` and `products`, and `TestSeed` in `seed_test.go` has a line per table in `want`); then `make sqlc` and `make check`, which names the catalog keys left unused (delete them from every `internal/i18n/locales/*.json`, and the error codes from the table of [docs/i18n.md](docs/i18n.md#error-codes)). `products` references `categories`: delete it first, or both. The schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples).
 - If you don't need some auth feature (open registration, 2FA, email change…), [docs/auth.md](docs/auth.md#removing-features) says what to delete.
 - If you don't need the job queue or real time, [docs/jobs.md](docs/jobs.md#removing-the-queue) and [docs/realtime.md](docs/realtime.md#removing-real-time) explain how to remove them.
 - If you don't need file uploads, or only S3, [docs/files.md](docs/files.md#removing-file-uploads) says what to delete.

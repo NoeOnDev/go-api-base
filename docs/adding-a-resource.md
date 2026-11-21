@@ -123,6 +123,34 @@ httpx.Write(w, http.StatusOK, httpx.NewCursorList(data, page.Limit, func(o order
 
 The cursor is opaque for the frontend (JSON in base64url): to sort by another column, add it to the struct and to the query (`WHERE (created_at, id) < ($1, $2)`), and the frontend does not change. Sort always by something unique (the `id`, or the column plus the `id`), so no row is repeated or skipped between pages.
 
+### Sorting a list
+
+A list the client can sort takes `?sort=` with the name of a column, and `-` in front for descending: `?sort=price`, `?sort=-price`. The handler reads it with `httpx.ParseSort`, which only lets through the columns it is given (another value answers `422` on `sort`):
+
+```go
+// The newest first, unless ?sort= asks for another order.
+sort, err := httpx.ParseSort(r, "-created_at", "name", "price", "created_at")
+```
+
+The SQL of a sqlc query is fixed, so the query has one `CASE` per order it accepts. Each one applies only when `sort` names it; the others are `NULL` for every row and do not sort:
+
+```sql
+ORDER BY
+  CASE WHEN sqlc.arg('sort')::text = 'name' THEN name END,
+  CASE WHEN sqlc.arg('sort')::text = '-name' THEN name END DESC,
+  CASE WHEN sqlc.arg('sort')::text = 'price' THEN price_cents END,
+  CASE WHEN sqlc.arg('sort')::text = '-price' THEN price_cents END DESC,
+  id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+```
+
+- **Always end with the `id`:** it breaks the ties, so two rows with the same price do not swap places between one page and the next.
+- **Only the columns a user has a reason to sort by.** Each one is two lines of the query, and a column without an index sorts the whole result on each request: fine for a catalog of thousands of rows, not for a table of millions.
+- **Never build the `ORDER BY` from the text of the request:** that is how an SQL injection gets in. Here the text only chooses among the cases written in the query.
+- It is for lists by page. A list by cursor has a single order, the one its cursor encodes.
+
+`internal/products` does it (`ListProducts`).
+
 ## 3. Generate the code
 
 ```bash
@@ -199,7 +227,23 @@ In `internal/server/routes.go`:
 orders.Register(mux, orders.NewHandler(queries), authService)
 ```
 
-## 6. Check
+## 6. Seed data (optional)
+
+If the frontend needs data to start working (a catalog, the options of a selector), add a seeder to `cmd/api/seed.go` and its line to `seeders`:
+
+```go
+func seedOrders(ctx context.Context, s seedDeps) (string, error) {
+	if n, err := s.q.CountAllOrders(ctx); err != nil || n > 0 {
+		return "already there", err // running the seed again adds nothing
+	}
+	// … create them with s.q, for the user of the seed (seedUserEmail) if they have an owner
+	return "5 orders", nil
+}
+```
+
+`make seed` runs every seeder in order, after the users. It is the equivalent of Laravel's seeders: development data, which a migration must not carry. `TestSeed` (`cmd/api/seed_test.go`) counts what the seed creates: add the new table to its `want`.
+
+## 7. Check
 
 ```bash
 make check

@@ -112,6 +112,7 @@
   "validation.same_as_start": "Cannot be the same as the start.",
   "validation.same_email": "This is already your email.",
   "validation.slot_unavailable": "That time is not available; choose one of the free slots.",
+  "validation.sort": "Must be one of: {allowed} (with - in front for descending).",
   "validation.time": "Must be a time like 09:30 (24-hour clock).",
   "validation.time_zone": "Must be a time zone like America/Mexico_City.",
   "validation.too_far_ahead": "Can be at most {days} days from today.",

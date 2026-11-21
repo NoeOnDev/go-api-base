@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
@@ -140,6 +141,43 @@ func TestProductsFilters(t *testing.T) {
 			t.Errorf("want errors in category_id and active: %+v", resp.Error)
 		}
 	})
+}
+
+func TestProductsSort(t *testing.T) {
+	c := newCatalog(t)
+	// Created in this order, with these prices. Two cost the same: the newest of them goes first.
+	for _, p := range []struct {
+		name  string
+		price int
+	}{{"Mocha", 5200}, {"Americano", 3500}, {"Latte", 5200}, {"Espresso", 3000}} {
+		body := fmt.Sprintf(`{"category_id":%d,"name":%q,"slug":%q,"price_cents":%d,"stock":1,"active":true}`,
+			c.drinks, p.name, strings.ToLower(p.name), p.price)
+		testutil.Decode[product](t, testutil.Do(t, c.api, c.admin, http.MethodPost, "/products", body), http.StatusCreated)
+	}
+
+	for query, want := range map[string]string{
+		"":                 "Espresso Latte Americano Mocha", // the newest first
+		"?sort=created_at": "Mocha Americano Latte Espresso",
+		"?sort=name":       "Americano Espresso Latte Mocha",
+		"?sort=-name":      "Mocha Latte Espresso Americano",
+		"?sort=price":      "Espresso Americano Latte Mocha",
+		"?sort=-price":     "Latte Mocha Americano Espresso",
+		// With the pages: the order holds across them.
+		"?sort=name&limit=2&offset=2": "Latte Mocha",
+	} {
+		var names []string
+		for _, p := range c.list(nil, query).Data {
+			names = append(names, p.Name)
+		}
+		if got := strings.Join(names, " "); got != want {
+			t.Errorf("%q: %s, want %s", query, got, want)
+		}
+	}
+
+	w := testutil.Do(t, c.api, nil, http.MethodGet, "/products?sort=stock", "")
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); !strings.Contains(resp.Error.Fields["sort"], "name, price, created_at") {
+		t.Errorf("an order the list does not have: %+v", resp.Error)
+	}
 }
 
 func TestProductsErrors(t *testing.T) {

@@ -35,7 +35,7 @@ func runCreateAdmin(args []string) error {
 		return errors.New("missing -email")
 	}
 
-	password, err := adminPassword()
+	password, err := readPassword("ADMIN_PASSWORD")
 	if err != nil {
 		return err
 	}
@@ -70,15 +70,16 @@ func runCreateAdmin(args []string) error {
 	return nil
 }
 
-// adminPassword reads the password from ADMIN_PASSWORD or asks for it twice in the terminal.
-func adminPassword() (string, error) {
-	if p := os.Getenv("ADMIN_PASSWORD"); p != "" {
+// readPassword reads the password from the environment variable (ADMIN_PASSWORD, SEED_PASSWORD) or
+// asks for it twice in the terminal.
+func readPassword(variable string) (string, error) {
+	if p := os.Getenv(variable); p != "" {
 		return p, nil
 	}
 
 	fd := int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {
-		return "", errors.New("set ADMIN_PASSWORD or run the command in an interactive terminal")
+		return "", fmt.Errorf("set %s or run the command in an interactive terminal", variable)
 	}
 
 	fmt.Print("Password: ")

@@ -124,14 +124,22 @@ JOIN categories c ON c.id = p.category_id
 WHERE ($1::bigint IS NULL OR p.category_id = $1)
   AND ($2::text IS NULL OR p.name ILIKE '%' || $2 || '%')
   AND ($3::boolean IS NULL OR p.active = $3)
-ORDER BY p.id DESC
-LIMIT $5 OFFSET $4
+ORDER BY
+  CASE WHEN $4::text = 'name' THEN p.name END,
+  CASE WHEN $4::text = '-name' THEN p.name END DESC,
+  CASE WHEN $4::text = 'price' THEN p.price_cents END,
+  CASE WHEN $4::text = '-price' THEN p.price_cents END DESC,
+  CASE WHEN $4::text = 'created_at' THEN p.created_at END,
+  CASE WHEN $4::text = '-created_at' THEN p.created_at END DESC,
+  p.id DESC
+LIMIT $6 OFFSET $5
 `
 
 type ListProductsParams struct {
 	CategoryID *int64
 	Search     *string
 	Active     *bool
+	Sort       string
 	Offset     int32
 	Limit      int32
 }
@@ -152,11 +160,16 @@ type ListProductsRow struct {
 
 // The ILIKE '%…%' search does not use indexes; if the table grows, see pg_trgm in
 // docs/adding-a-resource.md.
+//
+// The order comes from ?sort= (httpx.ParseSort): the SQL of a query is fixed, so each order the list
+// accepts is a CASE that only applies when sort names it, and the others are NULL for every row and
+// do not sort. The id at the end breaks the ties, so the pages do not repeat rows.
 func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]ListProductsRow, error) {
 	rows, err := q.db.Query(ctx, listProducts,
 		arg.CategoryID,
 		arg.Search,
 		arg.Active,
+		arg.Sort,
 		arg.Offset,
 		arg.Limit,
 	)

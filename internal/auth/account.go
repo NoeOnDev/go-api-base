@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -100,8 +101,20 @@ const (
 	StatusSuspended = "suspended"
 )
 
-// roles are the values a role can have.
-var roles = []string{RoleUser, RoleAdmin}
+// roleKeyPattern is the format of the key of a role, the one of its column.
+var roleKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,39}$`)
+
+// errUnknownRole answers a role that does not exist, when it is given to a user.
+var errUnknownRole = httpx.Validation(httpx.Fields{"role": i18n.M("validation.unknown_role")})
+
+// roleKey requires value to look like the key of a role. Whether the role exists is told by the
+// database when it is given to a user: a foreign key violation is errUnknownRole.
+func roleKey(value string) i18n.Message {
+	if !roleKeyPattern.MatchString(value) {
+		return i18n.M("validation.unknown_role")
+	}
+	return i18n.Message{}
+}
 
 // AdminUser is a user as the administrators see them: the account and its status.
 type AdminUser struct {
@@ -119,14 +132,6 @@ func toAdminUser(u store.User) AdminUser {
 		status = StatusInvited
 	}
 	return AdminUser{User: toUser(u), Status: status, SuspendedAt: u.SuspendedAt}
-}
-
-// oneOf requires value to be one of the allowed values.
-func oneOf(value string, allowed []string) i18n.Message {
-	if !slices.Contains(allowed, value) {
-		return i18n.M("validation.one_of", "values", strings.Join(allowed, ", "))
-	}
-	return i18n.Message{}
 }
 
 var (

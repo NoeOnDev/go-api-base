@@ -50,7 +50,7 @@ func (s *Service) validateInvite(in *inviteInput) error {
 	if msg := validateEmail(in.Email); !msg.IsZero() {
 		fields["email"] = msg
 	}
-	if msg := oneOf(in.Role, roles); !msg.IsZero() {
+	if msg := roleKey(in.Role); !msg.IsZero() {
 		fields["role"] = msg
 	}
 	if in.Locale != nil {
@@ -111,6 +111,9 @@ func (s *Service) inviteUser(account *ratelimit.Limiter) func(http.ResponseWrite
 		})
 		if _, ok := db.IsUniqueViolation(err); ok {
 			return httpx.Conflict("email_taken", "email")
+		}
+		if _, ok := db.IsForeignKeyViolation(err); ok {
+			return errUnknownRole
 		}
 		if err != nil {
 			return fmt.Errorf("create the invited user: %w", err)
@@ -263,6 +266,10 @@ func (s *Service) acceptInvitation(w http.ResponseWriter, r *http.Request) error
 	}
 	httpx.LoggerFrom(r.Context()).Info("invitation accepted", "user_id", userID)
 
-	httpx.Write(w, http.StatusOK, toUser(u))
+	user, err := s.withPermissions(r.Context(), toUser(u))
+	if err != nil {
+		return err
+	}
+	httpx.Write(w, http.StatusOK, user)
 	return nil
 }

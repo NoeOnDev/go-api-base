@@ -57,9 +57,11 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("migrate the test database: %v", err)
 	}
 
+	// roles keeps the rows the migration inserts (user and admin), which the code names: it is
+	// emptied of the other roles below, not truncated.
 	rows, err := pool.Query(ctx, `
 		SELECT tablename FROM pg_tables
-		WHERE schemaname = 'public' AND tablename <> 'goose_db_version'`)
+		WHERE schemaname = 'public' AND tablename NOT IN ('goose_db_version', 'roles')`)
 	if err != nil {
 		t.Fatalf("list tables: %v", err)
 	}
@@ -78,8 +80,26 @@ func NewDB(t *testing.T) *pgxpool.Pool {
 			t.Fatalf("empty the tables: %v", err)
 		}
 	}
+	if _, err := pool.Exec(ctx, "DELETE FROM roles WHERE NOT built_in"); err != nil {
+		t.Fatalf("delete the roles of the tests: %v", err)
+	}
 
 	return pool
+}
+
+// CreateRole creates a role with the given permissions, to log in a user with it:
+//
+//	testutil.CreateRole(t, pool, "editor", products.PermManage)
+//	_, cookie := testutil.Login(t, pool, "editor@example.com", "editor")
+func CreateRole(t *testing.T, pool *pgxpool.Pool, key string, permissions ...string) {
+	t.Helper()
+	if _, err := pool.Exec(t.Context(), "INSERT INTO roles (key, name) VALUES ($1, $1)", key); err != nil {
+		t.Fatalf("create the role %s: %v", key, err)
+	}
+	_, err := pool.Exec(t.Context(), "INSERT INTO role_permissions (role, permission) SELECT $1, unnest($2::text[])", key, permissions)
+	if err != nil {
+		t.Fatalf("permissions of the role %s: %v", key, err)
+	}
 }
 
 // Password is the password of the users that Login creates.

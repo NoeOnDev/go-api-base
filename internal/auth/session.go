@@ -175,7 +175,7 @@ func (s *Service) sessionFromRequest(r *http.Request) (session, error) {
 		return session{}, fmt.Errorf("find session: %w", err)
 	}
 	user := toUser(row.User)
-	user.adminNeedsTwoFactor = s.opts.RequireAdminTwoFactor && user.Role == RoleAdmin && !user.TwoFactorEnabled
+	s.grant(&user, row.Permissions)
 	user.location = s.location(r.Context(), user.TimeZone)
 	return session{id: row.SessionID, tokenHash: hash, user: user, lastSeen: row.LastSeenAt}, nil
 }

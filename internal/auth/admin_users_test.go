@@ -3,6 +3,7 @@ package auth_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
@@ -44,9 +45,27 @@ func TestAdminListUsers(t *testing.T) {
 		t.Errorf("filter by status: %+v", suspended)
 	}
 
-	for _, query := range []string{"?role=owner", "?status=gone"} {
+	for _, query := range []string{"?role=Not+a+role", "?status=gone"} {
 		w := testutil.Do(t, api, admin, http.MethodGet, "/admin/users"+query, "")
 		testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity)
+	}
+	// A role nobody has, or that does not exist: an empty list.
+	if none := list("?role=owner"); none.Meta.Total != 0 {
+		t.Errorf("filter by a role without users: %+v", none)
+	}
+
+	// A role of the project is given like the other two, and the list filters by it. The users of
+	// the list carry their role, not what it can do: that is in /admin/roles.
+	testutil.CreateRole(t, pool, "auditor", "reports.view")
+	changed := testutil.Do(t, api, admin, http.MethodPut, userPath(alice.ID, "/role"), roleBody("auditor", testutil.Password))
+	if got := testutil.Decode[auth.AdminUser](t, changed, http.StatusOK); got.Role != "auditor" {
+		t.Errorf("role = %q, want auditor", got.Role)
+	}
+	if auditors := list("?role=auditor"); auditors.Meta.Total != 1 || auditors.Data[0].ID != alice.ID {
+		t.Errorf("filter by a role of the project: %+v", auditors)
+	}
+	if body := testutil.Do(t, api, admin, http.MethodGet, "/admin/users", "").Body.String(); strings.Contains(body, `"permissions"`) {
+		t.Errorf("the list of users carries permissions: %s", body)
 	}
 
 	got := testutil.Decode[auth.AdminUser](t, testutil.Do(t, api, admin, http.MethodGet, userPath(alice.ID, ""), ""), http.StatusOK)

@@ -14,7 +14,7 @@ It runs as a single binary, with PostgreSQL as the only service (no Redis or sep
 
 It includes:
 
-- **Authentication** with sessions in an `HttpOnly` cookie, passwords with argon2id and `user`/`admin` roles. It includes a profile, password change, password reset by email, optional email verification, 2FA with an authenticator app and recovery codes, sessions per device (with optional idle expiry), verified email change and account deletion. The first admin is created with a command.
+- **Authentication** with sessions in an `HttpOnly` cookie, passwords with argon2id and roles: `user`, `admin` and the ones each project creates, with their permissions. It includes a profile, password change, password reset by email, optional email verification, 2FA with an authenticator app and recovery codes, sessions per device (with optional idle expiry), verified email change and account deletion. The first admin is created with a command.
 - **Emails** over SMTP (any provider), with editable templates. They go through the queue, so they are retried if they fail. In development, Mailpit or the log is used.
 - **Background jobs** with River, on PostgreSQL (no Redis): retries, scheduled and periodic jobs, and queuing inside a transaction. The workers run in the same binary.
 - **Real time with SSE:** `GET /events` sends the browser the user's events and those of the topics it listens to (with permission). It also works to stream an AI agent's response.
@@ -30,7 +30,7 @@ It includes:
 - **User-facing text in several languages:** English by default and Mexican Spanish, chosen with `Accept-Language`.
 - **Example resources** to copy:
   - `notes`: each user's data, with attached files
-  - `categories` and `products`: a catalog with relationships, filters and admin permissions
+  - `categories` and `products`: a catalog with relationships, filters, sorting and writes that ask for a permission
   - `branches`: business hours in the branch's time zone, with holidays (see [docs/time.md](docs/time.md))
   - `appointments`: bookings within those hours, without double bookings, and a reminder the day before
   - `shifts`: work shifts, also overnight, clocking in and out, and the minutes worked per day
@@ -74,7 +74,7 @@ It includes:
 
    Without Mailpit, with `MAIL_DRIVER=log`, the emails (and their links) show up in the API's log.
 
-4. **Fill the database.** The command applies the migrations, asks for a password and creates an administrator (`admin@example.com`) and a user (`user@example.com`) with it, plus example data: a catalog, some notes and a branch. It is for development, and running it again adds nothing:
+4. **Fill the database.** The command applies the migrations, asks for a password and creates an administrator (`admin@example.com`), a user (`user@example.com`) and an account with a role of its own (`manager@example.com`, who manages the catalog) with it, plus example data: a catalog, some notes and a branch. It is for development, and running it again adds nothing:
 
    ```bash
    make seed
@@ -116,6 +116,7 @@ It includes:
 | `POST` | `/auth/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | With a session: turn on and manage 2FA |
 | `POST` | `/auth/two-factor/challenge` | Second step of the login when the user has 2FA |
 | `GET`, `PUT`, `POST`, `DELETE` | `/admin/users`, `/admin/users/{id}`, `/role`, `/suspend`, `/unsuspend` | Administrators: list, change the role, suspend and delete users (see "Managing users" in [docs/auth.md](docs/auth.md#managing-users)) |
+| `GET`, `POST`, `PUT`, `DELETE` | `/admin/roles`, `/admin/roles/{key}`, `/admin/permissions` | Administrators: the roles of the project and the permissions of each one (see "Roles" in [docs/auth.md](docs/auth.md#roles)) |
 | `POST` | `/admin/users`, `/admin/users/{id}/invitation`, `/auth/invitation/accept` | Invitations: an administrator creates the account and the person chooses their password (see "Invitations" in [docs/auth.md](docs/auth.md#invitations)) |
 | `GET` | `/events?topics=` | With a session: SSE stream with the real-time events (see [docs/realtime.md](docs/realtime.md)) |
 | `GET` | `/notifications?unread=` | With a session: the user's notifications and how many are unread |
@@ -125,9 +126,9 @@ It includes:
 | `GET`, `PUT`, `DELETE` | `/notes/{id}` | With a session; another user's note responds `404` |
 | `GET`, `POST`, `DELETE` | `/notes/{id}/attachments`, `/notes/{id}/attachments/{file_id}` | With a session: the files attached to a note |
 | `GET` | `/categories`, `/categories/{id}` | Public |
-| `POST`, `PUT`, `DELETE` | `/categories…` | Admin only |
-| `GET` | `/products?category_id=&q=&active=&sort=`, `/products/{id}` | Public: visitors only see active products; the admin sees all |
-| `POST`, `PUT`, `DELETE` | `/products…` | Admin only |
+| `POST`, `PUT`, `DELETE` | `/categories…` | With the `categories.manage` permission (the admin has every one) |
+| `GET` | `/products?category_id=&q=&active=&sort=`, `/products/{id}` | Public: visitors only see active products; whoever manages them sees all |
+| `POST`, `PUT`, `DELETE` | `/products…` | With the `products.manage` permission |
 | `GET` | `/branches`, `/branches/{id}`, `/schedule?from=&to=`, `/status`, `/exceptions` | Public: branches with their weekly hours, the real hours of some days, whether it is open now, and the holidays |
 | `POST`, `PUT`, `DELETE` | `/branches…`, `/branches/{id}/hours`, `/branches/{id}/exceptions/{date}` | Admin only |
 | `GET` | `/branches/{id}/availability?date=&duration=` | Public: the free slots of a day |
@@ -236,7 +237,8 @@ Run `make` to see the full list. The main ones:
 | `make test-race` | The tests with the race detector (CI runs it on every push) |
 | `make sqlc` | Regenerates the database code after changing migrations or queries |
 | `make migrate-new name=create_x` | Creates a migration |
-| `make seed` | Fills the development database with two accounts and example data |
+| `make seed` | Fills the development database with accounts and example data |
+| `make fresh`, `make fresh-test` | Recreates the development database from the migrations and seeds it, or the test one: what an edited migration needs |
 | `make create-admin email=…` | Creates an administrator |
 | `make key` | Generates a key for `ENCRYPTION_KEY` |
 | `make rotate-keys` | Finishes a rotation of `ENCRYPTION_KEY` (see [docs/encryption.md](docs/encryption.md)) |
@@ -246,7 +248,7 @@ Run `make` to see the full list. The main ones:
 ## Structure
 
 ```
-cmd/api/             application startup and the create-admin, seed, generate-key and rotate-keys commands
+cmd/api/             application startup and the create-admin, seed, fresh, generate-key and rotate-keys commands
 internal/config/     environment variables
 internal/httpx/      JSON, errors, pagination, middlewares, CORS and per-IP request limits
 internal/server/     server, routes and CSRF protection
@@ -302,7 +304,7 @@ git init
 Then:
 - **Keep `TEMPLATE_VERSION`:** it says which version of the template the project came from (see the [CHANGELOG](CHANGELOG.md)).
 - Keep the authentication.
-- Keep the examples that look like your project and delete the rest. For `notes`, `categories` and `products`: their package, their query (`internal/db/queries`), their migration, their registration in `internal/server/routes.go` and their seeder in `cmd/api/seed.go` (with `notes`, also `00017_create_note_attachments.sql`, the table of its attached files; `seedCatalog` is the seeder of `categories` and `products`, and `TestSeed` in `seed_test.go` has a line per table in `want`); then `make sqlc` and `make check`, which names the catalog keys left unused (delete them from every `internal/i18n/locales/*.json`, and the error codes from the table of [docs/i18n.md](docs/i18n.md#error-codes)). `products` references `categories`: delete it first, or both. The schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples).
+- Keep the examples that look like your project and delete the rest. For `notes`, `categories` and `products`: their package, their query (`internal/db/queries`), their migration, their registration in `internal/server/routes.go` and their seeder in `cmd/api/seed.go` (with `notes`, also `00017_create_note_attachments.sql`, the table of its attached files; `seedCatalog` is the seeder of `categories` and `products`, with their role and its account; `TestSeed` in `seed_test.go` has a line per table in `want`, where `users` and `roles` go back to 2); then `make sqlc` and `make check`, which names the catalog keys left unused (delete them from every `internal/i18n/locales/*.json`, and the error codes from the table of [docs/i18n.md](docs/i18n.md#error-codes)). `products` references `categories`: delete it first, or both. The schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples).
 - If you don't need some auth feature (open registration, 2FA, email change…), [docs/auth.md](docs/auth.md#removing-features) says what to delete.
 - If you don't need the job queue or real time, [docs/jobs.md](docs/jobs.md#removing-the-queue) and [docs/realtime.md](docs/realtime.md#removing-real-time) explain how to remove them.
 - If you don't need file uploads, or only S3, [docs/files.md](docs/files.md#removing-file-uploads) says what to delete.

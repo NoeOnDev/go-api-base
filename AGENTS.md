@@ -10,8 +10,8 @@ Instructions for coding agents (Claude Code, Codex, Copilot) working on this pro
 > upgrade steps or SQL for existing projects.
 >
 > **Migrations in a project created from the template:** until the first deploy, a new or removed field is changed
-> **in the original migration** (and the local database is recreated). After the first deploy, always with a new
-> migration.
+> **in the original migration** (and the local database is recreated, with `make fresh` and `make fresh-test`). After the
+> first deploy, always with a new migration.
 
 `go-api-base` is a complete, production-ready REST API template in Go, for personal, client and company projects.
 It runs as a single binary with PostgreSQL, with one instance or several (see "Multiple instances" in
@@ -20,7 +20,7 @@ It favors the standard library and adds only the essentials: PostgreSQL (pgx), m
 the job queue (River), packages from the Go team (`golang.org/x/crypto`, `x/time`, `x/term`, `x/text`) and the AWS SDK for
 the S3 store of the uploaded files.
 
-It comes with complete authentication (cookie sessions, `user`/`admin` roles, profile, password change and reset,
+It comes with complete authentication (cookie sessions, roles with permissions, profile, password change and reset,
 optional email verification, 2FA with TOTP, sessions per device, email change and account deletion; see `docs/auth.md`),
 email sending, background jobs with River (`docs/jobs.md`), real time with SSE and notifications (`docs/realtime.md`),
 file uploads on the local disk or in S3 (`docs/files.md`),
@@ -29,8 +29,8 @@ user-facing text in several languages (`docs/i18n.md`), and **example resources*
 | Resource | What it shows |
 |---|---|
 | `internal/notes` | Protected CRUD with **ownership**: each user sees only their own. Also **files attached to a resource** (`attachments.go`) |
-| `internal/categories` | Public reads, admin-only writes, unique value (409), no deleting while in use (409) |
-| `internal/products` | Relationship with another table (JOIN), filters and search, missing FK (422), data visible by role |
+| `internal/categories` | Public reads, writes that ask for a **permission** (`RequirePermission`), unique value (409), no deleting while in use (409) |
+| `internal/products` | Relationship with another table (JOIN), filters, search and sorting, missing FK (422), more data for whoever has a permission (`user.Can`) |
 | `internal/branches` | **Business hours** in the branch's time zone: weekly hours, exceptions per date, the real hours of some days and "open now" (see `docs/time.md`) |
 | `internal/classes` | **Repeating classes**: a rule (weekdays, hour of the clock, first and last day) whose sessions are computed, and the changes to one session (canceled, moved) |
 | `internal/shifts` | **Shifts** that cross midnight, no two overlapping for a person (`EXCLUDE`), clocking in and out, and the time worked split by days of the worker's zone |
@@ -47,7 +47,9 @@ headings of each guide are listed with `grep -n '^#' docs/*.md`.
 |---|---|
 | Adding a resource, step by step | [docs/adding-a-resource.md](docs/adding-a-resource.md) |
 | Cookie sessions, auth endpoints and roles | [docs/auth.md](docs/auth.md#how-sessions-work), [roles](docs/auth.md#roles) |
+| Roles of the project and permissions: `RequirePermission`, `user.Can`, `/admin/roles` | [docs/auth.md](docs/auth.md#roles-of-the-project-and-permissions) |
 | Protecting a new route (session, admin, public route) | [docs/auth.md](docs/auth.md#protecting-new-routes) |
+| Creating the accounts: `make seed` in development, `create-admin` for a real administrator, and who types the password | [docs/auth.md](docs/auth.md#roles) |
 | Managing users as an administrator: list, change the role, suspend, delete | [docs/auth.md](docs/auth.md#managing-users) |
 | Invitations: creating accounts without open registration | [docs/auth.md](docs/auth.md#invitations) |
 | 2FA, password reset, verifying and changing the email, sessions per device, deleting the account | One section each in [docs/auth.md](docs/auth.md#2fa-two-factor-authentication) |
@@ -92,6 +94,7 @@ sections that exist (`docs/links_test.go`).
 | `make migrate-new name=create_x` | Create a new migration |
 | `make migrate-up` / `migrate-down` / `migrate-status` | Manage migrations in development |
 | `make seed` | Fill the development database: an admin, a user and example data (password from `SEED_PASSWORD` or the terminal). Safe to run again; it refuses in production |
+| `make fresh` / `make fresh-test` | Recreate the development database from the migrations and seed it / the test one. **Run both after editing a migration**: goose does not apply again one it already applied, and the tests fail with "missing migrations". They refuse in production |
 | `make create-admin email=… name=…` | Create an administrator (password from `ADMIN_PASSWORD` or the terminal) |
 | `make key` / `make rotate-keys` | Generate an `ENCRYPTION_KEY` / finish a rotation (see `docs/encryption.md`) |
 | `make river-migration version=N` | SQL of a new River migration, when updating it (see `docs/jobs.md`) |
@@ -104,7 +107,8 @@ their own `go.mod`**: `gonew` does not copy them.
 ## Structure
 
 ```
-cmd/api/              startup (main.go) and the create-admin (admin.go), seed (seed.go), generate-key and rotate-keys (keys.go) subcommands
+cmd/api/              startup (main.go) and the create-admin (admin.go), seed (seed.go), fresh (fresh.go), generate-key and
+                      rotate-keys (keys.go) subcommands
 internal/config/      configuration from environment variables
 internal/httpx/       JSON, errors, pagination, middlewares, CORS, per-IP request limits, client IP
 internal/server/      http.Server with timeouts, routes, CSRF and middleware order (routes.go)
@@ -176,8 +180,13 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   line goes at `debug`, except for 5xx.
 
 **Authentication and permissions**
-- Protect routes in the resource's `routes.go`: `authn.RequireUser(...)` (any user), `authn.RequireAdmin(...)`
-  or `authn.OptionalUser(...)` (a public route that shows more to some users; in the handler, `auth.UserFrom`).
+- Protect routes in the resource's `routes.go`: `authn.RequireUser(...)` (any user), `authn.RequirePermission(Perm…, ...)`
+  (a role with that permission, or an admin), `authn.RequireAdmin(...)` or `authn.OptionalUser(...)` (a public route
+  that shows more to some users; in the handler, `auth.UserFrom`).
+- A permission is a constant of the resource, `resource.action` (`const PermRefund = "orders.refund"`). Use one for
+  what a role of the project could do, and `RequireAdmin` for what stays with the administrators (users, roles). In a
+  handler, `user.Can(PermRefund)`; one that no route asks for is made known with `authn.DefinePermissions`. Which role
+  has it is data (`/admin/roles`): never check the name of a role in the code.
 - In a protected handler, the user is `auth.MustUser(r.Context())`. Check admin permissions with `user.IsAdmin()`, never by
   comparing `Role`: with `REQUIRE_ADMIN_TWO_FACTOR=true`, an admin without 2FA is not one yet.
 - **Each user's data:** the table references `users (id)` with `ON DELETE CASCADE` (or `SET NULL` if it must stay
@@ -185,6 +194,11 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 - **Ownership:** if the data belongs to each user, the table has `user_id` and **every** query filters by it
   (`WHERE id = $1 AND user_id = $2`). Someone else's resource responds 404, not 403. See `internal/notes`.
 - Do not touch the CSRF or CORS protection of `internal/server/routes.go` without asking.
+- **Creating accounts** (see "Roles" in `docs/auth.md`): for development, `make seed`, whose throwaway accounts
+  (`admin@example.com`, `user@example.com`) take `SEED_PASSWORD` from `.env`; you may read and use that password. A real
+  administrator is `make create-admin email=…`, which asks the person for the password in their terminal: **do not ask
+  the user for that password, invent one or put `ADMIN_PASSWORD` in `.env`**. Give them the command to run themselves.
+  `ADMIN_PASSWORD` is for a deploy script, from its secret store.
 - `RequireUser` also requires a verified email if `REQUIRE_EMAIL_VERIFICATION=true` (403 `email_not_verified`).
 - A route the browser calls on its own, without the person doing anything (`GET /events`, a poll every minute), uses
   `authn.RequireUserWithoutActivity(...)`: with `RequireUser` it would keep an idle session alive (`SESSION_IDLE_TIMEOUT`).
@@ -260,8 +274,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 **Database**
 - All SQL lives in `internal/db/queries/*.sql`. After changing it, run `make sqlc`.
 - **Never edit `internal/store`**: it is regenerated.
-- **Before the first deploy**, change the original migrations instead of adding `ALTER TABLE` (and recreate the local
-  database). **After it**, never modify a migration that was already applied: create a new one with `make migrate-new`.
+- **Before the first deploy**, change the original migrations instead of adding `ALTER TABLE`, and recreate the local
+  databases yourself with `make fresh` and `make fresh-test`: they hold nothing but what `make seed` creates. **After it**, never modify a migration that was already applied: create a new one with `make migrate-new`.
 - Every migration must have its `-- +goose Down` section.
 - A missing row arrives as `pgx.ErrNoRows` (`:one`) or 0 affected rows (`:execrows`): respond `httpx.NotFound`.
 - Several writes that belong together go in a transaction with `pgx.BeginFunc` and `q.WithTx(tx)` (see
@@ -285,8 +299,9 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   job that legitimately takes longer raises it only for itself: `SET LOCAL statement_timeout = '60s'` inside its transaction.
 
 **Tests**
-- Integration tests with `testutil.NewDB(t)` (empties every table) and `testutil.Login(t, pool, email, role)` for the
-  session. They only use `TEST_DATABASE_URL`, which must end in `_test` and differ from `DATABASE_URL`. **Do not remove
+- Integration tests with `testutil.NewDB(t)` (empties every table; the `user` and `admin` roles stay) and
+  `testutil.Login(t, pool, email, role)` for the session. For a user with a role of the project,
+  `testutil.CreateRole(t, pool, "editor", products.PermManage)` first. They only use `TEST_DATABASE_URL`, which must end in `_test` and differ from `DATABASE_URL`. **Do not remove
   that protection.**
 - Requests with `testutil.NewAPI`, `testutil.Do` and `testutil.Decode`, as in `internal/products/handlers_test.go`.
   To read the sent emails: `testutil.WithMailer(&mail.Recorder{})` and `testutil.TokenFromEmail`. To change the
@@ -309,9 +324,9 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 - Tests that use the database do not use `t.Parallel()`, and the packages run in series (`-p 1`, already in `make test`).
 - A test of the base (`internal/auth`, `internal/server`…) does not use the example resources, which a project can
   delete: to test a route with `RequireUser`, `RequireAdmin` or `OptionalUser`, `protected(pool, …)` in
-  `internal/auth/helpers_test.go`.
+  `internal/auth/helpers_test.go`; with `RequirePermission` or `user.Can`, `authAPI(pool, …)` there too.
 - Always cover: the happy path, validation (422), not found (404), no session (401) and, if it applies, no permission
-  (403) or ownership.
+  (403, also with a role that has other permissions) or ownership.
 
 ## Adding a resource
 

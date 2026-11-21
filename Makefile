@@ -60,6 +60,15 @@ create-admin: ## Creates an administrator: make create-admin email=admin@example
 seed: ## Fills the development database with accounts and example data (password: SEED_PASSWORD or the terminal)
 	@go run ./cmd/api seed
 
+.PHONY: fresh
+fresh: ## Recreates the development database from the migrations and seeds it (after editing a migration)
+	@go run ./cmd/api fresh
+	@go run ./cmd/api seed
+
+.PHONY: fresh-test
+fresh-test: ## Recreates the test database from the migrations (after editing a migration)
+	@go run ./cmd/api fresh -test
+
 .PHONY: sqlc
 sqlc: ## Regenerates internal/store from the migrations and queries
 	@# All of internal/store is generated. It is deleted first, because sqlc does not delete the code of a query that no longer exists.

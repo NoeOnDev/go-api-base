@@ -4,12 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/i18n"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/validate"
 )
@@ -23,6 +25,14 @@ var statuses = []string{StatusActive, StatusInvited, StatusSuspended}
 // errOwnAccount: an admin does not manage their own account from here, but from /auth/me, which
 // asks for what each change needs (and does not let them suspend themselves).
 var errOwnAccount = httpx.Conflict("own_account", "")
+
+// oneOf requires value to be one of the allowed values.
+func oneOf(value string, allowed []string) i18n.Message {
+	if !slices.Contains(allowed, value) {
+		return i18n.M("validation.one_of", "values", strings.Join(allowed, ", "))
+	}
+	return i18n.Message{}
+}
 
 // userFilters are the optional filters of the list: ?q=alice&role=admin&status=suspended.
 // A nil field means "no filter".
@@ -45,7 +55,7 @@ func parseUserFilters(r *http.Request) (userFilters, error) {
 		f.Search = &escaped
 	}
 	if v := query.Get("role"); v != "" {
-		if msg := oneOf(v, roles); !msg.IsZero() {
+		if msg := roleKey(v); !msg.IsZero() {
 			fields["role"] = msg
 		}
 		f.Role = &v
@@ -147,7 +157,7 @@ func (s *Service) changeRole(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.Decode(w, r, &in); err != nil {
 		return err
 	}
-	if msg := oneOf(in.Role, roles); !msg.IsZero() {
+	if msg := roleKey(in.Role); !msg.IsZero() {
 		return httpx.Validation(httpx.Fields{"role": msg})
 	}
 	admin := MustUser(r.Context())
@@ -163,6 +173,9 @@ func (s *Service) changeRole(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 		rows, err := q.UpdateUserRole(r.Context(), store.UpdateUserRoleParams{ID: id, Role: in.Role})
+		if _, ok := db.IsForeignKeyViolation(err); ok {
+			return errUnknownRole
+		}
 		if err != nil {
 			return fmt.Errorf("change the role of user %d: %w", id, err)
 		}

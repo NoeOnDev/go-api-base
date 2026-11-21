@@ -101,9 +101,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	// Only the admin sees the inactive products (and can filter them with ?active=false).
+	// Only whoever manages the products sees the inactive ones (and can filter them with
+	// ?active=false).
 	// For everyone else, the list is always of active products.
-	if !isAdmin(r) {
+	if !canManage(r) {
 		active := true
 		f.Active = &active
 	}
@@ -156,8 +157,8 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("get product %d: %w", id, err)
 	}
 
-	// An inactive product does not exist for someone who is not an admin.
-	if !p.Active && !isAdmin(r) {
+	// An inactive product does not exist for someone who does not manage them.
+	if !p.Active && !canManage(r) {
 		return errNotFound
 	}
 
@@ -165,11 +166,11 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// isAdmin reports whether the request comes from an administrator. The public product routes
-// use auth.OptionalUser, so there may or may not be a user.
-func isAdmin(r *http.Request) bool {
+// canManage reports whether the request comes from someone who manages the products (PermManage).
+// The public product routes use auth.OptionalUser, so there may or may not be a user.
+func canManage(r *http.Request) bool {
 	u, ok := auth.UserFrom(r.Context())
-	return ok && u.IsAdmin()
+	return ok && u.Can(PermManage)
 }
 
 // create answers POST /products.

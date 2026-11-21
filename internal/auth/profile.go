@@ -64,7 +64,11 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("update the profile: %w", err)
 	}
 
-	httpx.Write(w, http.StatusOK, toUser(u))
+	user, err := s.withPermissions(r.Context(), toUser(u))
+	if err != nil {
+		return err
+	}
+	httpx.Write(w, http.StatusOK, user)
 	return nil
 }
 

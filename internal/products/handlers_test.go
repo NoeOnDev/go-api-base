@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/products"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
@@ -34,6 +37,7 @@ type productList struct {
 // catalog prepares the database with an admin, a regular user and two categories.
 type catalog struct {
 	t      *testing.T
+	pool   *pgxpool.Pool
 	api    http.Handler
 	admin  *http.Cookie
 	user   *http.Cookie
@@ -44,7 +48,7 @@ type catalog struct {
 func newCatalog(t *testing.T) *catalog {
 	t.Helper()
 	pool := testutil.NewDB(t)
-	c := &catalog{t: t, api: testutil.NewAPI(pool)}
+	c := &catalog{t: t, pool: pool, api: testutil.NewAPI(pool)}
 	_, c.admin = testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
 	_, c.user = testutil.Login(t, pool, "user@example.com", auth.RoleUser)
 	c.drinks = c.createCategory("Drinks", "drinks")
@@ -177,6 +181,34 @@ func TestProductsSort(t *testing.T) {
 	w := testutil.Do(t, c.api, nil, http.MethodGet, "/products?sort=stock", "")
 	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); !strings.Contains(resp.Error.Fields["sort"], "name, price, created_at") {
 		t.Errorf("an order the list does not have: %+v", resp.Error)
+	}
+}
+
+// The catalog is managed by whoever has the permission, not only by the administrators: a role of
+// the project with products.manage does it, and only that.
+func TestProductsManagedByARole(t *testing.T) {
+	c := newCatalog(t)
+	testutil.CreateRole(t, c.pool, "catalog_manager", products.PermManage)
+	_, manager := testutil.Login(t, c.pool, "manager@example.com", "catalog_manager")
+
+	body := fmt.Sprintf(`{"category_id":%d,"name":"Matcha","slug":"matcha","price_cents":6000,"stock":5,"active":false}`, c.drinks)
+	p := testutil.Decode[product](t, testutil.Do(t, c.api, manager, http.MethodPost, "/products", body), http.StatusCreated)
+
+	// They see the inactive ones, like an administrator; a user without the permission does not.
+	if list := c.list(manager, ""); list.Meta.Total != 1 {
+		t.Errorf("the manager sees %d products, want the inactive one", list.Meta.Total)
+	}
+	if list := c.list(c.user, ""); list.Meta.Total != 0 {
+		t.Errorf("a user sees %d products, want none", list.Meta.Total)
+	}
+	path := fmt.Sprintf("/products/%d", p.ID)
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, c.api, c.user, http.MethodDelete, path, ""), http.StatusForbidden)
+
+	// The permission is of the products: the categories have their own.
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, c.api, manager, http.MethodPost, "/categories", `{"name":"Tea","slug":"tea"}`), http.StatusForbidden)
+
+	if w := testutil.Do(t, c.api, manager, http.MethodDelete, path, ""); w.Code != http.StatusNoContent {
+		t.Errorf("delete by the manager: status = %d", w.Code)
 	}
 }
 

@@ -184,8 +184,8 @@ The template is versioned with tags (`v0.1.0`, …) and a `CHANGELOG.md`, and th
 
 Each example shows something different, and together they cover the most common cases:
 - `notes`: per-user ownership, and files attached to a resource.
-- `categories`: admin writes, a unique value and no deleting while in use.
-- `products`: JOIN, filters, search and an invalid FK.
+- `categories`: writes with a permission, a unique value and no deleting while in use.
+- `products`: JOIN, filters, search, sorting, an invalid FK, and more data for whoever has a permission.
 - `branches`: business hours, wall-clock times in the branch's zone turned into instants (see [time.md](time.md#modeling-schedules)).
 - `appointments`: bookings within those hours, an `EXCLUDE` constraint against double bookings, and a reminder queued in the transaction.
 - `shifts`: work shifts that cross midnight, clocking in and out, and the time worked per day of the worker.
@@ -294,6 +294,16 @@ Decisions:
 - **Limits of 10 connections per user and 1000 in total**, because each one is an open socket and goroutine. Each connection takes about 11 KB.
 - **Multiple instances with PostgreSQL's `LISTEN/NOTIFY`**, without Redis: each broker delivers its own at once and notifies the others. A message larger than 8000 bytes (the maximum of a `NOTIFY`) is stored in `realtime_messages`, and its id travels. If the `LISTEN` connection is cut, on reconnecting it cuts the streams, because it may have lost events (see `docs/realtime.md`).
 
+## Roles and permissions
+
+Two roles are enough for a personal project, and not for a company's: a cashier, an auditor and a manager do different things. See "Roles" in [auth.md](auth.md#roles).
+
+- **Permissions in the code, roles in the database.** What can be checked is decided by whoever writes the route (`RequirePermission("orders.refund", …)`), so a permission always means something. Which role has it is decided by an administrator, without a deploy. It is the split of `spatie/laravel-permission`.
+- **One role per user.** It covers almost every case, keeps `users.role` as a single column, and a list of users says at a glance what each one is. Several roles per user add a table, a merge of permissions on each request and the question of which role "wins"; a project that needs them adds them.
+- **`admin` is not a set of permissions:** it has all of them, also the ones a resource adds tomorrow, and it alone manages users and roles. If a permission could give that, whoever had it could give themselves the rest.
+- **The permissions travel with the session query,** so a request costs the same as before, and a change to a role applies on the next request. Nothing is cached in memory, which would not hold with several instances.
+- **The two roles of the template are rows of the `roles` table,** inserted by its migration, so `users.role` is a foreign key and a role in use cannot be deleted. The tests keep those rows when they empty the tables.
+
 ## Uploaded files
 
 `internal/storage` keeps the bytes and `internal/files` the rest (see [files.md](files.md)). The decisions behind them:
@@ -330,7 +340,7 @@ A rule for new code: **nothing that must apply to every instance is kept in memo
 
 - Mandatory 2FA for every user (for administrators there is `REQUIRE_ADMIN_TWO_FACTOR`), and passkeys or WebAuthn.
 - Login with Google or other providers (OAuth).
-- Permissions finer than `user`/`admin`.
+- Several roles per user, or permissions given to one user apart from their role (see "Roles and permissions").
 - WebSockets (see "Real time with SSE").
 - Checking passwords against breaches (Have I Been Pwned): it needs an external call on each registration and password change. The most common ones are already rejected (see "argon2id for passwords").
 - A persistent audit log: the security events go to the logs and to the user's notifications. What to keep, and for how long, depends on each project.

@@ -145,7 +145,11 @@ func (s *Service) twoFactorChallenge(w http.ResponseWriter, r *http.Request) err
 	}
 	s.clearChallengeCookie(w)
 
-	httpx.Write(w, http.StatusOK, toUser(stored))
+	user, err := s.withPermissions(r.Context(), toUser(stored))
+	if err != nil {
+		return err
+	}
+	httpx.Write(w, http.StatusOK, user)
 	return nil
 }
 

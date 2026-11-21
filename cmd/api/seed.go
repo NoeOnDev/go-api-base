@@ -9,13 +9,16 @@ import (
 	"os"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/categories"
 	"github.com/NoeOnDev/go-api-base/internal/civil"
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
+	"github.com/NoeOnDev/go-api-base/internal/products"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
@@ -124,8 +127,15 @@ func seedUsers(ctx context.Context, s seedDeps) (string, error) {
 	return strings.Join(created, " and ") + ", with the seed password", nil
 }
 
+// The account and the role of the catalog example.
+const (
+	seedManagerEmail = "manager@example.com"
+	seedManagerRole  = "catalog_manager"
+)
+
 // seedCatalog creates a few categories with their products (the categories and products examples),
-// one of them inactive: only an administrator sees it.
+// one of them inactive: only whoever manages the catalog sees it. It also creates a role with the
+// two permissions of the catalog and an account that has it.
 func seedCatalog(ctx context.Context, s seedDeps) (string, error) {
 	if n, err := s.q.CountCategories(ctx); err != nil || n > 0 {
 		return "already there", err
@@ -155,7 +165,7 @@ func seedCatalog(ctx context.Context, s seedDeps) (string, error) {
 			{name: "Seasonal cake", slug: "seasonal-cake", priceCents: 6900, stock: 0, inactive: true},
 		}},
 	}
-	products := 0
+	created := 0
 	for _, c := range catalog {
 		category, err := s.q.CreateCategory(ctx, store.CreateCategoryParams{Name: c.name, Slug: c.slug})
 		if err != nil {
@@ -168,10 +178,32 @@ func seedCatalog(ctx context.Context, s seedDeps) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("create product %s: %w", p.slug, err)
 			}
-			products++
+			created++
 		}
 	}
-	return fmt.Sprintf("%d categories and %d products", len(catalog), products), nil
+
+	// A role of the project and an account with it, to see what a permission does: this account
+	// manages the catalog, and nothing else of an administrator.
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		if err := q.CreateRole(ctx, store.CreateRoleParams{Key: seedManagerRole, Name: "Catalog manager"}); err != nil {
+			return err
+		}
+		return q.AddRolePermissions(ctx, store.AddRolePermissionsParams{
+			Role: seedManagerRole, Permissions: []string{categories.PermManage, products.PermManage},
+		})
+	})
+	if err != nil {
+		return "", fmt.Errorf("create the role %s: %w", seedManagerRole, err)
+	}
+	manager, err := s.auth.CreateUser(ctx, auth.RegisterInput{Name: "Manager", Email: seedManagerEmail, Password: s.password}, seedManagerRole)
+	if err != nil {
+		return "", err
+	}
+	if err := s.q.MarkEmailVerified(ctx, manager.ID); err != nil {
+		return "", fmt.Errorf("verify %s: %w", seedManagerEmail, err)
+	}
+	return fmt.Sprintf("%d categories and %d products, and %s with the role %s", len(catalog), created, seedManagerEmail, seedManagerRole), nil
 }
 
 // seedNotes gives the user of the seed a few notes (the notes example).

@@ -235,6 +235,19 @@ type RiverQueue struct {
 	UpdatedAt time.Time
 }
 
+type Role struct {
+	Key       string
+	Name      string
+	BuiltIn   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type RolePermission struct {
+	Role       string
+	Permission string
+}
+
 type Session struct {
 	TokenHash  []byte
 	ID         int64

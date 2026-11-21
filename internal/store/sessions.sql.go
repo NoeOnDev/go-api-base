@@ -106,7 +106,8 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) error {
 }
 
 const getSessionUser = `-- name: GetSessionUser :one
-SELECT u.id, u.name, u.email, u.password_hash, u.role, u.email_verified_at, u.totp_secret, u.totp_enabled_at, u.totp_last_step, u.locale, u.time_zone, u.suspended_at, u.created_at, u.updated_at, s.id AS session_id, s.last_seen_at
+SELECT u.id, u.name, u.email, u.password_hash, u.role, u.email_verified_at, u.totp_secret, u.totp_enabled_at, u.totp_last_step, u.locale, u.time_zone, u.suspended_at, u.created_at, u.updated_at, s.id AS session_id, s.last_seen_at,
+       ARRAY(SELECT p.permission FROM role_permissions p WHERE p.role = u.role)::text[] AS permissions
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1 AND s.expires_at > now()
@@ -120,15 +121,19 @@ type GetSessionUserParams struct {
 }
 
 type GetSessionUserRow struct {
-	User       User
-	SessionID  int64
-	LastSeenAt time.Time
+	User        User
+	SessionID   int64
+	LastSeenAt  time.Time
+	Permissions []string
 }
 
 // GetSessionUser finds the valid session of the token, with its user. active_since is the
 // idle expiry: a session without activity since then no longer works
 // (without idle expiry, a minimum date). A suspended user's session does not work either: they
 // are deleted on suspension, and this also covers one created at that same moment.
+//
+// It brings the permissions of the user's role too, so each request knows what the user can do
+// with a single query, and a change to a role applies from the next request.
 func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) (GetSessionUserRow, error) {
 	row := q.db.QueryRow(ctx, getSessionUser, arg.TokenHash, arg.ActiveSince)
 	var i GetSessionUserRow
@@ -149,6 +154,7 @@ func (q *Queries) GetSessionUser(ctx context.Context, arg GetSessionUserParams) 
 		&i.User.UpdatedAt,
 		&i.SessionID,
 		&i.LastSeenAt,
+		&i.Permissions,
 	)
 	return i, err
 }

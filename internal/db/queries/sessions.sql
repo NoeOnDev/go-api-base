@@ -6,8 +6,12 @@ VALUES ($1, $2, $3, $4, $5);
 -- idle expiry: a session without activity since then no longer works
 -- (without idle expiry, a minimum date). A suspended user's session does not work either: they
 -- are deleted on suspension, and this also covers one created at that same moment.
+--
+-- It brings the permissions of the user's role too, so each request knows what the user can do
+-- with a single query, and a change to a role applies from the next request.
 -- name: GetSessionUser :one
-SELECT sqlc.embed(u), s.id AS session_id, s.last_seen_at
+SELECT sqlc.embed(u), s.id AS session_id, s.last_seen_at,
+       ARRAY(SELECT p.permission FROM role_permissions p WHERE p.role = u.role)::text[] AS permissions
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = sqlc.arg('token_hash') AND s.expires_at > now()

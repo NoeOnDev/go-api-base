@@ -64,6 +64,10 @@ The 2FA challenge uses a cookie with the same attributes: `two_factor_challenge`
 | `PUT` | `/admin/users/{id}/role` | admin | `{role, password}` | `200` with the user; `422` if the role or the admin's password are wrong; `409` |
 | `POST` | `/admin/users/{id}/suspend`, `/unsuspend` | admin | | `200` with the user; `409` |
 | `DELETE` | `/admin/users/{id}` | admin | `{password}` | `204`; `422` if the admin's password is wrong; `409` |
+| `GET` | `/admin/roles`, `/admin/permissions` | admin | | `200` with the roles (their permissions and how many users have each), or with the permissions a role can have (see [roles](#roles)) |
+| `POST` | `/admin/roles` | admin | `{key, name, permissions}` | `201` with the role; `409` if the key exists; `422` |
+| `PUT` | `/admin/roles/{key}` | admin | `{name, permissions, password}` | `200` with the role; `422` if a permission or the admin's password are wrong; `404`; `409` for `user` and `admin` |
+| `DELETE` | `/admin/roles/{key}` | admin | | `204`; `409` if users have it, or for `user` and `admin`; `404` |
 
 In the access column:
 - **session:** any logged-in user, even without a verified email.
@@ -224,8 +228,11 @@ The user's data is escaped (`html/template`): a name like `<b>Alice</b>` shows u
 
 ## Roles
 
-- **`user`:** the role of whoever registers with `/auth/register`.
-- **`admin`:** created with the `create-admin` command:
+A role says what an account can do beyond having a session. Two come with the template, and a project adds its own:
+
+- **`user`:** the role of whoever registers with `/auth/register`. It has no permissions: a user does what any route with `RequireUser` allows.
+- **A role of the project** (`cashier`, `auditor`, `catalog_manager`): an administrator creates it and gives it some permissions (see "Roles of the project and permissions" below).
+- **`admin`:** it has every permission, and it is the only one that manages users and roles. It is created with the `create-admin` command:
 
   ```bash
   make create-admin email=admin@client.com name="Administrator"
@@ -239,6 +246,18 @@ The user's data is escaped (`html/template`): a name like `<b>Alice</b>` shows u
 
   The password is asked for in the terminal without being shown, or taken from the `ADMIN_PASSWORD` variable.
 
+**Who types the password.** The same two commands cover three situations, and which one applies depends on whether the password is a real one:
+
+| Situation | Command | Where the password comes from | Who may know it |
+|---|---|---|---|
+| Development: accounts to work with | `make seed` | `SEED_PASSWORD` in the `.env` of that machine, or the terminal | Anyone on the project, a coding agent included: they are throwaway accounts (`admin@example.com`, `user@example.com`), and the command refuses to run in production |
+| A real administrator, created by a person | `make create-admin email=…` (or `./api create-admin -email …` on the server) | The terminal: it is asked for twice, without being shown | Only that person. Nothing is written to a file, the shell history or the log |
+| A real administrator, created by a script | The same command, with `ADMIN_PASSWORD` in its environment | The secret store of the deploy (never `.env`, nor the command line) | Whoever manages the secrets |
+
+The variable wins over the terminal: with `ADMIN_PASSWORD` set, `create-admin` does not ask. That is why it does not belong in `.env`: a person who wanted to type the password would get the one of the file without noticing.
+
+A coding agent uses the first row, and only that one. Asked to create a real administrator, it gives the person the command of the second row to run in their own terminal: an agent cannot type into that prompt, and should not see the password. Either way the password goes through the same rules as in the API (length, common passwords).
+
 In the routes, `RequireAdmin` responds `401` if there is no session and `403` if the user is not an admin. In a handler, check admin permissions with `user.IsAdmin()`, never by comparing `Role` (see below).
 
 **Mandatory 2FA for administrators:** with `REQUIRE_ADMIN_TWO_FACTOR=true`, an admin acts as one only once they turn on 2FA. Until then:
@@ -248,6 +267,46 @@ In the routes, `RequireAdmin` responds `401` if there is no session and `403` if
 - the account routes (`/auth/...`) work as usual: they can log in and turn on 2FA. Their `role` is still `admin`.
 
 If they turn it off, they lose the admin permissions until they turn it on again. `create-admin` reminds it when the option is on. It is off by default; it is recommended in production (see "Before production" in the README).
+
+### Roles of the project and permissions
+
+It is the equivalent of `spatie/laravel-permission`, with one role per user.
+
+**A permission is a name the code defines**, with the resource and the action: `products.manage`, `orders.refund`, `reports.export`. A route asks for it, and from then on a role can have it:
+
+```go
+// internal/products/routes.go
+const PermManage = "products.manage"
+
+mux.Handle("POST /products", authn.RequirePermission(PermManage, httpx.Handle(h.create)))
+```
+
+`RequirePermission` answers `401` without a session and `403 forbidden` without the permission. Inside a handler, `user.Can(PermManage)` asks the same: the public list of products uses it to include the inactive ones for whoever manages them. A permission that only a handler checks, and no route asks for, is made known with `authn.DefinePermissions(…)` in the resource's `Register`.
+
+**Which role has which permission is data**, and an administrator decides it:
+
+- `GET /admin/permissions` lists the permissions the code defines, for the checkboxes of the form.
+- `POST /admin/roles` with `{key, name, permissions}` creates a role. The `key` is its identifier (lowercase letters, numbers and `_`: `catalog_manager`) and does not change; the `name` is what people read.
+- `PUT /admin/roles/{key}` with `{name, permissions, password}` replaces its name and its permissions. It asks for the administrator's password, like changing the role of a user, because it changes what every user of the role can do.
+- `DELETE /admin/roles/{key}` deletes it. If users have it, it answers `409 role_in_use`: they get another role first.
+- A user gets a role with `PUT /admin/users/{id}/role`, or from their invitation (`POST /admin/users` with `role`).
+
+```json
+{"key": "catalog_manager", "name": "Catalog manager", "built_in": false,
+ "permissions": ["categories.manage", "products.manage"], "users": 3,
+ "created_at": "2026-11-21T15:04:05Z", "updated_at": "2026-11-21T15:04:05Z"}
+```
+
+**To keep in mind:**
+
+- **A change applies from the next request** of the users of the role: the permissions are read with the session, in the same query, and their real-time streams are cut so they open again with what the role allows now. Nobody has to log in again.
+- **The account says what it can do:** `/auth/me` and the login carry `permissions`, the list of the user's permissions (every one, for an administrator). The frontend uses it to show or hide a button; the API checks again on each request, so hiding the button is never what protects.
+- **`user` and `admin` cannot be changed or deleted** (`409 built_in_role`).
+- **Managing users and roles is only for `admin`.** No permission gives it: whoever can hand out permissions can give themselves all of them.
+- **One role per user.** For a person who needs what two roles have, create a role with both sets of permissions. A project that needs several roles per user replaces `users.role` with a table in between.
+- **A permission the code stops defining** stays stored in the roles that had it, does nothing and is not shown.
+- **With `REQUIRE_ADMIN_TWO_FACTOR`,** an admin without 2FA has no permission yet: `RequirePermission` answers `403 admin_two_factor_required`, like `RequireAdmin`. It does not apply to the roles of the project.
+- **The names of the roles are data**, written by an administrator in one language. The frontend translates `user` and `admin` by their key if it needs to.
 
 ## Managing users
 
@@ -382,6 +441,7 @@ In each resource's `routes.go`:
 ```go
 mux.Handle("GET /orders", authn.RequireUser(httpx.Handle(h.list)))            // any user (with a verified email, if required)
 mux.Handle("DELETE /orders/{id}", authn.RequireAdmin(httpx.Handle(h.delete))) // admin only
+mux.Handle("POST /orders/{id}/refund", authn.RequirePermission(PermRefund, httpx.Handle(h.refund))) // a role with the permission, or an admin
 mux.Handle("GET /products", httpx.Handle(h.list))                             // public
 mux.Handle("GET /products", authn.OptionalUser(httpx.Handle(h.list)))         // public, but knows whether there is a user
 ```
@@ -390,8 +450,11 @@ Inside the handler:
 
 ```go
 user := auth.MustUser(r.Context())
-if user.IsAdmin() { … } // admin permissions: never compare user.Role
+if user.IsAdmin() { … }        // only an administrator: never compare user.Role
+if user.Can(PermRefund) { … }  // whoever has the permission (an administrator has every one)
 ```
+
+Use a permission for what a role of the project could do (managing a catalog, refunding an order), and `RequireAdmin` for what must stay with the administrators (users, roles, settings of the whole system). See [roles](#roles).
 
 ## Removing features
 
@@ -408,6 +471,7 @@ All the routes are in `internal/auth/routes.go`. To remove a feature, delete its
 | Verifying the email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go`, `email_verification_test.go`, `emails/*/verify_email.*` | In `register` (`handlers.go`), the `if s.opts.RequireVerifiedEmail` block. Leave `REQUIRE_EMAIL_VERIFICATION=false` |
 | Invitations | `POST /admin/users`, `/admin/users/{id}/invitation`, `/auth/invitation/accept` | `invitations.go`, `invitations_test.go`, `emails/*/invitation.*` | Optionally, the `invitation` purpose (`tokens.go` and the CHECK of migration `00006`) and the `SetInitialPassword` query (then, `make sqlc`). `password_hash` can stay nullable: a user without a password cannot log in |
 | Managing users | `GET /admin/users`, `GET /admin/users/{id}`, `/admin/users/{id}/role`, `…/suspend`, `…/unsuspend` and `DELETE /admin/users/{id}` (`POST /admin/users` and `…/invitation` belong to the invitations) | `admin_users.go`, `admin_users_test.go` | Optionally, the suspension: the `SuspendedAt` checks of `Authenticate` (`auth.go`) and `forgotPassword` (`password_reset.go`), the `suspended_at` column (migration `00001`, `users.sql` and the `GetSessionUser` filter of `sessions.sql`) and the user queries of the list, the role and the suspension (then, `make sqlc`) |
+| Roles of the project (only `user` and `admin`) | `/admin/roles…`, `/admin/permissions` | `roles.go`, `roles_test.go` | `RequirePermission` and `user.Can` stay, and let only the administrators through. In `cmd/api/seed.go`, the role and the account of the catalog in `seedCatalog`, with their lines in `seed_test.go` (`users` goes back to 2 and `roles` goes). Optionally, `testutil.CreateRole` and the tests that use it (`TestPermissions`, `TestProductsManagedByARole`) |
 | 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/*/two_factor_locked.*` | In `handlers.go`, the login's `if u.TwoFactorEnabled` block; in `auth.go`, `twoFactorLimiter`; in `keys.go`, the call to `rotateTwoFactorKeys`; in `internal/notifications`, `TestTwoFactorChangesNotify`. Leave `REQUIRE_ADMIN_TWO_FACTOR=false`: with `true`, no administrator could use the admin routes. Optionally, also `internal/totp`, `testutil/twofactor.go` and migration `00007` with `recovery_codes.sql` (then, `make sqlc`) |
 
 Finally, `make fmt` and `make check`, which says what is left:
@@ -422,6 +486,6 @@ Each recipe was tested separately, on a copy of the project: it compiles and pas
 - Mandatory 2FA for every user (for administrators, see `REQUIRE_ADMIN_TWO_FACTOR` in [roles](#roles)).
 - Physical security keys or passkeys (WebAuthn).
 - Login with Google or other providers (OAuth).
-- Permissions finer than `user`/`admin`.
+- Several roles per user, or permissions given to one user apart from their role (see [roles](#roles)).
 - Checking passwords against breaches (Have I Been Pwned), which needs an external call. The 10,000 most common ones are rejected.
 - A persistent audit log: the security events go to the logs and to the user's notifications.

@@ -264,3 +264,16 @@ func TestTimeZoneInInvitations(t *testing.T) {
 		t.Errorf("want an error on time_zone: %+v", resp.Error)
 	}
 }
+
+// An invitation can carry a role of the project.
+func TestInviteWithARole(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := authAPI(pool)
+	_, admin := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
+	testutil.CreateRole(t, pool, "auditor", permView)
+
+	w := testutil.Do(t, api, admin, http.MethodPost, "/admin/users", inviteBody("Bob", "bob@example.com", "auditor"))
+	if got := testutil.Decode[auth.AdminUser](t, w, http.StatusCreated); got.Role != "auditor" || got.Status != auth.StatusInvited {
+		t.Errorf("invited user = %+v", got)
+	}
+}

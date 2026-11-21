@@ -18,7 +18,8 @@ func TestSeed(t *testing.T) {
 	cfg := config.Config{}
 	// What the seed creates, by table. An example that is deleted takes its lines from here.
 	want := map[string]int{
-		"users":        2,
+		"users":        3, // the third one, with the role of the catalog
+		"roles":        3, // user, admin and the one of the catalog
 		"categories":   3,
 		"products":     8,
 		"notes":        3,
@@ -76,5 +77,30 @@ func TestSeed(t *testing.T) {
 	testutil.NewDB(t)
 	if err := seed(t.Context(), pool, cfg, "password", &out); err == nil || !strings.Contains(err.Error(), "too common") {
 		t.Errorf("seed with a common password: %v", err)
+	}
+}
+
+// fresh leaves the database as the migrations create it, whatever it had.
+func TestFresh(t *testing.T) {
+	pool := testutil.NewDB(t)
+	testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	// What an older version of a migration left behind, and a row of the tests.
+	if _, err := pool.Exec(t.Context(), "CREATE TABLE left_behind (id bigint PRIMARY KEY)"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fresh(t.Context(), pool); err != nil {
+		t.Fatal(err)
+	}
+
+	var leftBehind bool
+	var users, roles int
+	err := pool.QueryRow(t.Context(), `SELECT to_regclass('public.left_behind') IS NOT NULL,
+		(SELECT count(*) FROM users), (SELECT count(*) FROM roles)`).Scan(&leftBehind, &users, &roles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leftBehind || users != 0 || roles != 2 {
+		t.Errorf("after fresh: left_behind = %v, %d users, %d roles; want a schema with only the two roles of the template", leftBehind, users, roles)
 	}
 }

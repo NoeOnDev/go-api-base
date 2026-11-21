@@ -14,8 +14,10 @@ import (
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/config"
+	"github.com/NoeOnDev/go-api-base/internal/ratelimit"
 	"github.com/NoeOnDev/go-api-base/internal/secretbox"
 	"github.com/NoeOnDev/go-api-base/internal/server"
+	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
 
@@ -184,6 +186,46 @@ func protected(pool *pgxpool.Pool, change ...func(*config.Config)) http.Handler 
 			}
 		}
 		fmt.Fprint(w, who)
+	})))
+	return mux
+}
+
+// Permissions of the tests: one that a route asks for, and one that only a handler checks.
+const (
+	permView   = "reports.view"
+	permExport = "reports.export"
+)
+
+// authAPI returns the routes of auth plus two that depend on a permission, to test the roles
+// without the example resources: GET /view asks for permView (RequirePermission), and GET /can
+// answers "yes" or "no" to whether the user has permExport (User.Can). The cookies of
+// testutil.Login work on them.
+func authAPI(pool *pgxpool.Pool, change ...func(*config.Config)) http.Handler {
+	var cfg config.Config
+	for _, c := range change {
+		c(&cfg)
+	}
+	authn := auth.NewService(pool, auth.Options{
+		RequireVerifiedEmail:  cfg.RequireEmailVerification,
+		RequireAdminTwoFactor: cfg.RequireAdminTwoFactor,
+	})
+	open := func(next http.Handler) http.Handler { return next }
+
+	mux := http.NewServeMux()
+	auth.Register(mux, authn, auth.Limits{
+		Login: open, Register: open, TwoFactor: open, Tokens: open, Emails: open,
+		Account: ratelimit.New(store.New(pool), "account", time.Second, 100),
+	})
+	authn.DefinePermissions(permExport)
+	mux.Handle("GET /view", authn.RequirePermission(permView, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	mux.Handle("GET /can", authn.RequireUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		answer := "no"
+		if auth.MustUser(r.Context()).Can(permExport) {
+			answer = "yes"
+		}
+		fmt.Fprint(w, answer)
 	})))
 	return mux
 }

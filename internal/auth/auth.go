@@ -1,6 +1,6 @@
 // Package auth implements authentication: registration, login with sessions stored in
-// PostgreSQL and sent in an HttpOnly cookie, roles (user/admin) and the middlewares that
-// protect the routes.
+// PostgreSQL and sent in an HttpOnly cookie, roles with their permissions and the middlewares
+// that protect the routes.
 package auth
 
 import (
@@ -23,7 +23,8 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/store"
 )
 
-// User roles.
+// The two roles that come with the template: user, without permissions, and admin, with all of
+// them. An administrator creates the others, each with its permissions (see permissions.go).
 const (
 	RoleUser  = "user"
 	RoleAdmin = "admin"
@@ -39,6 +40,10 @@ type User struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
 	Role  string `json:"role"`
+	// Permissions is what the user can do, for the frontend to show or hide what depends on it: the
+	// permissions of their role, or every one for an administrator. It comes with the user's own
+	// account (the login, /auth/me), and not in the lists of users of the administrators.
+	Permissions []string `json:"permissions,omitzero"`
 	// EmailVerifiedAt is null until the user confirms their email.
 	EmailVerifiedAt  *time.Time `json:"email_verified_at"`
 	TwoFactorEnabled bool       `json:"two_factor_enabled"`
@@ -191,6 +196,9 @@ type Service struct {
 
 	catalog *i18n.Catalog
 	emails  *mail.Templates // email templates, per language
+
+	// permissions are the ones the code defined (see permissions.go).
+	permissions permissionSet
 }
 
 // NewService creates the authentication service. It takes the pool, and not only the queries,
@@ -236,9 +244,6 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 	if err := in.validate(); err != nil {
 		return User{}, err
 	}
-	if role != RoleUser && role != RoleAdmin {
-		return User{}, fmt.Errorf("unknown role %q", role)
-	}
 
 	hash, err := HashPassword(ctx, in.Password)
 	if err != nil {
@@ -263,11 +268,14 @@ func (s *Service) CreateUser(ctx context.Context, in RegisterInput, role string)
 	if _, ok := db.IsUniqueViolation(err); ok {
 		return User{}, httpx.Conflict("email_taken", "email")
 	}
+	if _, ok := db.IsForeignKeyViolation(err); ok {
+		return User{}, fmt.Errorf("unknown role %q", role)
+	}
 	if err != nil {
 		return User{}, fmt.Errorf("create user: %w", err)
 	}
 
-	return toUser(u), nil
+	return s.withPermissions(ctx, toUser(u))
 }
 
 // errInvalidCredentials is the answer to any failed login. It does not tell "the email does
@@ -305,7 +313,7 @@ func (s *Service) Authenticate(ctx context.Context, email, password string) (Use
 		s.rehashPassword(ctx, u, password)
 	}
 
-	return toUser(u), nil
+	return s.withPermissions(ctx, toUser(u))
 }
 
 // rehashPassword hashes the password again with the current argon2 parameters, after a

@@ -9,15 +9,26 @@ migrations, because they represent the initial schema.
 
 ## [Unreleased]
 
-Two things every project ends up writing: example data for development, and lists the client can sort.
+Roles of the project with their permissions, for the systems where `user` and `admin` are not enough, and two things every project ends up writing: example data for development, and lists the client can sort. The schema changes: the `roles` and `role_permissions` tables.
 
 ### Added
 
+- **Roles of the project, with permissions** (`internal/auth/permissions.go` and `roles.go`; see "Roles" in `docs/auth.md`): besides `user` and `admin`, an administrator creates roles (`cashier`, `auditor`) and gives each one its permissions, from `/admin/roles`. It is the equivalent of `spatie/laravel-permission`, with one role per user.
+  - **A permission is a name the code defines** (`products.manage`). A route asks for it with `authn.RequirePermission(PermManage, …)`, and a handler with `user.Can(PermManage)`. The admin role has every one.
+  - **`GET /admin/permissions`, and `GET`, `POST`, `PUT` and `DELETE` on `/admin/roles`.** Changing the permissions of a role asks for the administrator's password and applies from the next request of its users. A role in use is not deleted (`409 role_in_use`), and `user` and `admin` are not changed (`409 built_in_role`).
+  - **`/auth/me` and the login carry `permissions`**, for the frontend to show or hide what depends on them.
+  - **The schema changes:** the new `roles` and `role_permissions` tables, and `users.role` is a foreign key to `roles` instead of a `CHECK`.
+  - **`testutil.CreateRole`**, to log in a user with a role of the project in a test.
 - **`make seed`** (`cmd/api/seed.go`): fills the development database with an administrator (`admin@example.com`) and a user (`user@example.com`), with the password of `SEED_PASSWORD` or the one asked for in the terminal, plus example data: a catalog, some notes and a branch with its hours. It is the equivalent of Laravel's seeders. Running it again adds nothing, and it refuses to run with `APP_ENV=production`. Each resource adds its own seeder (see "Seed data" in `docs/adding-a-resource.md`).
+- **`make fresh` and `make fresh-test`** (`cmd/api/fresh.go`): they recreate the development database from the migrations and seed it, or the test one. It is the equivalent of Laravel's `migrate:fresh --seed`, and what the template's way of working needed: its original migrations are edited, and goose does not apply again one it already applied. They refuse to run in production.
 - **Sorting a list with `?sort=`** (`httpx.ParseSort`): the name of a column, with `-` in front for descending. It only lets through the columns the handler names, and the query has one `CASE` per order, so a text of the request never reaches the SQL. `GET /products` takes `?sort=` with `name`, `price` or `created_at` (see "Sorting a list" in `docs/adding-a-resource.md`).
 
 ### Changed
 
+- **The writes of `categories` and `products` ask for a permission** (`categories.manage`, `products.manage`) instead of an administrator, and the inactive products are seen by whoever manages them: they are the example of `RequirePermission` and `user.Can`. An administrator can do the same as before.
+- **`make seed` also creates a role and an account with it** (`catalog_manager`, `manager@example.com`), to see what a permission does.
+- **"What it does not include" no longer lists permissions finer than `user`/`admin`** (`docs/auth.md`, `docs/decisions.md`). Several roles per user are still left out.
+- **`docs/auth.md` and `AGENTS.md` say who types the password of each account** ("Roles"): `make seed` and `SEED_PASSWORD` for the throwaway accounts of development, which a coding agent may use; the terminal for a real administrator, which the person creates themselves; and `ADMIN_PASSWORD` only for a deploy script. The commands did not change.
 - **"Quick start" in the README uses `make seed`** instead of `make create-admin`, which stays for production and for an administrator with your own email.
 
 ## [v0.11.0] - 2026-11-21

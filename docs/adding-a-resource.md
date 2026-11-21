@@ -208,7 +208,10 @@ Copy the example package to `internal/orders` and adapt each file:
   mux.Handle("GET /orders", httpx.NoStore(authn.RequireUser(httpx.Handle(h.list))))
   mux.Handle("PUT /orders/{id}/cancel", httpx.NoStore(authn.RequireUser(httpx.Handle(h.cancel))))
   mux.Handle("GET /admin/orders", httpx.NoStore(authn.RequireAdmin(httpx.Handle(h.listAll))))
+  mux.Handle("POST /orders/{id}/refund", httpx.NoStore(authn.RequirePermission(PermRefund, httpx.Handle(h.refund))))
   ```
+
+  `PermRefund` is a constant of the package (`const PermRefund = "orders.refund"`): asking for it in a route is all it takes for an administrator to give it to a role (see "Roles" in [auth.md](auth.md#roles)). Use a permission for what someone other than an administrator could do, and `RequireAdmin` for the rest.
 
   `httpx.NoStore` (`Cache-Control: no-store`) goes on the routes with data of a person, like these orders, so neither the browser nor a proxy keeps the response (see `internal/notes/routes.go`). Data that is the same for everyone, like the categories, does not need it.
 

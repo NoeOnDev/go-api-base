@@ -69,6 +69,9 @@ func WithConfig(change func(*config.Config)) Option {
 
 // NewAPI returns the whole API (routes and middlewares) connected to the test database.
 // By default the emails go to a mail.Recorder that is thrown away.
+//
+// Every request sent to it with Do, Upload and the others is checked against openapi.yaml (see
+// checkContract).
 func NewAPI(pool *pgxpool.Pool, opts ...Option) http.Handler {
 	d := server.Deps{
 		Logger: slog.New(slog.DiscardHandler),
@@ -88,7 +91,7 @@ func NewAPI(pool *pgxpool.Pool, opts ...Option) http.Handler {
 		}
 		d.Box = box
 	}
-	return server.NewHandler(d)
+	return contractAPI{server.NewHandler(d)}
 }
 
 var tokenInLink = regexp.MustCompile(`[?&]token=([A-Za-z0-9_-]+)`)
@@ -139,6 +142,7 @@ func request(t *testing.T, api http.Handler, ip, lang string, cookie *http.Cooki
 	}
 	w := httptest.NewRecorder()
 	api.ServeHTTP(w, r)
+	checkContract(t, api, method, path, r.Header, []byte(body), w)
 	return w
 }
 
@@ -158,13 +162,14 @@ func Upload(t *testing.T, api http.Handler, cookie *http.Cookie, path, name stri
 	if err := form.Close(); err != nil {
 		t.Fatal(err)
 	}
-	r := httptest.NewRequest(http.MethodPost, path, &body)
+	r := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body.Bytes()))
 	r.Header.Set("Content-Type", form.FormDataContentType())
 	if cookie != nil {
 		r.AddCookie(cookie)
 	}
 	w := httptest.NewRecorder()
 	api.ServeHTTP(w, r)
+	checkContract(t, api, http.MethodPost, path, r.Header, body.Bytes(), w)
 	return w
 }
 

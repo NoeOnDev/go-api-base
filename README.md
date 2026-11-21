@@ -8,6 +8,7 @@ It is complete, but with few dependencies: it favors the standard library and ad
 - **typed queries with sqlc**
 - **the River job queue**, also on PostgreSQL
 - official packages from the Go team for passwords and request limits
+- `kin-openapi`, only in the tests, to check the responses against the contract of the API
 - the official AWS SDK, only for keeping the uploaded files in S3 (a project that does not use S3 removes it)
 
 It runs as a single binary, with PostgreSQL as the only service (no Redis or separate queues). It works the same with **one instance or several** behind a load balancer: sessions, per-account limits, the queue and real time are coordinated through PostgreSQL (see [docs/decisions.md](docs/decisions.md#multiple-instances)).
@@ -35,6 +36,7 @@ It includes:
   - `appointments`: bookings within those hours, without double bookings, and a reminder the day before
   - `shifts`: work shifts, also overnight, clocking in and out, and the minutes worked per day
   - `classes`: classes that repeat some days of the week, with a session canceled or moved
+- **The contract of the API in OpenAPI** (`GET /openapi.yaml`), to generate the frontend's types. The tests check every response against it, so it does not go out of date (see [docs/openapi.md](docs/openapi.md)).
 - **A reference deployment** for a single server: a `Dockerfile`, and Docker Compose with PostgreSQL and Caddy for HTTPS (see [docs/deploy.md](docs/deploy.md)).
 - **Quality:**
   - integration tests against PostgreSQL
@@ -105,6 +107,7 @@ It includes:
 | Method | Path | Access |
 |---|---|---|
 | `GET` | `/healthz` | Public. `200` if the API and the database respond, `503` if not |
+| `GET` | `/openapi.yaml` | Public. The contract of the API, in OpenAPI 3 (see [docs/openapi.md](docs/openapi.md)) |
 | `POST` | `/auth/register`, `/auth/login` | Public, with attempt limits |
 | `POST` | `/auth/logout` | Public; deletes the session if it exists and always deletes the cookie |
 | `GET`, `PUT` | `/auth/me` | With a session: view and edit the profile |
@@ -260,6 +263,7 @@ internal/mail/       email sending (log and SMTP) and templates by language
 internal/jobs/       background jobs (River): workers, periodic jobs and the email queue
 internal/realtime/   real time with SSE: streams, channels and topics
 internal/notifications/ notifications stored and sent live
+internal/openapi/     the contract of the API (openapi.yaml), served at GET /openapi.yaml
 internal/storage/    where the uploaded files are kept: the local disk, S3 or memory (tests)
 internal/files/      uploaded files: upload, download with permissions, and cleanup
 internal/totp/       TOTP codes for 2FA (RFC 6238)
@@ -306,7 +310,7 @@ git init
 Then:
 - **Keep `TEMPLATE_VERSION`:** it says which version of the template the project came from (see the [CHANGELOG](CHANGELOG.md)).
 - Keep the authentication.
-- Keep the examples that look like your project and delete the rest. For `notes`, `categories` and `products`: their package, their query (`internal/db/queries`), their migration, their registration in `internal/server/routes.go` and their seeder in `cmd/api/seed.go` (with `notes`, also `00017_create_note_attachments.sql`, the table of its attached files; `seedCatalog` is the seeder of `categories` and `products`, with their role and its account; `TestSeed` in `seed_test.go` has a line per table in `want`, where `users` and `roles` go back to 2); then `make sqlc` and `make check`, which names the catalog keys left unused (delete them from every `internal/i18n/locales/*.json`, and the error codes from the table of [docs/i18n.md](docs/i18n.md#error-codes)). `products` references `categories`: delete it first, or both. The schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples).
+- Keep the examples that look like your project and delete the rest. For `notes`, `categories` and `products`: their package, their query (`internal/db/queries`), their migration, their registration in `internal/server/routes.go` and their seeder in `cmd/api/seed.go` (with `notes`, also `00017_create_note_attachments.sql`, the table of its attached files; `seedCatalog` is the seeder of `categories` and `products`, with their role and its account; `TestSeed` in `seed_test.go` has a line per table in `want`, where `users` and `roles` go back to 2); then `make sqlc` and `make check`, which names the catalog keys left unused (delete them from every `internal/i18n/locales/*.json`, and the error codes from the table of [docs/i18n.md](docs/i18n.md#error-codes)) and the routes left in `internal/openapi/openapi.yaml` without code (delete their operations and their schemas). `products` references `categories`: delete it first, or both. The schedule ones have their recipe in [docs/time.md](docs/time.md#removing-the-examples).
 - If you don't need some auth feature (open registration, 2FA, email change…), [docs/auth.md](docs/auth.md#removing-features) says what to delete.
 - If you don't need the job queue or real time, [docs/jobs.md](docs/jobs.md#removing-the-queue) and [docs/realtime.md](docs/realtime.md#removing-real-time) explain how to remove them.
 - If you don't need file uploads, or only S3, [docs/files.md](docs/files.md#removing-file-uploads) says what to delete.
@@ -324,6 +328,7 @@ Then:
 - [Files](docs/files.md): uploads on the local disk or in S3, using a file in a resource, security and how to remove them.
 - [Real time](docs/realtime.md): SSE events from React, topics with permissions, streams for AI agents, multiple instances and how to remove it.
 - [Adding a resource](docs/adding-a-resource.md)
+- [The contract of the API (OpenAPI)](docs/openapi.md): the frontend's types, how the tests keep the document true, and what to change with the API.
 - [Deploying](docs/deploy.md): the image, Docker Compose with PostgreSQL and Caddy, updating, backups, and running it without Docker.
 - [Design decisions](docs/decisions.md): why it is built this way, how it works with multiple instances and what it does not include.
 - [AGENTS.md](AGENTS.md): conventions for coding agents (Claude Code, Codex, Copilot), with an index of where each topic is.

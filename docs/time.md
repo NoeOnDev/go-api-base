@@ -306,7 +306,7 @@ The schedule examples are independent from the rest of the template, except that
 2. In `internal/server/routes.go`, remove `branches.Register` and the `branchesHandler`. In `cmd/api/seed.go`, remove `seedBranches` and its line in `seeders`, and in `seed_test.go`, the two lines of the branches in `want`.
 3. Remove the keys `errors.branch_not_found`, `errors.branch_in_use`, `errors.branch_exception_not_found`, `validation.overlapping_hours`, `validation.closed_without_hours`, `validation.same_as_start` and `validation.too_many_items` from the catalogs, and the three codes from the table of [i18n.md](i18n.md#error-codes).
 
-Then `make sqlc` and `make check`, which says if a catalog key is left unused. `internal/civil`, `httpx.ParseDateRange`, `db.IsExclusionViolation` and `testutil.WithJobs` stay: they are part of the base.
+Then `make sqlc` and `make check`, which says if a catalog key is left unused. It also names the routes left in `internal/openapi/openapi.yaml` without code: delete their operations, and the schemas only they used. `internal/civil`, `httpx.ParseDateRange`, `db.IsExclusionViolation` and `testutil.WithJobs` stay: they are part of the base.
 
 These recipes were tested on a copy of the project, removing `appointments` alone and then the other three, with a test database created only with the remaining migrations.
 

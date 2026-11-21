@@ -1,0 +1,3051 @@
+# The contract of the API: every route, its parameters and its responses (see docs/openapi.md).
+#
+# It is written by hand, and the tests keep it true: every response of the integration tests is
+# checked against it (testutil.Do), and every route of the code must be here (internal/openapi).
+# When a route, a field or an error changes, change it here in the same commit.
+openapi: 3.0.3
+info:
+  title: API
+  version: '1'
+  description: |-
+    The routes of the API, their parameters and their responses.
+
+    A session is a cookie the login sets: send it with each request (`credentials: "include"` from another origin).
+    Every error has the same shape (`Error`), with a `code` for the code of the frontend and a `message` for the person,
+    in the language of `Accept-Language`. Any route can also answer `400` (a body that is not valid JSON), `429`
+    (too many requests; see `Retry-After`) and `500`: they are the `default` response of each one.
+tags:
+- {name: Account}
+- {name: Sessions}
+- {name: Two-factor}
+- {name: Users}
+- {name: Roles}
+- {name: Real time}
+- {name: Notifications}
+- {name: Files}
+- {name: Notes}
+- {name: Catalog}
+- {name: Branches}
+- {name: Appointments}
+- {name: Shifts}
+- {name: Classes}
+- {name: API}
+security:
+- {session: []}
+paths:
+  /auth/register:
+    post:
+      operationId: register
+      tags: [Account]
+      summary: Create an account and start its session
+      description: 'Public. Errors: `409 email_taken`.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: {type: string}
+                email: {type: string}
+                password: {type: string}
+                time_zone: {type: string, description: An IANA name like America/Mexico_City.}
+              additionalProperties: false
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/login:
+    post:
+      operationId: login
+      tags: [Account]
+      summary: Start a session
+      description: 'Public. It sets the session cookie. Errors: `401 invalid_credentials`, `403 account_suspended`, `429 too_many_requests`.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: {type: string}
+                password: {type: string}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        '202':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                description: 'The account has 2FA: the session starts with POST /auth/two-factor/challenge.'
+                required: [two_factor_required]
+                properties:
+                  two_factor_required: {type: boolean}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [Account]
+      summary: Close the session
+      description: Public. It deletes the cookie, also when the session had already expired.
+      security: []
+      responses:
+        '204': {description: 'Done, without a body.'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [Account]
+      summary: The account of the session
+      description: With a session, even without a verified email.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: updateMe
+      tags: [Account]
+      summary: Edit the profile
+      description: With a session, even without a verified email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                locale: {type: string, description: One of the languages of the API; an empty text goes back to the default., nullable: true}
+                time_zone: {type: string, description: An IANA name; an empty text goes back to the application's., nullable: true}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteMe
+      tags: [Account]
+      summary: Delete the account
+      description: 'With a session, even without a verified email. Errors: `409 last_admin`, `409 account_has_data`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: {type: string, description: 'The account''s own password, to confirm.'}
+              additionalProperties: false
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/password:
+    put:
+      operationId: changePassword
+      tags: [Account]
+      summary: Change the password
+      description: With a session, even without a verified email. It closes the other sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, password]
+              properties:
+                current_password: {type: string}
+                password: {type: string}
+              additionalProperties: false
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/password/forgot:
+    post:
+      operationId: forgotPassword
+      tags: [Account]
+      summary: Ask for a link to reset the password
+      description: Public. It answers the same whether the email is registered or not.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: {type: string}
+              additionalProperties: false
+      responses:
+        '202':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message: {type: string, description: 'A text for the user, in the language of the request.'}
+                additionalProperties: false
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/password/reset:
+    post:
+      operationId: resetPassword
+      tags: [Account]
+      summary: Set a new password with the link
+      description: Public.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: {type: string, description: The token of the link that arrived by email.}
+                password: {type: string}
+              additionalProperties: false
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/email:
+    put:
+      operationId: requestEmailChange
+      tags: [Account]
+      summary: Ask to change the email
+      description: 'With a session, even without a verified email. The change happens when the link sent to the new address is opened. Errors: `409 email_taken`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: {type: string}
+                password: {type: string, description: 'The account''s own password, to confirm.'}
+              additionalProperties: false
+      responses:
+        '202':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message: {type: string, description: 'A text for the user, in the language of the request.'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/email/confirm:
+    post:
+      operationId: confirmEmailChange
+      tags: [Account]
+      summary: Confirm the new email with the link
+      description: Public.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: {type: string, description: The token of the link that arrived by email.}
+              additionalProperties: false
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/email/verify:
+    post:
+      operationId: verifyEmail
+      tags: [Account]
+      summary: Verify the email with the link
+      description: Public.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: {type: string, description: The token of the link that arrived by email.}
+              additionalProperties: false
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/email/resend:
+    post:
+      operationId: resendVerification
+      tags: [Account]
+      summary: Send the verification link again
+      description: 'With a session, even without a verified email. `204` if the email is already verified. Errors: `429 too_many_emails`.'
+      responses:
+        '202':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message: {type: string, description: 'A text for the user, in the language of the request.'}
+                additionalProperties: false
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/invitation/accept:
+    post:
+      operationId: acceptInvitation
+      tags: [Account]
+      summary: Accept an invitation and choose the password
+      description: Public.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: {type: string, description: The token of the link that arrived by email.}
+                password: {type: string}
+                time_zone: {type: string, description: An IANA name like America/Mexico_City., nullable: true}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/sessions:
+    get:
+      operationId: listSessions
+      tags: [Sessions]
+      summary: The sessions of the account, per device
+      description: With a session, even without a verified email.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Session'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/sessions/{id}:
+    delete:
+      operationId: revokeSession
+      tags: [Sessions]
+      summary: Close another session
+      description: With a session, even without a verified email.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/sessions/revoke-others:
+    post:
+      operationId: revokeOtherSessions
+      tags: [Sessions]
+      summary: Close every other session
+      description: With a session, even without a verified email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: {type: string, description: 'The account''s own password, to confirm.'}
+              additionalProperties: false
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/two-factor/setup:
+    post:
+      operationId: setupTwoFactor
+      tags: [Two-factor]
+      summary: Get the secret to add the account to an authenticator app
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [secret, otpauth_url]
+                properties:
+                  secret: {type: string}
+                  otpauth_url: {type: string, description: The address the QR code carries.}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/two-factor/enable:
+    post:
+      operationId: enableTwoFactor
+      tags: [Two-factor]
+      summary: Turn on 2FA with a code of the app
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, password]
+              properties:
+                code: {type: string}
+                password: {type: string, description: 'The account''s own password, to confirm.'}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                description: They are shown only this time.
+                required: [recovery_codes]
+                properties:
+                  recovery_codes:
+                    type: array
+                    items: {type: string}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/two-factor/disable:
+    post:
+      operationId: disableTwoFactor
+      tags: [Two-factor]
+      summary: Turn off 2FA
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). With a code of the app or a recovery code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: {type: string, description: 'The account''s own password, to confirm.'}
+                code: {type: string}
+                recovery_code: {type: string}
+              additionalProperties: false
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/two-factor/recovery-codes:
+    post:
+      operationId: regenerateRecoveryCodes
+      tags: [Two-factor]
+      summary: Get new recovery codes
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: {type: string, description: 'The account''s own password, to confirm.'}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                description: They are shown only this time.
+                required: [recovery_codes]
+                properties:
+                  recovery_codes:
+                    type: array
+                    items: {type: string}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/two-factor/challenge:
+    post:
+      operationId: twoFactorChallenge
+      tags: [Two-factor]
+      summary: Second step of the login
+      description: 'Public. After a login that answered `202`. Errors: `401 two_factor_challenge_expired`, `401 two_factor_locked`.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code: {type: string}
+                recovery_code: {type: string}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/users:
+    get:
+      operationId: listUsers
+      tags: [Users]
+      summary: The users
+      description: Administrators only.
+      parameters:
+      - name: q
+        in: query
+        schema: {type: string}
+        description: Searches the name and the email.
+      - name: role
+        in: query
+        schema: {type: string}
+      - name: status
+        in: query
+        schema: {type: string, enum: [active, invited, suspended]}
+      - {$ref: '#/components/parameters/Limit'}
+      - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/AdminUser'}
+                  meta: {$ref: '#/components/schemas/PageMeta'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: inviteUser
+      tags: [Users]
+      summary: Invite a user
+      description: 'Administrators only. The person chooses their password from the link that arrives by email. Errors: `409 email_taken`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, role]
+              properties:
+                name: {type: string}
+                email: {type: string}
+                role: {type: string}
+                locale: {type: string, nullable: true}
+                time_zone: {type: string, description: An IANA name like America/Mexico_City., nullable: true}
+                password: {type: string, description: 'The administrator''s own, only to invite another administrator.'}
+              additionalProperties: false
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminUser'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/users/{id}:
+    get:
+      operationId: getUser
+      tags: [Users]
+      summary: A user
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminUser'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteUser
+      tags: [Users]
+      summary: Delete a user
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: {type: string, description: 'The account''s own password, to confirm.'}
+              additionalProperties: false
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/users/{id}/role:
+    put:
+      operationId: changeUserRole
+      tags: [Users]
+      summary: Change the role of a user
+      description: 'Administrators only. Errors: `409 own_account`, `409 last_admin`.'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role, password]
+              properties:
+                role: {type: string}
+                password: {type: string, description: 'The account''s own password, to confirm.'}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminUser'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/users/{id}/suspend:
+    post:
+      operationId: suspendUser
+      tags: [Users]
+      summary: Suspend a user
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminUser'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/users/{id}/unsuspend:
+    post:
+      operationId: unsuspendUser
+      tags: [Users]
+      summary: Lift the suspension
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AdminUser'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/users/{id}/invitation:
+    post:
+      operationId: resendInvitation
+      tags: [Users]
+      summary: Send the invitation again
+      description: 'Administrators only. Errors: `409 invitation_accepted`, `409 user_suspended`, `429 too_many_emails`.'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/permissions:
+    get:
+      operationId: listPermissions
+      tags: [Roles]
+      summary: The permissions a role can have
+      description: Administrators only.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {type: string}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/roles:
+    get:
+      operationId: listRoles
+      tags: [Roles]
+      summary: The roles
+      description: Administrators only.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Role'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createRole
+      tags: [Roles]
+      summary: Create a role
+      description: 'Administrators only. Errors: `409 role_taken`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, name]
+              properties:
+                key: {type: string, description: 'Lowercase letters, numbers and `_`. It does not change.'}
+                name: {type: string}
+                permissions:
+                  type: array
+                  items: {type: string}
+                password: {type: string, description: 'The administrator''s own, to change an existing role.'}
+              additionalProperties: false
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Role'}
+          headers:
+            Location:
+              description: The path of the new resource.
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /admin/roles/{key}:
+    put:
+      operationId: updateRole
+      tags: [Roles]
+      summary: Change the name and the permissions of a role
+      description: 'Administrators only. It applies from the next request of its users. Errors: `409 built_in_role`.'
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, password]
+              properties:
+                key: {type: string, description: 'Lowercase letters, numbers and `_`. It does not change.'}
+                name: {type: string}
+                permissions:
+                  type: array
+                  items: {type: string}
+                password: {type: string, description: 'The administrator''s own, to change an existing role.'}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Role'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteRole
+      tags: [Roles]
+      summary: Delete a role
+      description: 'Administrators only. Errors: `409 role_in_use`, `409 built_in_role`.'
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema: {type: string}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        default: {$ref: '#/components/responses/Error'}
+  /events:
+    get:
+      operationId: events
+      tags: [Real time]
+      summary: The stream of real-time events (SSE)
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: topics
+        in: query
+        schema: {type: string}
+        description: Topics to listen to, separated by commas.
+      responses:
+        '200':
+          description: OK
+          content:
+            text/event-stream:
+              schema: {type: string, description: Server-sent events. The first one is `ready`.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        default: {$ref: '#/components/responses/Error'}
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [Notifications]
+      summary: The notifications of the user
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: unread
+        in: query
+        schema: {type: boolean}
+        description: Only the unread ones.
+      - name: limit
+        in: query
+        schema: {type: integer, minimum: 1, maximum: 100}
+      - name: after
+        in: query
+        schema: {type: string}
+        description: The `meta.next` of the previous page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta, unread]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Notification'}
+                  meta: {$ref: '#/components/schemas/CursorMeta'}
+                  unread: {type: integer, format: int64, description: 'How many are unread, in all.'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /notifications/{id}/read:
+    post:
+      operationId: readNotification
+      tags: [Notifications]
+      summary: Mark a notification as read
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Notification'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /notifications/read-all:
+    post:
+      operationId: readAllNotifications
+      tags: [Notifications]
+      summary: Mark every notification as read
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        default: {$ref: '#/components/responses/Error'}
+  /files:
+    post:
+      operationId: uploadFile
+      tags: [Files]
+      summary: Upload a file
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). Images and documents up to 10 MB. Errors: `400 malformed_upload`,
+        `409 storage_quota_exceeded`.'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/File'}
+          headers:
+            Location:
+              description: The path of the new resource.
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /files/{id}:
+    get:
+      operationId: downloadFile
+      tags: [Files]
+      summary: A file
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). For its owner or an administrator.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - name: download
+        in: query
+        schema: {type: string}
+        description: With any value, an image is downloaded instead of shown.
+      responses:
+        '200':
+          description: OK
+          content:
+            '*/*':
+              schema: {type: string, format: binary}
+        '304': {description: The browser already has it (`If-None-Match`).}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteFile
+      tags: [Files]
+      summary: Delete a file that no resource uses
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). Errors: `409 file_in_use`.'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        default: {$ref: '#/components/responses/Error'}
+  /notes:
+    get:
+      operationId: listNotes
+      tags: [Notes]
+      summary: The user's notes
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - {$ref: '#/components/parameters/Limit'}
+      - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Note'}
+                  meta: {$ref: '#/components/schemas/PageMeta'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createNote
+      tags: [Notes]
+      summary: Create a note
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: {type: string}
+                body: {type: string}
+              additionalProperties: false
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Note'}
+          headers:
+            Location:
+              description: The path of the new resource.
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /notes/{id}:
+    get:
+      operationId: getNote
+      tags: [Notes]
+      summary: A note
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Note'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: updateNote
+      tags: [Notes]
+      summary: Replace a note
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: {type: string}
+                body: {type: string}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Note'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteNote
+      tags: [Notes]
+      summary: Delete a note
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /notes/{id}/attachments:
+    get:
+      operationId: listNoteAttachments
+      tags: [Notes]
+      summary: The files of a note
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/File'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: attachToNote
+      tags: [Notes]
+      summary: Upload a file and add it to the note
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/File'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /notes/{id}/attachments/{file_id}:
+    delete:
+      operationId: detachFromNote
+      tags: [Notes]
+      summary: Take a file off the note
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - name: file_id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /categories:
+    get:
+      operationId: listCategories
+      tags: [Catalog]
+      summary: The categories
+      description: Public.
+      security: []
+      parameters:
+      - {$ref: '#/components/parameters/Limit'}
+      - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Category'}
+                  meta: {$ref: '#/components/schemas/PageMeta'}
+                additionalProperties: false
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createCategory
+      tags: [Catalog]
+      summary: Create a category
+      description: 'With the `categories.manage` permission (the administrators have every one). Errors: `409 slug_taken`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug]
+              properties:
+                name: {type: string}
+                slug: {type: string}
+              additionalProperties: false
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Category'}
+          headers:
+            Location:
+              description: The path of the new resource.
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /categories/{id}:
+    get:
+      operationId: getCategory
+      tags: [Catalog]
+      summary: A category
+      description: Public.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Category'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: updateCategory
+      tags: [Catalog]
+      summary: Replace a category
+      description: With the `categories.manage` permission (the administrators have every one).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug]
+              properties:
+                name: {type: string}
+                slug: {type: string}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Category'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteCategory
+      tags: [Catalog]
+      summary: Delete a category
+      description: 'With the `categories.manage` permission (the administrators have every one). Errors: `409 category_in_use`.'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        default: {$ref: '#/components/responses/Error'}
+  /products:
+    get:
+      operationId: listProducts
+      tags: [Catalog]
+      summary: The products
+      description: Public. Visitors see the active ones; whoever has `products.manage`, all of them.
+      security: []
+      parameters:
+      - name: category_id
+        in: query
+        schema: {type: integer, format: int64}
+      - name: q
+        in: query
+        schema: {type: string}
+        description: Searches the name.
+      - name: active
+        in: query
+        schema: {type: boolean}
+        description: Only for whoever manages the products.
+      - name: sort
+        in: query
+        schema: {type: string, enum: [name, -name, price, -price, created_at, -created_at]}
+        description: The newest first by default.
+      - {$ref: '#/components/parameters/Limit'}
+      - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Product'}
+                  meta: {$ref: '#/components/schemas/PageMeta'}
+                additionalProperties: false
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createProduct
+      tags: [Catalog]
+      summary: Create a product
+      description: With the `products.manage` permission (the administrators have every one).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_id, name, slug]
+              properties:
+                category_id: {type: integer, format: int64}
+                name: {type: string}
+                slug: {type: string}
+                description: {type: string}
+                price_cents: {type: integer, format: int64}
+                stock: {type: integer, format: int32}
+                active: {type: boolean, nullable: true}
+              additionalProperties: false
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Product'}
+          headers:
+            Location:
+              description: The path of the new resource.
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /products/{id}:
+    get:
+      operationId: getProduct
+      tags: [Catalog]
+      summary: A product
+      description: Public.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Product'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: updateProduct
+      tags: [Catalog]
+      summary: Replace a product
+      description: With the `products.manage` permission (the administrators have every one).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_id, name, slug]
+              properties:
+                category_id: {type: integer, format: int64}
+                name: {type: string}
+                slug: {type: string}
+                description: {type: string}
+                price_cents: {type: integer, format: int64}
+                stock: {type: integer, format: int32}
+                active: {type: boolean, nullable: true}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Product'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteProduct
+      tags: [Catalog]
+      summary: Delete a product
+      description: With the `products.manage` permission (the administrators have every one).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /branches:
+    get:
+      operationId: listBranches
+      tags: [Branches]
+      summary: The branches, with their weekly hours
+      description: Public.
+      security: []
+      parameters:
+      - {$ref: '#/components/parameters/Limit'}
+      - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Branch'}
+                  meta: {$ref: '#/components/schemas/PageMeta'}
+                additionalProperties: false
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createBranch
+      tags: [Branches]
+      summary: Create a branch
+      description: Administrators only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, time_zone]
+              properties:
+                name: {type: string}
+                time_zone: {type: string, description: An IANA name like America/Mexico_City.}
+              additionalProperties: false
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Branch'}
+          headers:
+            Location:
+              description: The path of the new resource.
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /branches/{id}:
+    get:
+      operationId: getBranch
+      tags: [Branches]
+      summary: A branch
+      description: Public.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Branch'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: updateBranch
+      tags: [Branches]
+      summary: Replace the name and the zone of a branch
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, time_zone]
+              properties:
+                name: {type: string}
+                time_zone: {type: string, description: An IANA name like America/Mexico_City.}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Branch'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteBranch
+      tags: [Branches]
+      summary: Delete a branch
+      description: 'Administrators only. Errors: `409 branch_in_use`.'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        default: {$ref: '#/components/responses/Error'}
+  /branches/{id}/hours:
+    put:
+      operationId: setBranchHours
+      tags: [Branches]
+      summary: Replace the weekly hours of a branch
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hours]
+              properties:
+                hours:
+                  type: array
+                  items:
+                    type: object
+                    required: [weekday, opens_at, closes_at]
+                    additionalProperties: false
+                    properties:
+                      weekday: {type: integer, minimum: 0, maximum: 6}
+                      opens_at: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+                      closes_at: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Branch'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /branches/{id}/schedule:
+    get:
+      operationId: getBranchSchedule
+      tags: [Branches]
+      summary: The real hours of some days
+      description: Public. A week from today by default.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - {$ref: '#/components/parameters/From'}
+      - {$ref: '#/components/parameters/To'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [time_zone, data]
+                properties:
+                  time_zone: {type: string}
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/ScheduleDay'}
+                additionalProperties: false
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /branches/{id}/status:
+    get:
+      operationId: getBranchStatus
+      tags: [Branches]
+      summary: Whether the branch is open now
+      description: Public.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BranchStatus'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /branches/{id}/exceptions:
+    get:
+      operationId: listBranchExceptions
+      tags: [Branches]
+      summary: The days with other hours (holidays)
+      description: Public.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - {$ref: '#/components/parameters/From'}
+      - {$ref: '#/components/parameters/To'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/BranchException'}
+                additionalProperties: false
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /branches/{id}/exceptions/{date}:
+    put:
+      operationId: setBranchException
+      tags: [Branches]
+      summary: Set the hours of one date
+      description: Administrators only. Closed all day, or with other hours.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - name: date
+        in: path
+        required: true
+        schema: {type: string, format: date}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                closed: {type: boolean}
+                opens_at: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+                closes_at: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+                note: {type: string}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BranchException'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteBranchException
+      tags: [Branches]
+      summary: Go back to the weekly hours on that date
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - name: date
+        in: path
+        required: true
+        schema: {type: string, format: date}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /branches/{id}/availability:
+    get:
+      operationId: getBranchAvailability
+      tags: [Appointments]
+      summary: The free slots of a day
+      description: Public.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - name: date
+        in: query
+        schema: {type: string, format: date, example: '2026-11-05'}
+        description: Today of the branch by default.
+      - name: duration
+        in: query
+        schema: {type: integer, minimum: 15, maximum: 240}
+        description: Minutes of the appointment, in steps of 15; 30 by default.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [date, time_zone, duration_minutes, slots]
+                properties:
+                  date: {type: string, format: date, example: '2026-11-05'}
+                  time_zone: {type: string}
+                  duration_minutes: {type: integer, format: int32}
+                  slots:
+                    type: array
+                    items: {$ref: '#/components/schemas/Slot'}
+                additionalProperties: false
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /branches/{id}/appointments:
+    get:
+      operationId: listBranchAppointments
+      tags: [Appointments]
+      summary: The agenda of a branch on a day
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - name: date
+        in: query
+        schema: {type: string, format: date, example: '2026-11-05'}
+        description: Today of the branch by default.
+      - {$ref: '#/components/parameters/Limit'}
+      - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [date, time_zone, data, meta]
+                properties:
+                  date: {type: string, format: date, example: '2026-11-05'}
+                  time_zone: {type: string}
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Appointment'}
+                  meta: {$ref: '#/components/schemas/PageMeta'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /appointments:
+    get:
+      operationId: listAppointments
+      tags: [Appointments]
+      summary: The user's appointments
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). The ones that start on those days of the user's zone; 30 days from
+        today by default.
+      parameters:
+      - {$ref: '#/components/parameters/From'}
+      - {$ref: '#/components/parameters/To'}
+      - {$ref: '#/components/parameters/Limit'}
+      - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Appointment'}
+                  meta: {$ref: '#/components/schemas/PageMeta'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: bookAppointment
+      tags: [Appointments]
+      summary: Book an appointment
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). `starts_at` is one of the slots of the availability. Errors: `409
+        slot_taken`, `409 too_many_appointments`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch_id, starts_at]
+              properties:
+                branch_id: {type: integer, format: int64}
+                starts_at:
+                  type: string
+                  pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+                  example: 2026-11-05T10:00
+                  description: A date and an hour of the clock of the place, without a zone.
+                duration_minutes: {type: integer, format: int32}
+              additionalProperties: false
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Appointment'}
+          headers:
+            Location:
+              description: The path of the new resource.
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /appointments/{id}:
+    get:
+      operationId: getAppointment
+      tags: [Appointments]
+      summary: An appointment
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). Its owner or an administrator.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Appointment'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /appointments/{id}/cancel:
+    post:
+      operationId: cancelAppointment
+      tags: [Appointments]
+      summary: Cancel an appointment
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Appointment'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /shifts:
+    get:
+      operationId: listShifts
+      tags: [Shifts]
+      summary: The shifts that overlap some days
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). A user sees theirs; an administrator, everyone's.
+      parameters:
+      - name: user_id
+        in: query
+        schema: {type: integer, format: int64}
+        description: 'Only for the administrators: the shifts of that user.'
+      - {$ref: '#/components/parameters/From'}
+      - {$ref: '#/components/parameters/To'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Shift'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createShift
+      tags: [Shifts]
+      summary: Assign a shift
+      description: 'Administrators only. Errors: `409 shift_overlap`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, starts_at, ends_at]
+              properties:
+                user_id: {type: integer, format: int64}
+                starts_at:
+                  type: string
+                  pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+                  example: 2026-11-05T10:00
+                  description: A date and an hour of the clock of the place, without a zone.
+                ends_at:
+                  type: string
+                  pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+                  example: 2026-11-05T10:00
+                  description: A date and an hour of the clock of the place, without a zone.
+                time_zone: {type: string, description: An IANA name like America/Mexico_City., nullable: true}
+                note: {type: string}
+              additionalProperties: false
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Shift'}
+          headers:
+            Location:
+              description: The path of the new resource.
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /shifts/{id}:
+    get:
+      operationId: getShift
+      tags: [Shifts]
+      summary: A shift
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Shift'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: updateShift
+      tags: [Shifts]
+      summary: Replace a shift
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, starts_at, ends_at]
+              properties:
+                user_id: {type: integer, format: int64}
+                starts_at:
+                  type: string
+                  pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+                  example: 2026-11-05T10:00
+                  description: A date and an hour of the clock of the place, without a zone.
+                ends_at:
+                  type: string
+                  pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+                  example: 2026-11-05T10:00
+                  description: A date and an hour of the clock of the place, without a zone.
+                time_zone: {type: string, description: An IANA name like America/Mexico_City., nullable: true}
+                note: {type: string}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Shift'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteShift
+      tags: [Shifts]
+      summary: Delete a shift
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /time-entries/clock-in:
+    post:
+      operationId: clockIn
+      tags: [Shifts]
+      summary: Start working, now
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). Errors: `409 already_clocked_in`.'
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TimeEntry'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        default: {$ref: '#/components/responses/Error'}
+  /time-entries/clock-out:
+    post:
+      operationId: clockOut
+      tags: [Shifts]
+      summary: Stop working, now
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). Errors: `409 not_clocked_in`.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TimeEntry'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        default: {$ref: '#/components/responses/Error'}
+  /time-entries:
+    get:
+      operationId: listTimeEntries
+      tags: [Shifts]
+      summary: The entries that overlap some days
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: user_id
+        in: query
+        schema: {type: integer, format: int64}
+        description: 'Only for the administrators: the shifts of that user.'
+      - {$ref: '#/components/parameters/From'}
+      - {$ref: '#/components/parameters/To'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/TimeEntry'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /time-entries/summary:
+    get:
+      operationId: getTimeSummary
+      tags: [Shifts]
+      summary: The minutes worked per day
+      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      parameters:
+      - name: user_id
+        in: query
+        schema: {type: integer, format: int64}
+        description: 'Only for the administrators: the shifts of that user.'
+      - {$ref: '#/components/parameters/From'}
+      - {$ref: '#/components/parameters/To'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [time_zone, total_minutes, data]
+                properties:
+                  time_zone: {type: string}
+                  total_minutes: {type: integer, format: int64}
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/DayTotal'}
+                additionalProperties: false
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /classes:
+    get:
+      operationId: listClasses
+      tags: [Classes]
+      summary: The classes
+      description: Public.
+      security: []
+      parameters:
+      - {$ref: '#/components/parameters/Limit'}
+      - {$ref: '#/components/parameters/Offset'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Class'}
+                  meta: {$ref: '#/components/schemas/PageMeta'}
+                additionalProperties: false
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createClass
+      tags: [Classes]
+      summary: Create a class that repeats
+      description: Administrators only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, time_zone, weekdays, start_time, duration_minutes, starts_on]
+              properties:
+                name: {type: string}
+                time_zone: {type: string, description: An IANA name like America/Mexico_City.}
+                weekdays:
+                  type: array
+                  items: {type: integer, minimum: 0, maximum: 6}
+                start_time: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+                duration_minutes: {type: integer, format: int32}
+                starts_on: {type: string, format: date, example: '2026-11-05'}
+                ends_on: {type: string, format: date, example: '2026-11-05', nullable: true}
+              additionalProperties: false
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Class'}
+          headers:
+            Location:
+              description: The path of the new resource.
+              schema: {type: string}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /classes/sessions:
+    get:
+      operationId: listAllSessions
+      tags: [Classes]
+      summary: The sessions of every class on some days
+      description: Public.
+      security: []
+      parameters:
+      - {$ref: '#/components/parameters/From'}
+      - {$ref: '#/components/parameters/To'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/ClassSessionOfClass'}
+                additionalProperties: false
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /classes/{id}:
+    get:
+      operationId: getClass
+      tags: [Classes]
+      summary: A class
+      description: Public.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Class'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: updateClass
+      tags: [Classes]
+      summary: Replace a class
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, time_zone, weekdays, start_time, duration_minutes, starts_on]
+              properties:
+                name: {type: string}
+                time_zone: {type: string, description: An IANA name like America/Mexico_City.}
+                weekdays:
+                  type: array
+                  items: {type: integer, minimum: 0, maximum: 6}
+                start_time: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+                duration_minutes: {type: integer, format: int32}
+                starts_on: {type: string, format: date, example: '2026-11-05'}
+                ends_on: {type: string, format: date, example: '2026-11-05', nullable: true}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Class'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: deleteClass
+      tags: [Classes]
+      summary: Delete a class
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /classes/{id}/sessions:
+    get:
+      operationId: listClassSessions
+      tags: [Classes]
+      summary: The sessions of a class on some days
+      description: Public.
+      security: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - {$ref: '#/components/parameters/From'}
+      - {$ref: '#/components/parameters/To'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [time_zone, data]
+                properties:
+                  time_zone: {type: string}
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/ClassSession'}
+                additionalProperties: false
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+  /classes/{id}/sessions/{date}:
+    put:
+      operationId: changeClassSession
+      tags: [Classes]
+      summary: Cancel or move one session
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - name: date
+        in: path
+        required: true
+        schema: {type: string, format: date}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                canceled: {type: boolean}
+                starts_at:
+                  type: string
+                  pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+                  example: 2026-11-05T10:00
+                  description: A date and an hour of the clock of the place, without a zone.
+                note: {type: string}
+              additionalProperties: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClassSession'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: restoreClassSession
+      tags: [Classes]
+      summary: Undo the change to one session
+      description: Administrators only.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: integer, format: int64, minimum: 1}
+      - name: date
+        in: path
+        required: true
+        schema: {type: string, format: date}
+      responses:
+        '204': {description: 'Done, without a body.'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
+  /healthz:
+    get:
+      operationId: health
+      tags: [API]
+      summary: Whether the API and the database answer
+      description: Public. `503 unavailable` if the database does not answer.
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, enum: [ok]}
+                additionalProperties: false
+        default: {$ref: '#/components/responses/Error'}
+  /openapi.yaml:
+    get:
+      operationId: openapi
+      tags: [API]
+      summary: This document
+      description: Public.
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/yaml:
+              schema: {type: object, description: An OpenAPI 3 document.}
+        default: {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    session: {type: apiKey, in: cookie, name: session, description: The session cookie. In production it is called `__Host-session`.}
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: How many, from 1 to 100; 20 by default.
+      schema: {type: integer, minimum: 1, maximum: 100}
+    Offset:
+      name: offset
+      in: query
+      description: How many to skip, up to 10000.
+      schema: {type: integer, minimum: 0, maximum: 10000}
+    From:
+      name: from
+      in: query
+      description: The first day.
+      schema: {type: string, format: date}
+    To:
+      name: to
+      in: query
+      description: The last day, included.
+      schema: {type: string, format: date}
+  responses:
+    Unauthorized:
+      description: There is no session (`unauthorized`), or the credentials are wrong.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Forbidden:
+      description: 'The session is not allowed to: `forbidden`, `email_not_verified`, `admin_two_factor_required`.'
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    NotFound:
+      description: It does not exist, or it is someone else's.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Conflict:
+      description: 'The state does not allow it: a repeated value, or something in use. `fields` may say which field.'
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    ValidationFailed:
+      description: 'Some fields are not valid (`validation_failed`): `fields` has the message of each one.'
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Error:
+      description: 'Any other error: `400`, `405`, `413`, `429`, `500`, `503`.'
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+  schemas:
+    Error:
+      type: object
+      description: Every error has this shape.
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: 'What happened, for the code of the frontend: `validation_failed`, `note_not_found`. The table of codes is in docs/i18n.md.'
+            message: {type: string, description: 'The same, for a person, in the language of the request.'}
+            fields:
+              type: object
+              additionalProperties: {type: string}
+              description: In a validation error, the message of each field.
+          additionalProperties: false
+      additionalProperties: false
+    PageMeta:
+      type: object
+      required: [limit, offset, total]
+      properties:
+        limit: {type: integer, format: int32}
+        offset: {type: integer, format: int32}
+        total: {type: integer, format: int64}
+      additionalProperties: false
+    CursorMeta:
+      type: object
+      required: [limit, next]
+      properties:
+        limit: {type: integer, format: int32}
+        next: {type: string, description: The value of `after` for the next page; null on the last one., nullable: true}
+      additionalProperties: false
+    User:
+      type: object
+      description: 'The account of the session: what the login and /auth/me return.'
+      required:
+      - id
+      - name
+      - email
+      - role
+      - permissions
+      - email_verified_at
+      - two_factor_enabled
+      - locale
+      - time_zone
+      - created_at
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        email: {type: string, format: email}
+        role: {type: string, description: '`user`, `admin` or the key of a role of the project.'}
+        permissions:
+          type: array
+          items: {type: string}
+          description: 'What the user can do: the permissions of their role, or every one for an administrator.'
+        email_verified_at: {type: string, format: date-time, nullable: true}
+        two_factor_enabled: {type: boolean}
+        locale: {type: string, description: The language of their emails and notifications; null is the default one., nullable: true}
+        time_zone: {type: string, description: An IANA name like America/Mexico_City; null is the application's., nullable: true}
+        created_at: {type: string, format: date-time}
+      additionalProperties: false
+    AdminUser:
+      type: object
+      description: A user as the administrators see them. What their role can do is in /admin/roles.
+      required:
+      - id
+      - name
+      - email
+      - role
+      - email_verified_at
+      - two_factor_enabled
+      - locale
+      - time_zone
+      - created_at
+      - status
+      - suspended_at
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        email: {type: string, format: email}
+        role: {type: string, description: '`user`, `admin` or the key of a role of the project.'}
+        email_verified_at: {type: string, format: date-time, nullable: true}
+        two_factor_enabled: {type: boolean}
+        locale: {type: string, description: The language of their emails and notifications; null is the default one., nullable: true}
+        time_zone: {type: string, description: An IANA name like America/Mexico_City; null is the application's., nullable: true}
+        created_at: {type: string, format: date-time}
+        status: {type: string, enum: [active, invited, suspended]}
+        suspended_at: {type: string, format: date-time, nullable: true}
+      additionalProperties: false
+    Session:
+      type: object
+      required: [id, user_agent, ip, created_at, last_seen_at, current]
+      properties:
+        id: {type: integer, format: int64}
+        user_agent: {type: string}
+        ip: {type: string}
+        created_at: {type: string, format: date-time}
+        last_seen_at: {type: string, format: date-time}
+        current: {type: boolean, description: Whether it is the session of this request.}
+      additionalProperties: false
+    Role:
+      type: object
+      required: [key, name, built_in, permissions, users, created_at, updated_at]
+      properties:
+        key: {type: string}
+        name: {type: string}
+        built_in: {type: boolean, description: '`user` and `admin`, which cannot be changed.'}
+        permissions:
+          type: array
+          items: {type: string}
+        users: {type: integer, format: int64, description: How many accounts have it.}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+    Notification:
+      type: object
+      required: [id, kind, message, data, read_at, created_at]
+      properties:
+        id: {type: integer, format: int64}
+        kind: {type: string}
+        message: {type: string}
+        data: {type: object, additionalProperties: true, description: What the frontend needs to show it; it depends on the kind.}
+        read_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+      additionalProperties: false
+    File:
+      type: object
+      required: [id, name, content_type, size, url, created_at]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        content_type: {type: string}
+        size: {type: integer, format: int64, description: In bytes.}
+        url: {type: string, description: 'The path of GET /files/{id}.'}
+        created_at: {type: string, format: date-time}
+      additionalProperties: false
+    Note:
+      type: object
+      required: [id, title, body, created_at, updated_at]
+      properties:
+        id: {type: integer, format: int64}
+        title: {type: string}
+        body: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+    Category:
+      type: object
+      required: [id, name, slug, created_at, updated_at]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        slug: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+    Product:
+      type: object
+      required: [id, category, name, slug, description, price_cents, stock, active, created_at, updated_at]
+      properties:
+        id: {type: integer, format: int64}
+        category:
+          type: object
+          required: [id, name]
+          properties:
+            id: {type: integer, format: int64}
+            name: {type: string}
+          additionalProperties: false
+        name: {type: string}
+        slug: {type: string}
+        description: {type: string}
+        price_cents: {type: integer, format: int64, description: Money in cents.}
+        stock: {type: integer, format: int32}
+        active: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+    Hours:
+      type: object
+      required: [opens_at, closes_at]
+      properties:
+        opens_at: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+        closes_at: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+      additionalProperties: false
+    WeeklyHours:
+      type: object
+      required: [weekday, opens_at, closes_at]
+      properties:
+        weekday: {type: integer, minimum: 0, maximum: 6, description: 0 is Sunday.}
+        opens_at: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+        closes_at: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+      additionalProperties: false
+    Branch:
+      type: object
+      required: [id, name, time_zone, hours, created_at, updated_at]
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        time_zone: {type: string}
+        hours:
+          type: array
+          items: {$ref: '#/components/schemas/WeeklyHours'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+    BranchException:
+      type: object
+      required: [date, closed, hours, note]
+      properties:
+        date: {type: string, format: date, example: '2026-11-05'}
+        closed: {type: boolean}
+        hours:
+          allOf:
+          - {$ref: '#/components/schemas/Hours'}
+          nullable: true
+        note: {type: string}
+      additionalProperties: false
+    Opening:
+      type: object
+      required: [opens_at, closes_at, starts_at, ends_at]
+      properties:
+        opens_at: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+        closes_at: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+        starts_at: {type: string, format: date-time}
+        ends_at: {type: string, format: date-time}
+      additionalProperties: false
+    ScheduleDay:
+      type: object
+      required: [date, exception, note, openings]
+      properties:
+        date: {type: string, format: date, example: '2026-11-05'}
+        exception: {type: boolean}
+        note: {type: string}
+        openings:
+          type: array
+          items: {$ref: '#/components/schemas/Opening'}
+      additionalProperties: false
+    BranchStatus:
+      type: object
+      required: [open, closes_at, next_opens_at]
+      properties:
+        open: {type: boolean}
+        closes_at: {type: string, format: date-time, nullable: true}
+        next_opens_at: {type: string, format: date-time, nullable: true}
+      additionalProperties: false
+    Appointment:
+      type: object
+      required:
+      - id
+      - branch_id
+      - branch_name
+      - user_id
+      - local_starts_at
+      - time_zone
+      - starts_at
+      - ends_at
+      - duration_minutes
+      - status
+      - created_at
+      properties:
+        id: {type: integer, format: int64}
+        branch_id: {type: integer, format: int64}
+        branch_name: {type: string}
+        user_id: {type: integer, format: int64}
+        local_starts_at:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+          example: 2026-11-05T10:00
+          description: A date and an hour of the clock of the place, without a zone.
+        time_zone: {type: string}
+        starts_at: {type: string, format: date-time}
+        ends_at: {type: string, format: date-time}
+        duration_minutes: {type: integer, format: int32}
+        status: {type: string, enum: [booked, canceled]}
+        created_at: {type: string, format: date-time}
+      additionalProperties: false
+    Slot:
+      type: object
+      required: [local_starts_at, starts_at, ends_at]
+      properties:
+        local_starts_at:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+          example: 2026-11-05T10:00
+          description: A date and an hour of the clock of the place, without a zone.
+        starts_at: {type: string, format: date-time}
+        ends_at: {type: string, format: date-time}
+      additionalProperties: false
+    Shift:
+      type: object
+      required:
+      - id
+      - user_id
+      - time_zone
+      - local_starts_at
+      - local_ends_at
+      - starts_at
+      - ends_at
+      - duration_minutes
+      - note
+      - created_at
+      properties:
+        id: {type: integer, format: int64}
+        user_id: {type: integer, format: int64}
+        time_zone: {type: string}
+        local_starts_at:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+          example: 2026-11-05T10:00
+          description: A date and an hour of the clock of the place, without a zone.
+        local_ends_at:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+          example: 2026-11-05T10:00
+          description: A date and an hour of the clock of the place, without a zone.
+        starts_at: {type: string, format: date-time}
+        ends_at: {type: string, format: date-time}
+        duration_minutes: {type: integer, format: int32}
+        note: {type: string}
+        created_at: {type: string, format: date-time}
+      additionalProperties: false
+    TimeEntry:
+      type: object
+      required: [id, user_id, shift_id, clock_in, clock_out]
+      properties:
+        id: {type: integer, format: int64}
+        user_id: {type: integer, format: int64}
+        shift_id: {type: integer, format: int64, nullable: true}
+        clock_in: {type: string, format: date-time}
+        clock_out: {type: string, format: date-time, nullable: true}
+      additionalProperties: false
+    DayTotal:
+      type: object
+      required: [date, minutes]
+      properties:
+        date: {type: string, format: date, example: '2026-11-05'}
+        minutes: {type: integer, format: int32}
+      additionalProperties: false
+    Class:
+      type: object
+      required:
+      - id
+      - name
+      - time_zone
+      - weekdays
+      - start_time
+      - duration_minutes
+      - starts_on
+      - ends_on
+      - created_at
+      - updated_at
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        time_zone: {type: string}
+        weekdays:
+          type: array
+          items: {type: integer, minimum: 0, maximum: 6}
+        start_time: {type: string, pattern: '^\d{2}:\d{2}$', example: '09:30'}
+        duration_minutes: {type: integer, format: int32}
+        starts_on: {type: string, format: date, example: '2026-11-05'}
+        ends_on: {type: string, format: date, example: '2026-11-05', nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      additionalProperties: false
+    ClassSession:
+      type: object
+      required: [date, local_starts_at, starts_at, ends_at, canceled, moved, note]
+      properties:
+        date: {type: string, format: date, example: '2026-11-05'}
+        local_starts_at:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+          example: 2026-11-05T10:00
+          description: A date and an hour of the clock of the place, without a zone.
+        starts_at: {type: string, format: date-time}
+        ends_at: {type: string, format: date-time}
+        canceled: {type: boolean}
+        moved: {type: boolean}
+        note: {type: string}
+      additionalProperties: false
+    ClassSessionOfClass:
+      type: object
+      required: [class_id, class_name, time_zone, date, local_starts_at, starts_at, ends_at, canceled, moved, note]
+      properties:
+        class_id: {type: integer, format: int64}
+        class_name: {type: string}
+        time_zone: {type: string}
+        date: {type: string, format: date, example: '2026-11-05'}
+        local_starts_at:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$
+          example: 2026-11-05T10:00
+          description: A date and an hour of the clock of the place, without a zone.
+        starts_at: {type: string, format: date-time}
+        ends_at: {type: string, format: date-time}
+        canceled: {type: boolean}
+        moved: {type: boolean}
+        note: {type: string}
+      additionalProperties: false

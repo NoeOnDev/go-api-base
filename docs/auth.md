@@ -477,9 +477,10 @@ All the routes are in `internal/auth/routes.go`. To remove a feature, delete its
 Finally, `make fmt` and `make check`, which says what is left:
 
 - **Catalog keys that nothing uses any more** (`TestCatalogMatchesCode` names them): delete them from every `internal/i18n/locales/*.json`, and the `errors.…` ones from the table of [i18n.md](i18n.md#error-codes) too.
+- **Routes left in `internal/openapi/openapi.yaml`** (`TestDocumentHasTheRoutesOfTheCode` names them): delete their operations, and the schemas only they used.
 - **Tests of another feature that fail:** they used the feature you removed, to set up the case or to test how the two combine (for example, that changing the password cancels a pending email change). Delete that case, or move its setup to `testutil.Login`.
 
-Each recipe was tested separately, on a copy of the project: it compiles and passes `go vet` and staticcheck, and `make check` reports only those two things. To remove several features, follow the steps of each one; if something is left unused, staticcheck points it out. If you change auth, keep this table up to date.
+Each recipe was tested separately, on a copy of the project: it compiles and passes `go vet` and staticcheck, and `make check` reports only those three things. To remove several features, follow the steps of each one; if something is left unused, staticcheck points it out. If you change auth, keep this table up to date.
 
 ## What it does not include
 

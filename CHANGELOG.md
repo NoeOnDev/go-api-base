@@ -7,6 +7,21 @@ copy, and its `TEMPLATE_VERSION` file says which version it came from. When a te
 Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
 migrations, because they represent the initial schema.
 
+## [Unreleased]
+
+The contract of the API in OpenAPI, which the tests keep true.
+
+### Added
+
+- **`internal/openapi/openapi.yaml`** describes every route of the API: its parameters, its body and what it answers with each status. The API serves it at `GET /openapi.yaml`, and the frontend generates its TypeScript types from it (see `docs/openapi.md`).
+- **The tests check every response against it** (`internal/testutil/contract.go`): each request of `testutil.Do` and `testutil.Upload` must answer a status its operation lists, with a body of the shape it says; and a request the API accepted must be what the document describes. A second test (`internal/openapi`) requires the document to have exactly the routes of the code. A handler that returns a new field, or a new error, fails its own tests until the document says so.
+- **A new dependency, only in the tests:** `kin-openapi`, to read the document and validate against it. It does not reach the binary.
+- **Tests for the routes the suite did not call through the whole API:** the list of classes and one class, and the roles (`TestRolesMatchTheDocument`).
+
+### Changed
+
+- **"What it does not include" no longer lists an OpenAPI contract** (`docs/decisions.md`). Generating it from the code, and a page of documentation served by the API, are still left out.
+
 ## [v0.12.0] - 2026-11-21
 
 Roles of the project with their permissions, for the systems where `user` and `admin` are not enough, a reference deployment with Docker Compose, and two things every project ends up writing: example data for development, and lists the client can sort. The schema changes: the `roles` and `role_permissions` tables.

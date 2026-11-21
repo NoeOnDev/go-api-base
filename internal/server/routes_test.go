@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/config"
+	"github.com/NoeOnDev/go-api-base/internal/openapi"
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
 	"github.com/NoeOnDev/go-api-base/internal/server"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
@@ -273,5 +274,44 @@ func TestEventsEndToEnd(t *testing.T) {
 	}
 	if idle < 9*time.Minute {
 		t.Errorf("opening the stream updated the last activity: %v ago", idle)
+	}
+}
+
+func TestOpenAPIDocument(t *testing.T) {
+	api := testutil.NewAPI(testutil.NewDB(t))
+	w := testutil.Do(t, api, nil, http.MethodGet, "/openapi.yaml", "")
+	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "application/yaml") || w.Body.String() != string(openapi.Spec) {
+		t.Errorf("status = %d, Content-Type = %q, %d bytes; want the document as it is written", w.Code, w.Header().Get("Content-Type"), w.Body.Len())
+	}
+}
+
+// The roles go through the whole API here so their responses are checked against openapi.yaml,
+// like every request of testutil.Do: the tests of internal/auth use routes of their own.
+func TestRolesMatchTheDocument(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	_, admin := testutil.Login(t, pool, "admin@example.com", "admin")
+
+	for _, path := range []string{"/admin/permissions", "/admin/roles"} {
+		if w := testutil.Do(t, api, admin, http.MethodGet, path, ""); w.Code != http.StatusOK {
+			t.Fatalf("GET %s: status = %d", path, w.Code)
+		}
+	}
+	for _, tt := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{http.MethodPost, "/admin/roles", `{"key":"auditor","name":"Auditor","permissions":[]}`, http.StatusCreated},
+		{http.MethodPost, "/admin/roles", `{"key":"auditor","name":"Again"}`, http.StatusConflict},
+		{http.MethodPost, "/admin/roles", `{"key":"Not a key","name":""}`, http.StatusUnprocessableEntity},
+		{http.MethodPut, "/admin/roles/auditor", `{"name":"Internal auditor","permissions":[],"password":"` + testutil.Password + `"}`, http.StatusOK},
+		{http.MethodPut, "/admin/roles/nobody", `{"name":"Nobody","password":"` + testutil.Password + `"}`, http.StatusNotFound},
+		{http.MethodDelete, "/admin/roles/admin", "", http.StatusConflict},
+		{http.MethodDelete, "/admin/roles/auditor", "", http.StatusNoContent},
+		{http.MethodDelete, "/admin/roles/auditor", "", http.StatusNotFound},
+	} {
+		if w := testutil.Do(t, api, admin, tt.method, tt.path, tt.body); w.Code != tt.want {
+			t.Errorf("%s %s: status = %d, want %d; body: %s", tt.method, tt.path, w.Code, tt.want, w.Body)
+		}
 	}
 }

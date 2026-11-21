@@ -230,7 +230,11 @@ In `internal/server/routes.go`:
 orders.Register(mux, orders.NewHandler(queries), authService)
 ```
 
-## 6. Seed data (optional)
+## 6. The contract
+
+Add the routes and the schema of the resource to `internal/openapi/openapi.yaml`, copying the ones of the example you started from (see "Changing the API" in [openapi.md](openapi.md#changing-the-api)). The tests of step 4 are checked against it: run them, and they say what the document still has wrong.
+
+## 7. Seed data (optional)
 
 If the frontend needs data to start working (a catalog, the options of a selector), add a seeder to `cmd/api/seed.go` and its line to `seeders`:
 
@@ -246,7 +250,7 @@ func seedOrders(ctx context.Context, s seedDeps) (string, error) {
 
 `make seed` runs every seeder in order, after the users. It is the equivalent of Laravel's seeders: development data, which a migration must not carry. `TestSeed` (`cmd/api/seed_test.go`) counts what the seed creates: add the new table to its `want`.
 
-## 7. Check
+## 8. Check
 
 ```bash
 make check

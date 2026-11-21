@@ -336,6 +336,15 @@ Kept in each instance, on purpose:
 
 A rule for new code: **nothing that must apply to every instance is kept in memory** (a counter, a cache, an "already done"). It goes in PostgreSQL.
 
+## A contract the tests keep true
+
+`internal/openapi/openapi.yaml` describes every route (see [openapi.md](openapi.md)). The template went a long time without one, because a document written by hand falls out of date. What changed is who checks it:
+
+- **Written by hand, checked by the tests.** Generating it from the code needs the routes registered through a layer that knows the types of each handler, which is a framework; the handlers here are plain `net/http`. Instead, every request of the integration tests is checked against the document, so the tests a resource already has are what keeps its part true.
+- **A library for the check** (`kin-openapi`), only in the tests: validating a JSON against a schema and reading YAML is not something to write by hand. It does not reach the binary.
+- **The statuses a frontend handles are listed in each operation,** and the rest go to `default`. A document where every route lists `400`, `429` and `500` is longer and says nothing more.
+- **Closed objects** (`additionalProperties: false`): it is what makes a new field in a response fail the check, instead of going unnoticed.
+
 ## A reference deployment
 
 `docs/deploy.md` and the `deploy` directory put the API on one server with Docker Compose, PostgreSQL and Caddy. The decisions behind it:
@@ -355,7 +364,6 @@ A rule for new code: **nothing that must apply to every instance is kept in memo
 - Checking passwords against breaches (Have I Been Pwned): it needs an external call on each registration and password change. The most common ones are already rejected (see "argon2id for passwords").
 - A persistent audit log: the security events go to the logs and to the user's notifications. What to keep, and for how long, depends on each project.
 - Metrics (Prometheus or OpenTelemetry): they add dependencies, and each project uses its own monitoring.
-- An OpenAPI contract: written by hand it falls out of date. The endpoints are in the README and in `docs/auth.md`.
 - Thumbnails, uploads straight from the browser to S3, and antivirus for the uploaded files (see "What it does not include" in [files.md](files.md#what-it-does-not-include)).
 - Kubernetes manifests, a pipeline that deploys, automatic backups and monitoring: the reference deployment is one server with Docker Compose (see [deploy.md](deploy.md#what-it-does-not-include)).
 

@@ -17,8 +17,8 @@ Instructions for coding agents (Claude Code, Codex, Copilot) working on this pro
 It runs as a single binary with PostgreSQL, with one instance or several (see "Multiple instances" in
 `docs/decisions.md`).
 It favors the standard library and adds only the essentials: PostgreSQL (pgx), migrations (goose), typed queries (sqlc),
-the job queue (River), packages from the Go team (`golang.org/x/crypto`, `x/time`, `x/term`, `x/text`) and the AWS SDK for
-the S3 store of the uploaded files.
+the job queue (River), packages from the Go team (`golang.org/x/crypto`, `x/time`, `x/term`, `x/text`), the AWS SDK for
+the S3 store of the uploaded files, and `kin-openapi` in the tests, to check the contract of the API.
 
 It comes with complete authentication (cookie sessions, roles with permissions, profile, password change and reset,
 optional email verification, 2FA with TOTP, sessions per device, email change and account deletion; see `docs/auth.md`),
@@ -59,6 +59,7 @@ headings of each guide are listed with `grep -n '^#' docs/*.md`.
 | React frontend, on the same domain or another one | [docs/auth.md](docs/auth.md#from-the-frontend-react), [docs/realtime.md](docs/realtime.md#from-the-frontend-react) |
 | Background and periodic jobs | [docs/jobs.md](docs/jobs.md) |
 | Real time: publishing events and topics with permissions | [docs/realtime.md](docs/realtime.md#publishing-events) |
+| The contract of the API (OpenAPI): the frontend's types, and what to change in `openapi.yaml` with a route | [docs/openapi.md](docs/openapi.md) |
 | File uploads: configuration (local disk or S3), routes and what an upload accepts | [docs/files.md](docs/files.md) |
 | Using a file in a resource (an avatar, attachments), and who can see it | [docs/files.md](docs/files.md#using-a-file-in-a-resource) |
 | Streaming an AI agent's response | [docs/realtime.md](docs/realtime.md#streaming-an-ai-agents-response) |
@@ -74,6 +75,7 @@ headings of each guide are listed with `grep -n '^#' docs/*.md`.
 | **Removing** the job queue | [docs/jobs.md](docs/jobs.md#removing-the-queue) |
 | **Removing** real time or only the notifications | [docs/realtime.md](docs/realtime.md#removing-real-time) |
 | **Removing** file uploads, or only S3 | [docs/files.md](docs/files.md#removing-file-uploads) |
+| **Removing** the OpenAPI contract | [docs/openapi.md](docs/openapi.md#removing-it) |
 | Why it is built this way (each design decision) | [docs/decisions.md](docs/decisions.md) |
 | What the template leaves out on purpose: check it before proposing a new feature | [docs/decisions.md](docs/decisions.md#what-it-does-not-include), [docs/auth.md](docs/auth.md#what-it-does-not-include) |
 | What changed in each version | [CHANGELOG.md](CHANGELOG.md) |
@@ -124,6 +126,7 @@ internal/mail/        email sending: LogSender, SMTPSender, Recorder (tests), te
 internal/jobs/        background jobs with River: client, workers (workers.go), periodic jobs, MailSender
 internal/realtime/    real time with SSE: Stream, Broker (channels and topics), GET /events and LISTEN/NOTIFY between instances
 internal/notifications/ notifications stored and sent live; auth uses them for the security notices
+internal/openapi/     openapi.yaml, the contract of the API (see docs/openapi.md), and the test that it has every route
 internal/storage/     where the bytes of the uploaded files are: Local (a directory), S3 (AWS SDK) and Memory (tests)
 internal/files/       uploaded files: the files table, Receive, Attach, Release, Serve and the cleanup (Purge)
 internal/totp/        TOTP codes for 2FA (RFC 6238), standard library only
@@ -174,6 +177,9 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   order in the query (see `ListProducts` and "Sorting a list" in `docs/adding-a-resource.md`). Never build an
   `ORDER BY` from a text of the request.
 - Each resource defines its own response struct; do not return the `internal/store` structs directly.
+- **Every route is in `internal/openapi/openapi.yaml`**, with its parameters, its body and its responses: change it in
+  the same commit as the route, the field or the error (see "Changing the API" in `docs/openapi.md`). The tests fail
+  until it matches: every request of `testutil.Do` is checked against it.
 - The user's time zone, for their days (a filter "from 2026-10-01 to 2026-10-31", a report "for today"), is
   `auth.MustUser(ctx).Location()`: their own or `APP_TIME_ZONE`. A date written for a person (an email) uses
   `i18n.Translator.FormatDateTime(t.In(loc))`, and one inside the text of a notification, `{name:date}` and
@@ -308,6 +314,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   `testutil.CreateRole(t, pool, "editor", products.PermManage)` first. They only use `TEST_DATABASE_URL`, which must end in `_test` and differ from `DATABASE_URL`. **Do not remove
   that protection.**
 - Requests with `testutil.NewAPI`, `testutil.Do` and `testutil.Decode`, as in `internal/products/handlers_test.go`.
+  Each one is checked against `openapi.yaml`: a failure that says "is not what openapi.yaml describes" is fixed in that
+  document (or in the handler, if the document is right), never by sending the request another way.
   To read the sent emails: `testutil.WithMailer(&mail.Recorder{})` and `testutil.TokenFromEmail`. To change the
   configuration: `testutil.WithConfig(func(c *config.Config){ … })`. To ask for another language:
   `testutil.DoWithLanguage` (without it, the responses are in English). For 2FA:
@@ -335,7 +343,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 ## Adding a resource
 
 Follow `docs/adding-a-resource.md`: migration → queries → `make sqlc` → resource package
-(handlers, validation, routes, tests) → register in `internal/server/routes.go` → a seeder in `cmd/api/seed.go` if the
+(handlers, validation, routes, tests) → register in `internal/server/routes.go` → its routes and its schema in
+`internal/openapi/openapi.yaml` → a seeder in `cmd/api/seed.go` if the
 frontend needs data to start → `make check`.
 Use `internal/notes` as the model if the data belongs to each user, or `internal/categories`/`products` if it is shared.
 

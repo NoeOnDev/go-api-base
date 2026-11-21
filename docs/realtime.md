@@ -252,7 +252,7 @@ If a project does not need it:
    - delete the ones that open a stream with `OpenEvents`: `TestRevokeSessionCutsItsStream` and `TestDeleteAccountCutsStreams` in `internal/auth`, and `TestEventsEndToEnd` in `internal/server`;
    - in `internal/auth`, `TestDeleteAccount` and `TestChangeEmail` also check the `notifications` table: remove those parts.
 7. Remove the keys `errors.notification_not_found`, `errors.shutting_down`, `errors.too_many_connections` and `errors.too_many_topics` from the catalogs, and the four codes from the table of [i18n.md](i18n.md#error-codes).
-8. `make sqlc` (it also deletes the generated code of the queries you removed) and `make check`. `authn.RequireUserWithoutActivity` is left without a route that uses it: keep it for a route the browser calls on its own, or delete it.
+8. `make sqlc` (it also deletes the generated code of the queries you removed) and `make check`. It also names the routes left in `internal/openapi/openapi.yaml` without code: delete their operations, and the schemas only they used. `authn.RequireUserWithoutActivity` is left without a route that uses it: keep it for a route the browser calls on its own, or delete it.
 
 To remove only the notifications and keep real time:
 1. Remove the appointments example, which notifies its reminders (see "Removing the examples" in [time.md](time.md#removing-the-examples)).
@@ -261,6 +261,6 @@ To remove only the notifications and keep real time:
 4. In `internal/jobs/cleanup.go`, remove the deletion of the notifications, `notificationRetention` and its line in the `CleanupArgs` comment; in `cleanup_test.go`, delete `TestCleanupDeletesOldNotifications`.
 5. In `internal/auth`, remove the parts of `TestDeleteAccount` and `TestChangeEmail` that check the `notifications` table.
 6. Remove the key `errors.notification_not_found` from the catalogs, and its code from the table of [i18n.md](i18n.md#error-codes).
-7. `make sqlc` and `make check`.
+7. `make sqlc` and `make check`, which names the routes left in `internal/openapi/openapi.yaml` without code (`/notifications…`): delete their operations and the `Notification` schema.
 
 Both recipes were tested on a copy of the project, with a test database created only with the remaining migrations.

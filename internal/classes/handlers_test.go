@@ -52,6 +52,21 @@ func TestClasses(t *testing.T) {
 	}
 	path := fmt.Sprintf("/classes/%d", created.ID)
 
+	// Anyone reads the classes: the list and each one.
+	list := testutil.Decode[struct {
+		Data []class `json:"data"`
+		Meta struct {
+			Total int64 `json:"total"`
+		} `json:"meta"`
+	}](t, testutil.Do(t, api, nil, http.MethodGet, "/classes", ""), http.StatusOK)
+	if list.Meta.Total != 1 || len(list.Data) != 1 || list.Data[0].ID != created.ID {
+		t.Errorf("list of classes = %+v", list)
+	}
+	if got := testutil.Decode[class](t, testutil.Do(t, api, nil, http.MethodGet, path, ""), http.StatusOK); got.ID != created.ID {
+		t.Errorf("class = %+v", got)
+	}
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodGet, "/classes/999999", ""), http.StatusNotFound)
+
 	// The sessions keep 18:00 of New York: 22:00 UTC before November 1, 23:00 UTC after.
 	got := testutil.Decode[sessions](t, testutil.Do(t, api, nil, http.MethodGet, path+"/sessions?from=2026-10-26&to=2026-11-08", ""), http.StatusOK)
 	if got.TimeZone != "America/New_York" || len(got.Data) != 4 {

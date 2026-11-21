@@ -269,6 +269,6 @@ The same variables without `_TEST`, with `STORAGE_DRIVER=s3`, point the API of d
 5. In `internal/config`, remove `Storage`, its constants and `loadStorage`, with `TestLoadStorage` and the storage cases of `TestLoadInvalid`. Remove the `STORAGE_*` and `S3_*` variables from `.env.example` and the README, and `/storage/` from `.gitignore`.
 6. In `internal/testutil/http.go`, remove `WithStorage`, `Upload`, `PNG` and `PDF`.
 7. Remove the keys `errors.file_in_use`, `errors.file_not_found`, `errors.malformed_upload`, `errors.storage_quota_exceeded`, `validation.file_too_large` and `validation.file_type` from the catalogs, and the four codes from the table of [i18n.md](i18n.md#error-codes).
-8. `make sqlc`, `go mod tidy` and `make check`.
+8. `make sqlc`, `go mod tidy` and `make check`, which names the routes left in `internal/openapi/openapi.yaml` without code: delete their operations (`/files…`, `/notes/{id}/attachments…`) and the `File` schema.
 
 Both recipes were tested on a copy of the project, with a test database created only with the remaining migrations.

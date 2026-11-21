@@ -26,6 +26,7 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/mail"
 	"github.com/NoeOnDev/go-api-base/internal/notes"
 	"github.com/NoeOnDev/go-api-base/internal/notifications"
+	"github.com/NoeOnDev/go-api-base/internal/openapi"
 	"github.com/NoeOnDev/go-api-base/internal/products"
 	"github.com/NoeOnDev/go-api-base/internal/ratelimit"
 	"github.com/NoeOnDev/go-api-base/internal/realtime"
@@ -73,6 +74,10 @@ func NewHandler(d Deps) http.Handler {
 			panic(fmt.Sprintf("server: %v", err)) // config.Load already validates DEFAULT_LOCALE
 		}
 	}
+
+	// The contract of the API, for the frontend's types and for whoever integrates with it (see
+	// docs/openapi.md).
+	mux.Handle("GET /openapi.yaml", openapi.Handler())
 
 	// A monitor checks it every few seconds: it is logged at debug, unless the database does not answer.
 	mux.Handle("GET /healthz", httpx.Quiet(health(d.DB)))

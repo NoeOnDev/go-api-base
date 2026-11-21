@@ -1,0 +1,3 @@
+# The build of the frontend goes here (see the Caddyfile). Only this file is in git.
+*
+!.gitignore

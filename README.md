@@ -35,6 +35,7 @@ It includes:
   - `appointments`: bookings within those hours, without double bookings, and a reminder the day before
   - `shifts`: work shifts, also overnight, clocking in and out, and the minutes worked per day
   - `classes`: classes that repeat some days of the week, with a session canceled or moved
+- **A reference deployment** for a single server: a `Dockerfile`, and Docker Compose with PostgreSQL and Caddy for HTTPS (see [docs/deploy.md](docs/deploy.md)).
 - **Quality:**
   - integration tests against PostgreSQL
   - `staticcheck` and `govulncheck`
@@ -206,7 +207,7 @@ Values with spaces go in quotes: `APP_NAME="My App"`. `make` reads `.env` and cu
 
 ### Before production
 
-What to check in the configuration, whatever the server. If `COOKIE_SECURE`, `TRUST_PROXY` or `MAIL_DRIVER` are wrong in production, or if `FRONTEND_URL` or `MAIL_FROM` still point to `localhost`, the API warns about it in the log on startup.
+What to check in the configuration, whatever the server. [docs/deploy.md](docs/deploy.md) has a deployment with Docker Compose that already sets several of these points. If `COOKIE_SECURE`, `TRUST_PROXY` or `MAIL_DRIVER` are wrong in production, or if `FRONTEND_URL` or `MAIL_FROM` still point to `localhost`, the API warns about it in the log on startup.
 
 - **`APP_ENV=production`:** JSON logs and `Secure` cookies with the `__Host-` prefix.
 - **HTTPS in front of the API:** the API speaks HTTP, and the proxy or load balancer terminates TLS. Without HTTPS, `Secure` cookies do not travel and nobody can log in.
@@ -276,6 +277,7 @@ internal/shifts/     example: work shifts, clocking in and out, minutes worked p
 internal/classes/    example: classes that repeat, with sessions canceled or moved
 internal/testutil/   test helpers
 migrations/          SQL migrations
+deploy/              reference deployment: Docker Compose, the Caddy configuration and its variables
 docs/                guides and decisions
 ```
 
@@ -322,5 +324,6 @@ Then:
 - [Files](docs/files.md): uploads on the local disk or in S3, using a file in a resource, security and how to remove them.
 - [Real time](docs/realtime.md): SSE events from React, topics with permissions, streams for AI agents, multiple instances and how to remove it.
 - [Adding a resource](docs/adding-a-resource.md)
+- [Deploying](docs/deploy.md): the image, Docker Compose with PostgreSQL and Caddy, updating, backups, and running it without Docker.
 - [Design decisions](docs/decisions.md): why it is built this way, how it works with multiple instances and what it does not include.
 - [AGENTS.md](AGENTS.md): conventions for coding agents (Claude Code, Codex, Copilot), with an index of where each topic is.

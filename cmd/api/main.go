@@ -43,12 +43,14 @@ func main() {
 		err = runSeed()
 	case os.Args[1] == "fresh":
 		err = runFresh(os.Args[2:])
+	case os.Args[1] == "healthcheck":
+		err = runHealthcheck()
 	case os.Args[1] == "generate-key":
 		err = runGenerateKey()
 	case os.Args[1] == "rotate-keys":
 		err = runRotateKeys()
 	default:
-		err = fmt.Errorf("unknown command %q (available: create-admin, seed, fresh, generate-key, rotate-keys)", os.Args[1])
+		err = fmt.Errorf("unknown command %q (available: create-admin, seed, fresh, healthcheck, generate-key, rotate-keys)", os.Args[1])
 	}
 
 	if err != nil {

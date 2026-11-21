@@ -1,5 +1,6 @@
 # Runs make check (gofmt, sqlc up to date, go vet, staticcheck, tests with PostgreSQL and govulncheck)
-# and the tests again with the race detector, on every push to main and on every pull request.
+# and the tests again with the race detector, on every push to main and on every pull request. It
+# also builds the image of the API, to check that the Dockerfile works (see docs/deploy.md).
 name: CI
 
 on:
@@ -48,3 +49,21 @@ jobs:
 
       - name: make test-race
         run: make test-race
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker build -t api .
+
+      # The binary runs in the image: a command that needs no configuration nor database.
+      - name: Run the image
+        run: docker run --rm api generate-key
+
+      - name: Check the Compose file
+        run: |
+          cp deploy/.env.example deploy/.env
+          sed -i 's/^POSTGRES_PASSWORD=$/POSTGRES_PASSWORD=ci/' deploy/.env
+          docker compose -f deploy/compose.yaml config --quiet

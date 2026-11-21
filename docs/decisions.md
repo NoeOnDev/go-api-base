@@ -336,6 +336,16 @@ Kept in each instance, on purpose:
 
 A rule for new code: **nothing that must apply to every instance is kept in memory** (a counter, a cache, an "already done"). It goes in PostgreSQL.
 
+## A reference deployment
+
+`docs/deploy.md` and the `deploy` directory put the API on one server with Docker Compose, PostgreSQL and Caddy. The decisions behind it:
+
+- **One server, because it is where most projects start,** and the API was made for it: a single binary, PostgreSQL as the only service. What changes with more servers is a short list, at the end of that guide.
+- **An image without a shell and as a user without privileges** (distroless): there is nothing in it to run but the binary. That is why the health check is a command of the binary itself (`/api healthcheck`) and not `curl`.
+- **Caddy for HTTPS:** it gets and renews the certificate on its own, with a configuration of a few lines. It also holds the requests while the API restarts, so a deploy does not answer errors.
+- **The frontend and the API under the same domain,** as "From the frontend" in `docs/auth.md` recommends: no CORS, and the session cookie stays tied to a single host.
+- **The configuration in one file of the server** (`deploy/.env`), not in the image: the same image runs anywhere, and the secrets are not in a registry.
+
 ## What it does not include
 
 - Mandatory 2FA for every user (for administrators there is `REQUIRE_ADMIN_TWO_FACTOR`), and passkeys or WebAuthn.
@@ -347,6 +357,6 @@ A rule for new code: **nothing that must apply to every instance is kept in memo
 - Metrics (Prometheus or OpenTelemetry): they add dependencies, and each project uses its own monitoring.
 - An OpenAPI contract: written by hand it falls out of date. The endpoints are in the README and in `docs/auth.md`.
 - Thumbnails, uploads straight from the browser to S3, and antivirus for the uploaded files (see "What it does not include" in [files.md](files.md#what-it-does-not-include)).
-- Deployment files (Dockerfile, systemd units, proxy configuration): each project deploys differently. "Before production" in the README lists what to check, whatever the server.
+- Kubernetes manifests, a pipeline that deploys, automatic backups and monitoring: the reference deployment is one server with Docker Compose (see [deploy.md](deploy.md#what-it-does-not-include)).
 
 It is not a to-do list: they are features that depend on each project, and they are added in the project that needs them.

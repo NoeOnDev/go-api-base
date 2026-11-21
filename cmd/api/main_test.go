@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -79,5 +80,33 @@ func TestShutdownStopsJobsEvenIfHTTPTimesOut(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Error("the stuck connection is still open after the shutdown")
+	}
+}
+
+// The health check of the container: it passes only if /healthz answers 200.
+func TestHealthcheck(t *testing.T) {
+	status := http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			t.Errorf("asked for %s, want /healthz", r.URL.Path)
+		}
+		w.WriteHeader(status)
+	}))
+	defer srv.Close()
+
+	// As the container runs it: with the port of HTTP_ADDR, on this same machine.
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	t.Setenv("HTTP_ADDR", ":"+port)
+	if err := runHealthcheck(); err != nil {
+		t.Errorf("with the API answering 200: %v", err)
+	}
+
+	status = http.StatusServiceUnavailable // the database does not answer
+	if err := runHealthcheck(); err == nil {
+		t.Error("with the API answering 503, the health check should fail")
+	}
+	srv.Close()
+	if err := runHealthcheck(); err == nil {
+		t.Error("with the API stopped, the health check should fail")
 	}
 }

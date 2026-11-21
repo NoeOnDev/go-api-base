@@ -1,0 +1,41 @@
+# Caddy in front of the API: it gets the certificate on its own and renews it. See docs/deploy.md.
+#
+# SITE_ADDRESS is the domain (example.com), which must already point to this server. With
+# "localhost" Caddy uses a certificate of its own, to try the whole thing on a laptop.
+
+# The frontend and the API under the same domain, which is what the template recommends (see "From
+# the frontend" in docs/auth.md): the cookie works without CORS. The API is under /api, and the
+# prefix is removed before the request reaches it: /api/auth/login arrives as /auth/login.
+{$SITE_ADDRESS} {
+	handle_path /api/* {
+		# Compressed, except the real-time stream (GET /events), which must arrive as it is written.
+		@compressible not header Accept text/event-stream
+		encode @compressible zstd gzip
+
+		reverse_proxy api:8080 {
+			# While the API restarts (a deploy), a request waits for it instead of getting a 502.
+			lb_try_duration 20s
+		}
+	}
+
+	# The frontend: the build of the React app (npm run build), copied to deploy/site. A path that is
+	# not a file gets index.html, so the routes of the app work when the page is reloaded.
+	handle {
+		root * /srv/site
+		encode zstd gzip
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Only the API, on its own subdomain, when the frontend is served somewhere else. Use this block
+# instead of the one above, set SITE_ADDRESS=api.example.com, and in .env the origin of the
+# frontend: CORS_ALLOWED_ORIGINS=https://app.example.com.
+#
+# {$SITE_ADDRESS} {
+# 	@compressible not header Accept text/event-stream
+# 	encode @compressible zstd gzip
+# 	reverse_proxy api:8080 {
+# 		lb_try_duration 20s
+# 	}
+# }

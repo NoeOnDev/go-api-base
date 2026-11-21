@@ -68,6 +68,7 @@ headings of each guide are listed with `grep -n '^#' docs/*.md`.
 | Dates, time zones and schedules: instants in UTC, dates and times without a zone (`internal/civil`) | [docs/time.md](docs/time.md) |
 | Environment variables | [README.md](README.md#configuration) |
 | What to check before production | [README.md](README.md#before-production) |
+| Deploying: the image, Docker Compose with PostgreSQL and Caddy, updating, backups | [docs/deploy.md](docs/deploy.md) |
 | Starting a project from the template | [README.md](README.md#starting-a-new-project) |
 | **Removing** unused auth features (open registration, 2FA, email change…) | [docs/auth.md](docs/auth.md#removing-features) |
 | **Removing** the job queue | [docs/jobs.md](docs/jobs.md#removing-the-queue) |
@@ -99,6 +100,7 @@ sections that exist (`docs/links_test.go`).
 | `make key` / `make rotate-keys` | Generate an `ENCRYPTION_KEY` / finish a rotation (see `docs/encryption.md`) |
 | `make river-migration version=N` | SQL of a new River migration, when updating it (see `docs/jobs.md`) |
 | `make build` | Static binary in `bin/api` |
+| `docker build -t api .` | The image of the API (see `docs/deploy.md`). A new environment variable the server needs goes in `deploy/.env.example` too |
 
 `make` loads `.env` automatically. The tools (sqlc, goose, staticcheck, govulncheck) run with `go run package@version`,
 with the versions pinned at the top of the `Makefile`; there is no need to install them. **Do not create subfolders with
@@ -133,6 +135,8 @@ internal/civil/       dates and times without a time zone (Date, Time, DateTime)
 internal/<resource>/  one package per resource: handlers.go, validation.go, routes.go, handlers_test.go
 internal/testutil/    helpers for integration tests (NewDB, Login, NewAPI, Do, Decode)
 migrations/           goose SQL migrations, embedded in the binary
+deploy/               reference deployment (see docs/deploy.md): compose.yaml, Caddyfile and .env.example. The
+                      Dockerfile is at the root
 docs/                 guides and design decisions (see "Where to look"); links_test.go checks their links
 ```
 

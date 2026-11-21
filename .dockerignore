@@ -1,0 +1,12 @@
+# What the image does not need: it is built only from the Go code.
+.git
+.github
+.env
+bin
+deploy
+docs
+storage
+*.md
+*.out
+*.test
+coverage.html

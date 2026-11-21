@@ -7,7 +7,7 @@ copy, and its `TEMPLATE_VERSION` file says which version it came from. When a te
 Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
 migrations, because they represent the initial schema.
 
-## [Unreleased]
+## [v0.11.0] - 2026-11-21
 
 File uploads: on the local disk or in S3, with the permission check on every download, limits per user and a cleanup of the files nobody uses. The notes example shows how a resource uses them. The schema changes: the new `files` and `note_attachments` tables.
 

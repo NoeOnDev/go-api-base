@@ -7,7 +7,7 @@ copy, and its `TEMPLATE_VERSION` file says which version it came from. When a te
 Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
 migrations, because they represent the initial schema.
 
-## [Unreleased]
+## [v0.12.0] - 2026-11-21
 
 Roles of the project with their permissions, for the systems where `user` and `admin` are not enough, a reference deployment with Docker Compose, and two things every project ends up writing: example data for development, and lists the client can sort. The schema changes: the `roles` and `role_permissions` tables.
 

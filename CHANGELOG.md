@@ -7,7 +7,7 @@ copy, and its `TEMPLATE_VERSION` file says which version it came from. When a te
 Format: one section per version, with what was **added**, **changed** and **fixed**. The template edits its original
 migrations, because they represent the initial schema.
 
-## [Unreleased]
+## [v0.13.0] - 2026-11-22
 
 The contract of the API in OpenAPI, which the tests keep true, and what a review of the whole template found after the last four versions.
 

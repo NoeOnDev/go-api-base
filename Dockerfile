@@ -7,8 +7,11 @@
 # The migrations, the catalogs, the email templates and the time zones are inside the binary, so
 # the image needs no other file of the repository.
 
-# --- Build. The toolchain is the one go.mod asks for: if this image is older, Go downloads it.
+# --- Build. The toolchain is the one go.mod asks for: if this image is older, Go downloads it. The
+# official image turns that off (GOTOOLCHAIN=local), and the build would stop on a server whose
+# copy of the image is from before the last update of go.mod.
 FROM golang:1.27 AS build
+ENV GOTOOLCHAIN=auto
 WORKDIR /src
 
 # The dependencies first: this layer is reused while go.mod and go.sum do not change.

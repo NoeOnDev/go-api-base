@@ -171,7 +171,7 @@ func (q *Queries) ListNoteAttachmentIDs(ctx context.Context, noteID int64) ([]in
 }
 
 const listNoteAttachments = `-- name: ListNoteAttachments :many
-SELECT f.id, f.user_id, f.key, f.name, f.content_type, f.size, f.uploaded_at, f.attached_at, f.deleted_at, f.created_at
+SELECT f.id, f.user_id, f.shared, f.key, f.name, f.content_type, f.size, f.uploaded_at, f.attached_at, f.deleted_at, f.created_at
 FROM note_attachments a
 JOIN files f ON f.id = a.file_id
 WHERE a.note_id = $1 AND f.deleted_at IS NULL
@@ -191,6 +191,7 @@ func (q *Queries) ListNoteAttachments(ctx context.Context, noteID int64) ([]File
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
+			&i.Shared,
 			&i.Key,
 			&i.Name,
 			&i.ContentType,
@@ -249,6 +250,27 @@ func (q *Queries) ListNotes(ctx context.Context, arg ListNotesParams) ([]Note, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockNote = `-- name: LockNote :one
+SELECT id FROM notes
+WHERE id = $1 AND user_id = $2
+FOR UPDATE
+`
+
+type LockNoteParams struct {
+	ID     int64
+	UserID int64
+}
+
+// LockNote locks the user's note until the transaction ends, and finds nothing if it is not theirs.
+// Deleting the note locks it before reading its attachments: a file that is being attached at that
+// moment waits, and then finds the note gone.
+func (q *Queries) LockNote(ctx context.Context, arg LockNoteParams) (int64, error) {
+	row := q.db.QueryRow(ctx, lockNote, arg.ID, arg.UserID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const updateNote = `-- name: UpdateNote :one

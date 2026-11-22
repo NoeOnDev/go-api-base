@@ -1,11 +1,14 @@
 package openapi
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -30,24 +33,34 @@ func load(t *testing.T) *openapi3.T {
 }
 
 // A route as the code registers it: mux.Handle("GET /notes/{id}", …), handle("POST /auth/login", …).
-var registered = regexp.MustCompile(`"(GET|POST|PUT|PATCH|DELETE) (/[^" ]*)"`)
+var registered = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE) (/\S*)$`)
 
-// routesOfTheCode reads the routes from the Go files of the API, tests aside.
+// routesOfTheCode reads the routes from the Go files of the API, tests aside: every text of the code
+// that is a method and a path. It reads the code and not its text, so a comment that names a route
+// of an example ("GET /notes/{id}") is not taken for one.
 func routesOfTheCode(t *testing.T) []string {
 	t.Helper()
 	var routes []string
+	files := token.NewFileSet()
 	for _, dir := range []string{"../../internal", "../../cmd"} {
 		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return err
 			}
-			code, err := os.ReadFile(path)
+			file, err := parser.ParseFile(files, path, nil, parser.SkipObjectResolution)
 			if err != nil {
 				return err
 			}
-			for _, m := range registered.FindAllStringSubmatch(string(code), -1) {
-				routes = append(routes, m[1]+" "+m[2])
-			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				lit, ok := n.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
+				}
+				if text, err := strconv.Unquote(lit.Value); err == nil && registered.MatchString(text) {
+					routes = append(routes, text)
+				}
+				return true
+			})
 			return nil
 		})
 		if err != nil {

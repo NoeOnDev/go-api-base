@@ -5,7 +5,7 @@ This guide uses an `orders` resource (each user's orders) as the example. Before
 | If the data… | Copy | For example |
 |---|---|---|
 | belongs **to each user** | `internal/notes` | orders, tasks, addresses, favorites |
-| is **shared** and managed by an admin | `internal/categories` | categories, branches, settings |
+| is **shared** and managed by whoever has a permission | `internal/categories` | categories, branches, settings |
 | is shared and **relates to another table** or needs filters | `internal/products` | products, items, services |
 
 ## 1. Migration
@@ -201,7 +201,7 @@ Copy the example package to `internal/orders` and adapt each file:
   - **Nothing slow inside:** compute what takes time beforehand (a hash with `auth.HashPassword`, a call to another API). While the transaction is open, it takes a database connection and can lock rows.
   - **Notices after the commit:** publishing an event (`broker.Publish`) or queuing a job outside the transaction goes after the `BeginFunc`. To queue inside the same transaction, use `InsertTx` (see [docs/jobs.md](jobs.md)).
   - **If two simultaneous requests can step on each other** (read, decide and write), lock the row at the start with `SELECT … FOR UPDATE`, as `issueToken` does with `LockUser`.
-- **Files of the resource** (an image, attachments): see "Using a file in a resource" in [files.md](files.md#using-a-file-in-a-resource). `internal/notes` has them: when you copy it for a resource without files, delete `attachments.go` and its test, its three routes, the `files` field of the handler and the release of the attachments in `delete`.
+- **Files of the resource** (an image, attachments): see "Using a file in a resource" in [files.md](files.md#using-a-file-in-a-resource). `internal/notes` has them: when you copy it for a resource without files, delete `attachments.go` and its test, its three routes with the `uploads` parameter of `Register`, the `files` and `db` fields of the handler with their parameters in `NewHandler`, the attachment queries of `notes.sql` (from `GetNoteID` to the end), and in `delete` the transaction that releases the attachments: it goes back to one `DeleteNote` call.
 - **`routes.go`:** the routes, with the right protection:
 
   ```go
@@ -229,6 +229,8 @@ In `internal/server/routes.go`:
 ```go
 orders.Register(mux, orders.NewHandler(queries), authService)
 ```
+
+`NewHandler` and `Register` take what the resource uses, so copy the line of the example you started from: `notes` also takes the pool, the broker of real time and the files (`notes.NewHandler(d.DB, queries, broker, filesService)` and `notes.Register(mux, h, authService, uploads)`); `categories` and `products`, only the queries.
 
 ## 6. The contract
 

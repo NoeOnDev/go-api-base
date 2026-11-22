@@ -18,7 +18,7 @@ The template comes with a lot already solved (authentication with 2FA, key rotat
   - `golang.org/x/time`: per-IP request limits;
   - `golang.org/x/term`: reading the password in `create-admin` without showing it;
   - `golang.org/x/text`: choosing the language from `Accept-Language` (see `docs/i18n.md`).
-- The AWS SDK (`aws-sdk-go-v2`), only for the S3 store of the uploaded files (see "Uploaded files"). It is the largest of the list, and the only one a project removes without touching anything else, by deleting one file.
+- The AWS SDK (`aws-sdk-go-v2`), only for the S3 store of the uploaded files (see "Uploaded files"). It is the largest of the list, and a project that does not use S3 removes it with a short recipe (see "Removing file uploads" in [files.md](files.md#removing-file-uploads)).
 
 ## pgx + sqlc instead of an ORM
 
@@ -248,12 +248,12 @@ SSE streams have no `WriteTimeout` (it would cut them after 30 seconds), but **e
 
 ## Missing routes
 
-Any unregistered route responds 404 in JSON. A method not allowed on an existing route (for example `POST /healthz`) also responds 404, because the `/` catch-all route takes priority over `net/http`'s 405. It is an accepted simplification.
+Any unregistered route responds 404 in JSON. A method not allowed on an existing route (for example `POST /healthz`) responds `405 method_not_allowed`, also in JSON, with the methods it accepts in the `Allow` header: the `/` catch-all route, which would take it for a missing one, asks the router first whether the path exists with another method.
 
 ## Go version
 
 `go.mod` requires Go 1.27.4, which includes the security fixes up to November 2026 (the last one, GO-2026-6859 in `net/http`; `govulncheck` fails `make check` with an older one).
-With `GOTOOLCHAIN=auto` (the default), an older Go version downloads the right one automatically.
+With `GOTOOLCHAIN=auto` (the default), an older Go version downloads the right one automatically. The official `golang` image of Docker sets `GOTOOLCHAIN=local`, so the `Dockerfile` sets it back to `auto`.
 
 ## Account features
 
@@ -301,6 +301,7 @@ Two roles are enough for a personal project, and not for a company's: a cashier,
 - **Permissions in the code, roles in the database.** What can be checked is decided by whoever writes the route (`RequirePermission("orders.refund", …)`), so a permission always means something. Which role has it is decided by an administrator, without a deploy. It is the split of `spatie/laravel-permission`.
 - **One role per user.** It covers almost every case, keeps `users.role` as a single column, and a list of users says at a glance what each one is. Several roles per user add a table, a merge of permissions on each request and the question of which role "wins"; a project that needs them adds them.
 - **`admin` is not a set of permissions:** it has all of them, also the ones a resource adds tomorrow, and it alone manages users and roles. If a permission could give that, whoever had it could give themselves the rest.
+- **Giving a role asks for the administrator's password; creating it does not.** A role nobody has gives nothing. Assigning it to a user, inviting someone with it and changing its permissions do, and with a stolen session they would leave an account with more access after that session is closed.
 - **The permissions travel with the session query,** so a request costs the same as before, and a change to a role applies on the next request. Nothing is cached in memory, which would not hold with several instances.
 - **The two roles of the template are rows of the `roles` table,** inserted by its migration, so `users.role` is a foreign key and a role in use cannot be deleted. The tests keep those rows when they empty the tables.
 
@@ -310,6 +311,8 @@ Two roles are enough for a personal project, and not for a company's: a cashier,
 
 - **A table, not a path in a column.** Laravel's usual way (`$path = $file->store(…)`, and the path in the model) leaves each resource to delete its own files, and the ones it forgets stay forever. With the `files` table, one place knows every object in the store, whose it is and whether something uses it, so one cleanup deletes what is left over.
 - **The row lives longer than the bytes.** It is created before the upload and deleted after the bytes. A failure in the middle leaves a row without bytes, which the cleanup removes, and never bytes without a row, which nothing would find.
+- **The cleanup marks, then deletes.** Deciding what to delete and deleting it are two steps, and a resource can take a file between them. The first step is one `UPDATE` that marks the files nobody needs; a marked file cannot be taken, so the second step never deletes one in use.
+- **A file is its user's, unless the resource says it is shared.** Deleting an account deletes its files without each resource having to release them, which is what the data of a person needs. The image of a product is not that person's data: `AttachShared` says so, and the file stays.
 - **Through the API, not straight to the bucket.** The permission is checked on every download with the same session as the rest, the bucket stays private, and the frontend does the same with the local disk and with S3. The cost is the traffic, which only matters with very large files.
 - **The official SDK for S3.** Signing the requests by hand would have saved the dependency, at the price of keeping security code against a service that changes. The SDK also finds the credentials of the machine's role, which is how a company deploys on AWS. TOTP is the opposite case: a closed algorithm of a hundred lines with the test vectors of its RFC, so it is ours.
 - **The type from the bytes, and almost everything downloaded.** Files are served from the domain where the session cookie is valid: a page or an SVG shown there would run with the user's session. Only the images are shown.

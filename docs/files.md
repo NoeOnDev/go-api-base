@@ -26,7 +26,7 @@ A resource never talks to the store: it uses `internal/files`, and stores the `i
 
 **In production, `s3`** unless the API runs on a single server whose disk is backed up. With several instances, each one has its own disk: `local` only works with a volume shared by all of them.
 
-**The bucket is private.** The files reach the browser through the API, which checks the permissions on each request; nothing links to the bucket, so it needs no public access and no CORS rules. The credentials only need `s3:PutObject`, `s3:GetObject` and `s3:DeleteObject` on that bucket.
+**The bucket is private.** The files reach the browser through the API, which checks the permissions on each request; nothing links to the bucket, so it needs no public access and no CORS rules. The credentials only need `s3:PutObject`, `s3:GetObject` and `s3:DeleteObject` on that bucket. (Without `s3:ListBucket`, Amazon S3 answers "access denied" instead of "not found" for an object that is missing: a file with its row and without its bytes, which should not happen, then answers `500` instead of `404`.)
 
 **On AWS, prefer the role of the machine** to fixed keys: leave `S3_ACCESS_KEY_ID` empty and give the role those three permissions. There is no secret to store or rotate.
 
@@ -114,6 +114,7 @@ Three calls, always the same:
 |---|---|---|
 | `filesService.Receive(w, r, rule)` | In the upload route | Reads the file, checks it against the rule and stores it. It belongs to the session's user, and nothing uses it yet |
 | `files.Attach(ctx, q, userID, ids...)` | In the transaction that links it to the resource | Marks it as in use. A file is taken only once |
+| `files.AttachShared(ctx, q, userID, ids...)` | The same, for a file that belongs to the resource and not to who uploaded it | Like `Attach`, and the file stays when that person's account is deleted (see "Whose a file is") |
 | `files.Release(ctx, q, ids...)` | In the transaction that deletes the resource, or takes the file off it | Marks it to be deleted: it stops being served now, and the cleanup deletes it |
 
 The table of the resource references the file. For one file per row (an avatar, a logo):
@@ -142,9 +143,14 @@ func (h *Handler) attach(w http.ResponseWriter, r *http.Request) error {
 		if err := files.Attach(r.Context(), q, user.ID, file.ID); err != nil {
 			return err
 		}
-		return q.CreateNoteAttachment(r.Context(), store.CreateNoteAttachmentParams{NoteID: id, FileID: file.ID})
+		err := q.CreateNoteAttachment(r.Context(), store.CreateNoteAttachmentParams{NoteID: id, FileID: file.ID})
+		if _, ok := db.IsForeignKeyViolation(err); ok {
+			return errNotFound // the note was deleted while the file was uploading
+		}
+		return err
 	})
 	if err != nil {
+		_ = files.Release(context.WithoutCancel(r.Context()), h.q, file.ID) // it has no note: it is not kept
 		return err
 	}
 	httpx.Write(w, http.StatusCreated, files.ToResponse(file))
@@ -167,7 +173,9 @@ if errors.Is(err, files.ErrUnknownFile) {
 
 **Replacing a file** (a new avatar) is attaching the new one and releasing the old one, in the same transaction.
 
-**Deleting the resource** releases its files in the same transaction, as `delete` does in `internal/notes/handlers.go`. Without it, the files would stay in use by a resource that no longer exists, and nothing would delete them.
+**Deleting the resource** releases its files in the same transaction, as `delete` does in `internal/notes/handlers.go`. Without it, the files would stay in use by a resource that no longer exists, and nothing would delete them. That transaction locks the resource first (`LockNote`, a `SELECT … FOR UPDATE`) and reads its files after: a file that is being attached at that moment waits, and then finds the resource gone. Reading the files first, that one would be missed and stay in use forever.
+
+**Whose a file is.** With `Attach`, the file is still its user's: when their account is deleted, the file is deleted too, wherever it is attached. That is right for the data of each user (an avatar, the attachments of their notes), which goes with the account. A file of a resource that outlives who uploaded it (the image of a product, the logo of a company) is taken with `files.AttachShared` instead: it stays until the resource releases it. It still counts for the quota of who uploaded it while their account exists.
 
 **Who can see a file.** `GET /files/{id}` only lets the owner and the administrators in, which is right for a user's own data. A resource whose files others see (the image of a product, the avatar in a list) serves them from its own route, after its own check:
 
@@ -193,11 +201,13 @@ and returns that route, not `url`, in its JSON.
 | In use | `attached_at` set | It stays until its resource releases it |
 | Released | `deleted_at` set | No longer served. The cleanup deletes it |
 
-The hourly cleanup (`files.Purge`, from the `cleanup` job; see [jobs.md](jobs.md)) deletes the released files, the ones uploaded more than a day ago that nothing took, and those of a deleted account. It deletes the bytes first and the row after.
+The hourly cleanup (`files.Purge`, from the `cleanup` job; see [jobs.md](jobs.md)) deletes the released files, the ones uploaded more than a day ago that nothing took, and those of a deleted account that are not shared. It marks them first (`deleted_at`), in one statement, and then deletes the marked ones, the bytes first and the row after. A form sent at that same moment either takes its file or gets an error for it (`ErrUnknownFile`): a file is never deleted after a resource took it.
 
-**A row lives longer than its bytes**, at both ends: it is created before the upload and deleted after the bytes. So whatever fails in the middle (the process dies, the bucket does not answer), a row remembers the object, and the cleanup finds it. Nothing is left in the bucket that the database does not know about.
+**A row lives longer than its bytes**, at both ends: it is created before the upload and deleted after the bytes. So whatever fails in the middle (the process dies, the bucket does not answer), a row remembers the object, and the cleanup finds it. A marked file whose upload did not finish waits an hour before it is deleted, so its row does not go while its bytes are still arriving. Nothing is left in the bucket that the database does not know about.
 
-**Deleting an account** (`DELETE /auth/me`) does not delete its files in that request: `files.user_id` becomes `NULL`, they stop being reachable, and the next cleanup deletes them.
+On the local disk, a file is written under `.tmp/` in `STORAGE_DIR` and renamed when it is complete. A process that dies in the middle (the server is turned off) leaves that temporary file, which no row knows: the startup deletes the ones older than a day.
+
+**Deleting an account** (`DELETE /auth/me`, or an administrator) does not delete its files in that request: `files.user_id` becomes `NULL`, only the administrators can open them, and the next cleanup deletes them. The shared ones stay (see "Whose a file is").
 
 ## Security
 
@@ -257,7 +267,7 @@ The same variables without `_TEST`, with `STORAGE_DRIVER=s3`, point the API of d
 
 1. Delete `internal/storage/s3.go`. In `internal/storage/storage_test.go`, delete `fakeS3`, `TestS3` and `TestS3Real`, and the imports left unused.
 2. In `cmd/api/main.go`, `newStorage` only returns `storage.NewLocal(c.Dir)`, and its `ctx` parameter goes.
-3. In `internal/config`, remove `StorageDriverS3`, the `S3…` fields of `Storage` and what loads and checks them in `loadStorage`; in `config_test.go`, the S3 part of `TestLoadStorage` and the S3 cases of `TestLoadInvalid`. Remove the `S3_*` variables from `.env.example`, the README and this guide.
+3. In `internal/config`, remove `StorageDriverS3`, the `S3…` fields of `Storage` and what loads and checks them in `loadStorage`; in `config_test.go`, the S3 part of `TestLoadStorage` and the S3 cases of `TestLoadInvalid`. Remove the `S3_*` variables from `.env.example`, `deploy/.env.example`, the README and this guide.
 4. `go mod tidy`, which removes the AWS SDK, and `make check`.
 
 **Everything:**
@@ -270,5 +280,6 @@ The same variables without `_TEST`, with `STORAGE_DRIVER=s3`, point the API of d
 6. In `internal/testutil/http.go`, remove `WithStorage`, `Upload`, `PNG` and `PDF`.
 7. Remove the keys `errors.file_in_use`, `errors.file_not_found`, `errors.malformed_upload`, `errors.storage_quota_exceeded`, `validation.file_too_large` and `validation.file_type` from the catalogs, and the four codes from the table of [i18n.md](i18n.md#error-codes).
 8. `make sqlc`, `go mod tidy` and `make check`, which names the routes left in `internal/openapi/openapi.yaml` without code: delete their operations (`/files…`, `/notes/{id}/attachments…`) and the `File` schema.
+9. What the deployment has for the files: in the `Dockerfile`, the `/data/storage` directory and `STORAGE_DIR`; in `deploy/compose.yaml`, the `storage` volume; in `deploy/.env.example`, the storage block; in [deploy.md](deploy.md), the backup of the files. And the "Files" section of `AGENTS.md`, with its rows in the table of "Where to look".
 
 Both recipes were tested on a copy of the project, with a test database created only with the remaining migrations.

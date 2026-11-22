@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -58,18 +59,9 @@ func (f fixture) upload(t *testing.T, cookie *http.Cookie, name string, content 
 }
 
 // get asks for a file with optional headers ("Name: value").
-func (f fixture) get(cookie *http.Cookie, path string, headers ...string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(http.MethodGet, path, nil)
-	for _, h := range headers {
-		name, value, _ := strings.Cut(h, ": ")
-		r.Header.Set(name, value)
-	}
-	if cookie != nil {
-		r.AddCookie(cookie)
-	}
-	w := httptest.NewRecorder()
-	f.api.ServeHTTP(w, r)
-	return w
+func (f fixture) get(t *testing.T, cookie *http.Cookie, path string, headers ...string) *httptest.ResponseRecorder {
+	t.Helper()
+	return testutil.DoWithHeaders(t, f.api, cookie, http.MethodGet, path, "", headers...)
 }
 
 func TestUploadAndDownload(t *testing.T) {
@@ -85,7 +77,7 @@ func TestUploadAndDownload(t *testing.T) {
 	}
 
 	// An image is shown in the page; nothing it carries can run.
-	w = f.get(f.alice, up.URL)
+	w = f.get(t, f.alice, up.URL)
 	if w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), testutil.PNG) {
 		t.Fatalf("download: status = %d, %d bytes", w.Code, w.Body.Len())
 	}
@@ -97,15 +89,15 @@ func TestUploadAndDownload(t *testing.T) {
 	}
 
 	// The browser asks again with the ETag: the file does not travel twice.
-	if w := f.get(f.alice, up.URL, "If-None-Match: "+h.Get("ETag")); w.Code != http.StatusNotModified || w.Body.Len() != 0 {
+	if w := f.get(t, f.alice, up.URL, "If-None-Match: "+h.Get("ETag")); w.Code != http.StatusNotModified || w.Body.Len() != 0 {
 		t.Errorf("with If-None-Match: status = %d, %d bytes", w.Code, w.Body.Len())
 	}
 	// A part of the file, as a video player or a download that continues asks for it.
-	if w := f.get(f.alice, up.URL, "Range: bytes=1-3"); w.Code != http.StatusPartialContent || w.Body.String() != "PNG" {
+	if w := f.get(t, f.alice, up.URL, "Range: bytes=1-3"); w.Code != http.StatusPartialContent || w.Body.String() != "PNG" {
 		t.Errorf("with Range: status = %d, body = %q", w.Code, w.Body)
 	}
 	// ?download=1 downloads the image instead of showing it.
-	if got := f.get(f.alice, up.URL+"?download=1").Header().Get("Content-Disposition"); got != `attachment; filename=photo.png` {
+	if got := f.get(t, f.alice, up.URL+"?download=1").Header().Get("Content-Disposition"); got != `attachment; filename=photo.png` {
 		t.Errorf("with ?download=1: Content-Disposition = %q", got)
 	}
 
@@ -114,22 +106,22 @@ func TestUploadAndDownload(t *testing.T) {
 	if pdf.ContentType != "application/pdf" {
 		t.Errorf("content type = %q, want application/pdf", pdf.ContentType)
 	}
-	got := f.get(f.alice, pdf.URL).Header().Get("Content-Disposition")
+	got := f.get(t, f.alice, pdf.URL).Header().Get("Content-Disposition")
 	if !strings.HasPrefix(got, "attachment; filename*=utf-8''Informe%20a%C3%B1o%202026.pdf") {
 		t.Errorf("Content-Disposition of a name with accents = %q", got)
 	}
 
 	// Only its owner and the administrators: someone else's answers 404, like a note.
-	if w := f.get(f.bob, up.URL); w.Code != http.StatusNotFound {
+	if w := f.get(t, f.bob, up.URL); w.Code != http.StatusNotFound {
 		t.Errorf("someone else's file: status = %d, want 404", w.Code)
 	}
-	if w := f.get(f.admin, up.URL); w.Code != http.StatusOK {
+	if w := f.get(t, f.admin, up.URL); w.Code != http.StatusOK {
 		t.Errorf("an administrator: status = %d, want 200", w.Code)
 	}
-	if w := f.get(nil, up.URL); w.Code != http.StatusUnauthorized || w.Header().Get("Cache-Control") != "no-store" {
+	if w := f.get(t, nil, up.URL); w.Code != http.StatusUnauthorized || w.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("without a session: status = %d, Cache-Control = %q", w.Code, w.Header().Get("Cache-Control"))
 	}
-	testutil.Decode[testutil.APIError](t, f.get(f.alice, "/files/999999"), http.StatusNotFound)
+	testutil.Decode[testutil.APIError](t, f.get(t, f.alice, "/files/999999"), http.StatusNotFound)
 	testutil.Decode[testutil.APIError](t, testutil.Upload(t, f.api, nil, "/files", "photo.png", testutil.PNG), http.StatusUnauthorized)
 }
 
@@ -166,7 +158,7 @@ func TestUploadValidation(t *testing.T) {
 	// An SVG can carry scripts. Its bytes are text, so it is kept as plain text and only downloaded:
 	// the browser never draws it, nor runs what it carries.
 	svg := f.upload(t, f.alice, "logo.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`))
-	if h := f.get(f.alice, svg.URL).Header(); svg.ContentType != "text/plain; charset=utf-8" || !strings.HasPrefix(h.Get("Content-Disposition"), "attachment") {
+	if h := f.get(t, f.alice, svg.URL).Header(); svg.ContentType != "text/plain; charset=utf-8" || !strings.HasPrefix(h.Get("Content-Disposition"), "attachment") {
 		t.Errorf("an SVG: content type = %q, Content-Disposition = %q", svg.ContentType, h.Get("Content-Disposition"))
 	}
 
@@ -208,7 +200,7 @@ func TestDelete(t *testing.T) {
 		t.Fatalf("delete: status = %d; body: %s", w.Code, w.Body)
 	}
 	// It is no longer served, even before the cleanup deletes its bytes.
-	testutil.Decode[testutil.APIError](t, f.get(f.alice, up.URL), http.StatusNotFound)
+	testutil.Decode[testutil.APIError](t, f.get(t, f.alice, up.URL), http.StatusNotFound)
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, f.api, f.alice, http.MethodDelete, up.URL, ""), http.StatusNotFound)
 
 	// One that a resource uses is taken off the resource, not deleted from here.
@@ -249,8 +241,8 @@ func TestAttachAndRelease(t *testing.T) {
 	if err := files.Release(ctx, q, a.ID); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Decode[testutil.APIError](t, f.get(f.alice, a.URL), http.StatusNotFound)
-	if w := f.get(f.alice, b.URL); w.Code != http.StatusOK {
+	testutil.Decode[testutil.APIError](t, f.get(t, f.alice, a.URL), http.StatusNotFound)
+	if w := f.get(t, f.alice, b.URL); w.Code != http.StatusOK {
 		t.Errorf("the file that was not released: status = %d", w.Code)
 	}
 }
@@ -322,12 +314,12 @@ func TestDownloadFromAStoreThatStreams(t *testing.T) {
 	up := testutil.Decode[file](t, testutil.Upload(t, api, cookie, "/files", "photo.png", testutil.PNG), http.StatusCreated)
 
 	for _, headers := range [][]string{nil, {"Range: bytes=1-3"}} {
-		w := f.get(cookie, up.URL, headers...)
+		w := f.get(t, cookie, up.URL, headers...)
 		if w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), testutil.PNG) || w.Header().Get("Content-Length") != fmt.Sprint(len(testutil.PNG)) {
 			t.Errorf("with %v: status = %d, %d bytes, Content-Length = %q", headers, w.Code, w.Body.Len(), w.Header().Get("Content-Length"))
 		}
 	}
-	if w := f.get(cookie, up.URL, "If-None-Match: "+f.get(cookie, up.URL).Header().Get("ETag")); w.Code != http.StatusNotModified {
+	if w := f.get(t, cookie, up.URL, "If-None-Match: "+f.get(t, cookie, up.URL).Header().Get("ETag")); w.Code != http.StatusNotModified {
 		t.Errorf("with If-None-Match: status = %d, want 304", w.Code)
 	}
 }
@@ -394,12 +386,31 @@ func TestPurge(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A shared file belongs to its resource: it stays when the account of who uploaded it goes.
+	dave, daveCookie := testutil.Login(t, f.pool, "dave@example.com", auth.RoleUser)
+	logo := f.upload(t, daveCookie, "logo.png", testutil.PNG)
+	if err := files.AttachShared(ctx, q, dave.ID, logo.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, "DELETE FROM users WHERE id = $1", dave.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// A released upload whose bytes may still be on their way: it waits.
+	arriving, err := q.CreateFile(ctx, store.CreateFileParams{UserID: &f.aliceID, Key: "2026/11/arriving", Name: "a.png", ContentType: "image/png", Size: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := files.Release(ctx, q, arriving.ID); err != nil {
+		t.Fatal(err)
+	}
+
 	deleted, err := files.Purge(ctx, q, f.store)
 	if err != nil || deleted != 4 {
 		t.Fatalf("Purge = %d, %v; want 4 files", deleted, err)
 	}
-	if keys := f.store.Keys(); len(keys) != 2 {
-		t.Errorf("%d objects left in the store, want 2", len(keys))
+	if keys := f.store.Keys(); len(keys) != 3 {
+		t.Errorf("%d objects left in the store, want 3", len(keys))
 	}
 	var left []int64
 	rows, _ := f.pool.Query(ctx, "SELECT id FROM files ORDER BY id")
@@ -408,12 +419,63 @@ func TestPurge(t *testing.T) {
 		_ = rows.Scan(&id)
 		left = append(left, id)
 	}
-	if len(left) != 2 || left[0] != inUse.ID || left[1] != fresh.ID {
-		t.Errorf("files left = %v, want %d and %d", left, inUse.ID, fresh.ID)
+	if want := []int64{inUse.ID, fresh.ID, logo.ID, arriving.ID}; !slices.Equal(left, want) {
+		t.Errorf("files left = %v, want %v", left, want)
 	}
 	// Nothing else to delete.
 	if deleted, err := files.Purge(ctx, q, f.store); err != nil || deleted != 0 {
 		t.Errorf("a second Purge = %d, %v", deleted, err)
+	}
+
+	// The shared one goes when its resource releases it, and the upload that never arrived, an hour
+	// after it started.
+	if err := files.Release(ctx, q, logo.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, "UPDATE files SET created_at = now() - interval '2 hours' WHERE id = $1", arriving.ID); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := files.Purge(ctx, q, f.store); err != nil || deleted != 2 {
+		t.Errorf("the last Purge = %d, %v; want 2 files", deleted, err)
+	}
+}
+
+// The cleanup marks a file nothing took in a day before deleting it, and a marked file cannot be
+// taken: a form sent at that moment gets its error, instead of a file that then disappears.
+func TestAFileTheCleanupMarkedCannotBeAttached(t *testing.T) {
+	f := setup(t)
+	q := store.New(f.pool)
+	ctx := t.Context()
+
+	old := f.upload(t, f.alice, "old.png", testutil.PNG)
+	if _, err := f.pool.Exec(ctx, "UPDATE files SET created_at = now() - interval '25 hours' WHERE id = $1", old.ID); err != nil {
+		t.Fatal(err)
+	}
+	if marked, err := q.MarkUnusedFiles(ctx, time.Now().Add(-24*time.Hour)); err != nil || marked != 1 {
+		t.Fatalf("MarkUnusedFiles = %d, %v; want 1", marked, err)
+	}
+	if err := files.Attach(ctx, q, f.aliceID, old.ID); !errors.Is(err, files.ErrUnknownFile) {
+		t.Errorf("Attach of a marked file = %v, want ErrUnknownFile", err)
+	}
+	testutil.Decode[testutil.APIError](t, f.get(t, f.alice, old.URL), http.StatusNotFound)
+}
+
+// A file whose bytes are not in the store answers 404 as an error of the API, without the headers
+// of the file: the browser must not save the JSON as "photo.png".
+func TestDownloadWithoutItsBytes(t *testing.T) {
+	f := setup(t)
+	up := f.upload(t, f.alice, "photo.png", testutil.PNG)
+	for _, key := range f.store.Keys() {
+		if err := f.store.Delete(t.Context(), key); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	w := f.get(t, f.alice, up.URL+"?download=1")
+	testutil.Decode[testutil.APIError](t, w, http.StatusNotFound)
+	h := w.Header()
+	if h.Get("Content-Disposition") != "" || h.Get("ETag") != "" || h.Get("Cache-Control") != "no-store" || !strings.HasPrefix(h.Get("Content-Type"), "application/json") {
+		t.Errorf("headers of the error = %v", h)
 	}
 }
 

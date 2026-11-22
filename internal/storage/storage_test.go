@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/storage"
 )
@@ -98,6 +99,27 @@ func TestLocal(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Join(dir, "a"))
 	if err != nil || len(entries) != 1 {
 		t.Errorf("entries = %v, %v; want only the file", entries, err)
+	}
+
+	// A temporary file that a process left when it died is deleted by a later startup, once it is
+	// old enough that nobody can be writing it. A recent one is another instance's upload.
+	stale, recent := filepath.Join(dir, ".tmp", "stale"), filepath.Join(dir, ".tmp", "recent")
+	for _, name := range []string{stale, recent} {
+		if err := os.WriteFile(name, []byte("half a file"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(stale, time.Now(), time.Now().Add(-48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.NewLocal(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the old temporary file is still there: %v", err)
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Errorf("the recent temporary file was deleted: %v", err)
 	}
 
 	// A key cannot leave the directory.

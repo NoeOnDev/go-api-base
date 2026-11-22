@@ -35,7 +35,7 @@ type inviteInput struct {
 	// frontend can send it when accepting.
 	Locale   *string `json:"locale"`
 	TimeZone *string `json:"time_zone"`
-	// Password is the admin's own, needed only to invite another admin.
+	// Password is the admin's own, needed to invite with any role other than user.
 	Password string `json:"password"`
 }
 
@@ -72,10 +72,11 @@ func (s *Service) validateInvite(in *inviteInput) error {
 // inviteUser returns the handler of POST /admin/users with {name, email, role, locale?, password?}:
 // it creates the user without a password and sends them the invitation, valid for 7 days.
 //
-// Inviting another admin asks for the admin's password, like changing a role: with a stolen
-// session, a new admin would outlast it. That check has the per-user limit of the account actions
-// (account, the same as the route middleware); inviting users does not, so several can be invited
-// in a row.
+// Inviting with any role other than user (another admin, or a role of the project with its
+// permissions) asks for the admin's password, like changing a role: with a stolen session, an
+// account with more access would outlast it. That check has the per-user limit of the account
+// actions (account, the same as the route middleware); inviting users does not, so several can be
+// invited in a row.
 func (s *Service) inviteUser(account *ratelimit.Limiter) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		var in inviteInput
@@ -87,7 +88,7 @@ func (s *Service) inviteUser(account *ratelimit.Limiter) func(http.ResponseWrite
 		}
 
 		admin := MustUser(r.Context())
-		if in.Role == RoleAdmin {
+		if in.Role != RoleUser {
 			allowed, err := account.Allow(r.Context(), strconv.FormatInt(admin.ID, 10))
 			if err != nil {
 				return err

@@ -8,7 +8,8 @@ It includes:
 - password reset by email;
 - email verification (optional);
 - 2FA with an authenticator app and recovery codes (opt-in for each user);
-- `user`/`admin` roles.
+- `user`/`admin` roles, and roles of the project with permissions;
+- user management for administrators, and invitations.
 
 Each feature can be removed if a project does not need it (see [the end](#removing-features)).
 
@@ -65,6 +66,7 @@ The 2FA challenge uses a cookie with the same attributes: `two_factor_challenge`
 | `POST` | `/admin/users/{id}/suspend`, `/unsuspend` | admin | | `200` with the user; `409` |
 | `DELETE` | `/admin/users/{id}` | admin | `{password}` | `204`; `422` if the admin's password is wrong; `409` |
 | `GET` | `/admin/roles`, `/admin/permissions` | admin | | `200` with the roles (their permissions and how many users have each), or with the permissions a role can have (see [roles](#roles)) |
+| `GET` | `/admin/roles/{key}` | admin | | `200` with the role; `404` |
 | `POST` | `/admin/roles` | admin | `{key, name, permissions}` | `201` with the role; `409` if the key exists; `422` |
 | `PUT` | `/admin/roles/{key}` | admin | `{name, permissions, password}` | `200` with the role; `422` if a permission or the admin's password are wrong; `404`; `409` for `user` and `admin` |
 | `DELETE` | `/admin/roles/{key}` | admin | | `204`; `409` if users have it, or for `user` and `admin`; `404` |
@@ -250,13 +252,13 @@ A role says what an account can do beyond having a session. Two come with the te
 
 | Situation | Command | Where the password comes from | Who may know it |
 |---|---|---|---|
-| Development: accounts to work with | `make seed` | `SEED_PASSWORD` in the `.env` of that machine, or the terminal | Anyone on the project, a coding agent included: they are throwaway accounts (`admin@example.com`, `user@example.com`), and the command refuses to run in production |
+| Development: accounts to work with | `make seed` (and `make fresh`, which seeds after recreating the database) | `SEED_PASSWORD` in the `.env` of that machine, or the terminal | Anyone on the project, a coding agent included: they are throwaway accounts (`admin@example.com`, `user@example.com`, `manager@example.com`), and the command refuses to run in production, or against a database that is not on that machine |
 | A real administrator, created by a person | `make create-admin email=…` (or `./api create-admin -email …` on the server) | The terminal: it is asked for twice, without being shown | Only that person. Nothing is written to a file, the shell history or the log |
 | A real administrator, created by a script | The same command, with `ADMIN_PASSWORD` in its environment | The secret store of the deploy (never `.env`, nor the command line) | Whoever manages the secrets |
 
 The variable wins over the terminal: with `ADMIN_PASSWORD` set, `create-admin` does not ask. That is why it does not belong in `.env`: a person who wanted to type the password would get the one of the file without noticing.
 
-A coding agent uses the first row, and only that one. Asked to create a real administrator, it gives the person the command of the second row to run in their own terminal: an agent cannot type into that prompt, and should not see the password. Either way the password goes through the same rules as in the API (length, common passwords).
+A coding agent uses the first row, and only that one. If the `.env` has no `SEED_PASSWORD`, it adds one of its own: it is the password of example data, and without it and without a terminal the two commands stop before doing anything (`make fresh`, before deleting the database). Asked to create a real administrator, it gives the person the command of the second row to run in their own terminal: an agent cannot type into that prompt, and should not see the password. Either way the password goes through the same rules as in the API (length, common passwords).
 
 In the routes, `RequireAdmin` responds `401` if there is no session and `403` if the user is not an admin. In a handler, check admin permissions with `user.IsAdmin()`, never by comparing `Role` (see below).
 
@@ -287,9 +289,10 @@ mux.Handle("POST /products", authn.RequirePermission(PermManage, httpx.Handle(h.
 
 - `GET /admin/permissions` lists the permissions the code defines, for the checkboxes of the form.
 - `POST /admin/roles` with `{key, name, permissions}` creates a role. The `key` is its identifier (lowercase letters, numbers and `_`: `catalog_manager`) and does not change; the `name` is what people read.
+- `GET /admin/roles/{key}` returns one, with its permissions.
 - `PUT /admin/roles/{key}` with `{name, permissions, password}` replaces its name and its permissions. It asks for the administrator's password, like changing the role of a user, because it changes what every user of the role can do.
 - `DELETE /admin/roles/{key}` deletes it. If users have it, it answers `409 role_in_use`: they get another role first.
-- A user gets a role with `PUT /admin/users/{id}/role`, or from their invitation (`POST /admin/users` with `role`).
+- A user gets a role with `PUT /admin/users/{id}/role`, or from their invitation (`POST /admin/users` with `role`). Both ask for the administrator's password: creating a role does not, because a role nobody has gives nothing.
 
 ```json
 {"key": "catalog_manager", "name": "Catalog manager", "built_in": false,
@@ -304,7 +307,7 @@ mux.Handle("POST /products", authn.RequirePermission(PermManage, httpx.Handle(h.
 - **`user` and `admin` cannot be changed or deleted** (`409 built_in_role`).
 - **Managing users and roles is only for `admin`.** No permission gives it: whoever can hand out permissions can give themselves all of them.
 - **One role per user.** For a person who needs what two roles have, create a role with both sets of permissions. A project that needs several roles per user replaces `users.role` with a table in between.
-- **A permission the code stops defining** stays stored in the roles that had it, does nothing and is not shown.
+- **A permission the code stops defining** stays stored in the roles that had it, does nothing and is not shown. Editing the role does not delete it: if the code defines it again (a deploy that went back, and forward again), the role still has it.
 - **With `REQUIRE_ADMIN_TWO_FACTOR`,** an admin without 2FA has no permission yet: `RequirePermission` answers `403 admin_two_factor_required`, like `RequireAdmin`. It does not apply to the roles of the project.
 - **The names of the roles are data**, written by an administrator in one language. The frontend translates `user` and `admin` by their key if it needs to.
 
@@ -312,7 +315,7 @@ mux.Handle("POST /products", authn.RequirePermission(PermManage, httpx.Handle(h.
 
 The administrators manage the accounts from `/admin/users` (`internal/auth/admin_users.go`). Each user comes as the account (the same fields as `/auth/me`) plus `status` (`active`, `invited` or `suspended`) and `suspended_at`:
 
-- **List:** `GET /admin/users`, from the newest, with `?q=` (searches the name and the email), `?role=user|admin` and `?status=active|invited|suspended`, paginated like the other lists, with `total`.
+- **List:** `GET /admin/users`, from the newest, with `?q=` (searches the name and the email), `?role=` (the key of a role) and `?status=active|invited|suspended`, paginated like the other lists, with `total`.
 - **Invite:** `POST /admin/users` (see [invitations](#invitations)).
 - **Change the role:** `PUT /admin/users/{id}/role` with `{role, password}`. It asks for the admin's password: with a stolen session, making another account an admin would leave the attacker with access even after that session is closed. It applies at once, and the user's real-time streams are cut so their topics are authorized again with the new role.
 - **Suspend:** `POST /admin/users/{id}/suspend`. The account cannot log in (`403 account_suspended`, and only after the right password, so nobody learns it exists), its sessions and real-time streams are cut, and its pending links and two-factor challenge are deleted. "Forgot my password" sends it nothing. `POST /admin/users/{id}/unsuspend` undoes it.
@@ -329,7 +332,7 @@ Changing the role and deleting have the per-user limit of the account actions, b
 
 For systems without open registration (an internal tool, a client's team), an admin creates the account and the person chooses their password (`internal/auth/invitations.go`):
 
-1. **The admin invites:** `POST /admin/users` with `{name, email, role}`, and optionally `locale` (the language of the email and of the account) and `time_zone`. Inviting another admin also asks for the admin's `password`, like changing a role. The user is created **without a password** (`status: "invited"`) and with the email not verified, and gets an email with a link to `FRONTEND_URL/accept-invitation?token=…`, valid for **7 days**.
+1. **The admin invites:** `POST /admin/users` with `{name, email, role}`, and optionally `locale` (the language of the email and of the account) and `time_zone`. Inviting with any role other than `user` (another admin, or a role of the project) also asks for the admin's `password`, like changing a role: with a stolen session, an account with more access would outlast it. The user is created **without a password** (`status: "invited"`) and with the email not verified, and gets an email with a link to `FRONTEND_URL/accept-invitation?token=…`, valid for **7 days**.
 2. **The person accepts:** the frontend reads the token from the URL and sends `POST /auth/invitation/accept` with `{token, password, time_zone?}`. The password follows the usual rules. The email is marked as verified (the link reached it), the language (and the zone, if it is sent) are the browser's if the admin did not choose them, and the session starts, as in the registration.
 
 **To keep in mind:**
@@ -470,9 +473,9 @@ All the routes are in `internal/auth/routes.go`. To remove a feature, delete its
 | Resetting the password | `/auth/password/forgot`, `/auth/password/reset` | `password_reset.go`, `password_reset_test.go`, `emails/*/password_reset.*` | |
 | Verifying the email | `/auth/email/verify`, `/auth/email/resend` | `email_verification.go`, `email_verification_test.go`, `emails/*/verify_email.*` | In `register` (`handlers.go`), the `if s.opts.RequireVerifiedEmail` block. Leave `REQUIRE_EMAIL_VERIFICATION=false` |
 | Invitations | `POST /admin/users`, `/admin/users/{id}/invitation`, `/auth/invitation/accept` | `invitations.go`, `invitations_test.go`, `emails/*/invitation.*` | Optionally, the `invitation` purpose (`tokens.go` and the CHECK of migration `00006`) and the `SetInitialPassword` query (then, `make sqlc`). `password_hash` can stay nullable: a user without a password cannot log in |
-| Managing users | `GET /admin/users`, `GET /admin/users/{id}`, `/admin/users/{id}/role`, `…/suspend`, `…/unsuspend` and `DELETE /admin/users/{id}` (`POST /admin/users` and `…/invitation` belong to the invitations) | `admin_users.go`, `admin_users_test.go` | Optionally, the suspension: the `SuspendedAt` checks of `Authenticate` (`auth.go`) and `forgotPassword` (`password_reset.go`), the `suspended_at` column (migration `00001`, `users.sql` and the `GetSessionUser` filter of `sessions.sql`) and the user queries of the list, the role and the suspension (then, `make sqlc`) |
-| Roles of the project (only `user` and `admin`) | `/admin/roles…`, `/admin/permissions` | `roles.go`, `roles_test.go` | `RequirePermission` and `user.Can` stay, and let only the administrators through. In `cmd/api/seed.go`, the role and the account of the catalog in `seedCatalog`, with their lines in `seed_test.go` (`users` goes back to 2 and `roles` goes). Optionally, `testutil.CreateRole` and the tests that use it (`TestPermissions`, `TestProductsManagedByARole`) |
-| 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/*/two_factor_locked.*` | In `handlers.go`, the login's `if u.TwoFactorEnabled` block; in `auth.go`, `twoFactorLimiter`; in `keys.go`, the call to `rotateTwoFactorKeys`; in `internal/notifications`, `TestTwoFactorChangesNotify`. Leave `REQUIRE_ADMIN_TWO_FACTOR=false`: with `true`, no administrator could use the admin routes. Optionally, also `internal/totp`, `testutil/twofactor.go` and migration `00007` with `recovery_codes.sql` (then, `make sqlc`) |
+| Managing users | `GET /admin/users`, `GET /admin/users/{id}`, `/admin/users/{id}/role`, `…/suspend`, `…/unsuspend` and `DELETE /admin/users/{id}` (`POST /admin/users` and `…/invitation` belong to the invitations) | `admin_users.go`, `admin_users_test.go` | Optionally, the suspension: the `SuspendedAt` checks of `Authenticate` (`auth.go`), `forgotPassword` (`password_reset.go`) and the invitations (`resendInvitation` and `acceptInvitation`, with `errUserSuspended`), the `suspended_at` column (migration `00001`, `users.sql` and the `GetSessionUser` filter of `sessions.sql`) and the user queries of the list, the role and the suspension (then, `make sqlc`) |
+| Roles of the project (only `user` and `admin`) | `/admin/roles…`, `/admin/permissions` | `roles.go`, `roles_test.go` | `RequirePermission` and `user.Can` stay, and let only the administrators through. In `cmd/api/seed.go`, the role and the account of the catalog in `seedCatalog`, with their lines in `seed_test.go` (`users` goes back to 2, `roles` goes, and so does `TestSeedCatalogIsCompleted`). In `internal/server/routes_test.go`, `TestRolesMatchTheDocument`. Optionally, `testutil.CreateRole` and the tests that use it (`TestPermissions`, `TestProductsManagedByARole`) |
+| 2FA | `/auth/two-factor/…` | `two_factor.go`, `two_factor_login.go`, `recovery_codes.go`, `two_factor*_test.go`, `emails/*/two_factor_locked.*` | In `handlers.go`, the login's `if u.TwoFactorEnabled` block; in `auth.go`, `twoFactorLimiter`; in `keys.go`, the call to `rotateTwoFactorKeys`; in `internal/notifications`, `TestTwoFactorChangesNotify`. Leave `REQUIRE_ADMIN_TWO_FACTOR=false`, also in `deploy/.env.example`, which brings it as `true`: with it, no administrator could use the admin routes. Optionally, also `internal/totp`, `testutil/twofactor.go` and migration `00007` with `recovery_codes.sql` (then, `make sqlc`) |
 
 Finally, `make fmt` and `make check`, which says what is left:
 

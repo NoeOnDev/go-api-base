@@ -56,3 +56,11 @@ WHERE note_id = $1;
 DELETE FROM note_attachments a
 USING notes n
 WHERE a.note_id = $1 AND a.file_id = $2 AND n.id = a.note_id AND n.user_id = $3;
+
+-- LockNote locks the user's note until the transaction ends, and finds nothing if it is not theirs.
+-- Deleting the note locks it before reading its attachments: a file that is being attached at that
+-- moment waits, and then finds the note gone.
+-- name: LockNote :one
+SELECT id FROM notes
+WHERE id = $1 AND user_id = $2
+FOR UPDATE;

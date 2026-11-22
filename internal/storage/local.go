@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"time"
 )
 
 // Local keeps the objects as files under a directory (STORAGE_DIR). It is for development and for
@@ -29,18 +30,46 @@ func NewLocal(dir string) (*Local, error) {
 	if err != nil {
 		return nil, fmt.Errorf("storage: open %s: %w", dir, err)
 	}
-	return &Local{root: root}, nil
+	if err := root.MkdirAll(tmpDir, 0o750); err != nil {
+		return nil, fmt.Errorf("storage: create %s in %s: %w", tmpDir, dir, err)
+	}
+	l := &Local{root: root}
+	l.sweep(time.Now().Add(-tmpMaxAge))
+	return l, nil
+}
+
+const (
+	// tmpDir is where a file is written before it takes its key. It starts with a dot: no key does.
+	tmpDir = ".tmp"
+	// tmpMaxAge is how old a temporary file must be for the startup to delete it: far more than an
+	// upload takes, so another instance that shares the directory is not writing it.
+	tmpMaxAge = 24 * time.Hour
+)
+
+// sweep deletes the temporary files a process left when it died in the middle of a Put: no row
+// knows their names, so nothing else would. It is best effort: what it cannot delete stays.
+func (l *Local) sweep(before time.Time) {
+	entries, err := fs.ReadDir(l.root.FS(), tmpDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && !e.IsDir() && info.ModTime().Before(before) {
+			_ = l.root.Remove(path.Join(tmpDir, e.Name()))
+		}
+	}
 }
 
 // Put writes to a temporary file and renames it: a reader never sees half a file, and an upload cut
-// in the middle leaves nothing under the key.
+// in the middle leaves nothing under the key. If the process dies before the rename, the temporary
+// file stays in tmpDir, and a later startup deletes it.
 func (l *Local) Put(_ context.Context, key string, body io.ReadSeeker, _ int64, _ string) error {
 	if dir := path.Dir(key); dir != "." {
 		if err := l.root.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("storage: create the directory of %s: %w", key, err)
 		}
 	}
-	tmp := key + ".tmp-" + rand.Text()
+	tmp := path.Join(tmpDir, rand.Text())
 	f, err := l.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
 	if err != nil {
 		return fmt.Errorf("storage: create %s: %w", key, err)

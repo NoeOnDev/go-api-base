@@ -356,6 +356,14 @@ func TestReminderWorker(t *testing.T) {
 
 	// An appointment at another time (the arguments are old), canceled or deleted: nothing.
 	work(appointments.ReminderArgs{AppointmentID: a.ID, StartsAt: startsAt.Add(time.Hour)})
+	// Nor one that already started, when the job runs late.
+	var past time.Time
+	err := f.pool.QueryRow(t.Context(), `UPDATE appointments SET reminded_at = NULL, starts_at = now() - interval '2 hours', ends_at = now() - interval '1 hour'
+		WHERE id = $1 RETURNING starts_at`, a.ID).Scan(&past)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work(appointments.ReminderArgs{AppointmentID: a.ID, StartsAt: past})
 	testutil.Decode[appointment](t, testutil.Do(t, f.api, f.alice, http.MethodPost, fmt.Sprintf("/appointments/%d/cancel", a.ID), ""), http.StatusOK)
 	work(appointments.ReminderArgs{AppointmentID: a.ID, StartsAt: startsAt})
 	work(appointments.ReminderArgs{AppointmentID: a.ID + 100, StartsAt: startsAt})

@@ -12,20 +12,22 @@ import (
 
 const attachFiles = `-- name: AttachFiles :execrows
 UPDATE files
-SET attached_at = now()
-WHERE id = ANY($1::bigint[]) AND user_id = $2
+SET attached_at = now(), shared = $1
+WHERE id = ANY($2::bigint[]) AND user_id = $3
   AND uploaded_at IS NOT NULL AND attached_at IS NULL AND deleted_at IS NULL
 `
 
 type AttachFilesParams struct {
+	Shared bool
 	Ids    []int64
 	UserID *int64
 }
 
 // AttachFiles marks the user's files as in use, and returns how many it marked: fewer than asked
 // means that one is not theirs, is not uploaded, is already in use or is marked to be deleted.
+// shared is true for a file that belongs to its resource and not to who uploaded it.
 func (q *Queries) AttachFiles(ctx context.Context, arg AttachFilesParams) (int64, error) {
-	result, err := q.db.Exec(ctx, attachFiles, arg.Ids, arg.UserID)
+	result, err := q.db.Exec(ctx, attachFiles, arg.Shared, arg.Ids, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -35,7 +37,7 @@ func (q *Queries) AttachFiles(ctx context.Context, arg AttachFilesParams) (int64
 const createFile = `-- name: CreateFile :one
 INSERT INTO files (user_id, key, name, content_type, size)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, user_id, key, name, content_type, size, uploaded_at, attached_at, deleted_at, created_at
+RETURNING id, user_id, shared, key, name, content_type, size, uploaded_at, attached_at, deleted_at, created_at
 `
 
 type CreateFileParams struct {
@@ -59,6 +61,7 @@ func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) (File, e
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
+		&i.Shared,
 		&i.Key,
 		&i.Name,
 		&i.ContentType,
@@ -82,7 +85,7 @@ func (q *Queries) DeleteFile(ctx context.Context, id int64) error {
 }
 
 const getFile = `-- name: GetFile :one
-SELECT id, user_id, key, name, content_type, size, uploaded_at, attached_at, deleted_at, created_at FROM files
+SELECT id, user_id, shared, key, name, content_type, size, uploaded_at, attached_at, deleted_at, created_at FROM files
 WHERE id = $1 AND uploaded_at IS NOT NULL AND deleted_at IS NULL
 `
 
@@ -93,6 +96,7 @@ func (q *Queries) GetFile(ctx context.Context, id int64) (File, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
+		&i.Shared,
 		&i.Key,
 		&i.Name,
 		&i.ContentType,
@@ -107,15 +111,15 @@ func (q *Queries) GetFile(ctx context.Context, id int64) (File, error) {
 
 const listPurgeableFiles = `-- name: ListPurgeableFiles :many
 SELECT id, key FROM files
-WHERE (deleted_at IS NOT NULL OR user_id IS NULL OR attached_at IS NULL)
-  AND (deleted_at IS NOT NULL OR user_id IS NULL OR created_at < $1::timestamptz)
+WHERE deleted_at IS NOT NULL
+  AND (uploaded_at IS NOT NULL OR created_at < $1::timestamptz)
 ORDER BY id
 LIMIT $2
 `
 
 type ListPurgeableFilesParams struct {
-	UnattachedBefore time.Time
-	Limit            int32
+	UploadStartedBefore time.Time
+	Limit               int32
 }
 
 type ListPurgeableFilesRow struct {
@@ -123,11 +127,11 @@ type ListPurgeableFilesRow struct {
 	Key string
 }
 
-// ListPurgeableFiles returns the files the cleanup deletes: the marked ones, those of a deleted
-// account, and the ones that nothing took since before the date (an upload that was cut, or a form
-// that was never sent). The first condition is the one of the files_purge_idx index, to use it.
+// ListPurgeableFiles returns the marked files, which the cleanup deletes. One whose upload did not
+// finish waits until the date: its bytes can still be on their way to the store, and deleting the
+// row first would leave them there without one.
 func (q *Queries) ListPurgeableFiles(ctx context.Context, arg ListPurgeableFilesParams) ([]ListPurgeableFilesRow, error) {
-	rows, err := q.db.Query(ctx, listPurgeableFiles, arg.UnattachedBefore, arg.Limit)
+	rows, err := q.db.Query(ctx, listPurgeableFiles, arg.UploadStartedBefore, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -149,17 +153,20 @@ func (q *Queries) ListPurgeableFiles(ctx context.Context, arg ListPurgeableFiles
 const markFileUploaded = `-- name: MarkFileUploaded :one
 UPDATE files
 SET uploaded_at = now()
-WHERE id = $1
-RETURNING id, user_id, key, name, content_type, size, uploaded_at, attached_at, deleted_at, created_at
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, user_id, shared, key, name, content_type, size, uploaded_at, attached_at, deleted_at, created_at
 `
 
 // MarkFileUploaded records that the bytes are in the store: from here on the file can be served.
+// It finds nothing if the file was marked to be deleted while it was uploading (its account was
+// deleted): the cleanup deletes what arrived.
 func (q *Queries) MarkFileUploaded(ctx context.Context, id int64) (File, error) {
 	row := q.db.QueryRow(ctx, markFileUploaded, id)
 	var i File
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
+		&i.Shared,
 		&i.Key,
 		&i.Name,
 		&i.ContentType,
@@ -170,6 +177,27 @@ func (q *Queries) MarkFileUploaded(ctx context.Context, id int64) (File, error) 
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const markUnusedFiles = `-- name: MarkUnusedFiles :execrows
+UPDATE files
+SET deleted_at = now()
+WHERE deleted_at IS NULL AND (attached_at IS NULL OR user_id IS NULL)
+  AND ((user_id IS NULL AND NOT shared)
+       OR (attached_at IS NULL AND created_at < $1::timestamptz))
+`
+
+// MarkUnusedFiles marks to be deleted the files nobody needs, and returns how many: those of a
+// deleted account that are not shared, and the ones that nothing took since before the date (an
+// upload that was cut, or a form that was never sent). It is one statement, so a file a resource
+// takes at the same time is either taken or marked, never both: AttachFiles does not take a marked
+// one. The first condition is the one of the files_unused_idx index, to use it.
+func (q *Queries) MarkUnusedFiles(ctx context.Context, unattachedBefore time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, markUnusedFiles, unattachedBefore)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const releaseFiles = `-- name: ReleaseFiles :exec

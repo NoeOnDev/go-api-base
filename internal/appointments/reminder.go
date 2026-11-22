@@ -71,6 +71,11 @@ func (w *ReminderWorker) Work(ctx context.Context, job *river.Job[ReminderArgs])
 	if a.Status != statusBooked || !a.StartsAt.Equal(job.Args.StartsAt) || a.RemindedAt != nil {
 		return nil
 	}
+	// The job ran late (the workers were stopped for a day, or it failed until now): a reminder of
+	// an appointment that already started says nothing useful.
+	if !a.StartsAt.After(time.Now()) {
+		return nil
+	}
 	// The day and hour of the branch's clock: the appointment is there. The text writes them in the
 	// reader's format ({date:date}, {time:time}); the frontend has starts_at to show it in another
 	// zone.

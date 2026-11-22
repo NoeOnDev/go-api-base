@@ -117,22 +117,33 @@ func Do(t *testing.T, api http.Handler, cookie *http.Cookie, method, path, body 
 // who spreads their attempts across many IPs, or to avoid hitting the per-IP limit.
 func DoFromIP(t *testing.T, api http.Handler, ip string, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	return request(t, api, ip, "", cookie, method, path, body)
+	return request(t, api, ip, nil, cookie, method, path, body)
 }
 
 // DoWithLanguage is like Do, but with the Accept-Language header (for example "es-MX"), to test
 // the responses in another language (see docs/i18n.md).
 func DoWithLanguage(t *testing.T, api http.Handler, lang string, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	return request(t, api, "", lang, cookie, method, path, body)
+	return request(t, api, "", []string{"Accept-Language: " + lang}, cookie, method, path, body)
 }
 
-func request(t *testing.T, api http.Handler, ip, lang string, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
+// DoWithHeaders is like Do, but with more headers, each one as "Name: value": a download that asks
+// for a part of the file ("Range: bytes=0-99"), or one the browser already has ("If-None-Match: …").
+func DoWithHeaders(t *testing.T, api http.Handler, cookie *http.Cookie, method, path, body string, headers ...string) *httptest.ResponseRecorder {
+	t.Helper()
+	return request(t, api, "", headers, cookie, method, path, body)
+}
+
+func request(t *testing.T, api http.Handler, ip string, headers []string, cookie *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
-	if lang != "" {
-		r.Header.Set("Accept-Language", lang)
+	for _, h := range headers {
+		name, value, ok := strings.Cut(h, ": ")
+		if !ok {
+			t.Fatalf("the header %q is not \"Name: value\"", h)
+		}
+		r.Header.Set(name, value)
 	}
 	if ip != "" {
 		r.RemoteAddr = ip + ":1234"

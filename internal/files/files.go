@@ -69,6 +69,9 @@ const (
 	transferTimeout = 5 * time.Minute
 	// unattachedTTL is how long a file is kept without a resource taking it.
 	unattachedTTL = 24 * time.Hour
+	// uploadGrace is how long the cleanup leaves alone a marked file whose upload did not finish: its
+	// bytes can still be on their way to the store. Well over transferTimeout.
+	uploadGrace = time.Hour
 	// purgeBatch is how many files the cleanup deletes per query.
 	purgeBatch = 200
 	// maxNameLength is the longest name kept, in characters.
@@ -158,10 +161,15 @@ func (s *Service) Receive(w http.ResponseWriter, r *http.Request, rule Rule) (st
 		_ = tmp.Close()
 		_ = os.Remove(tmp.Name())
 	}()
-	size, err := io.Copy(tmp, io.LimitReader(part, rule.MaxBytes+1))
+	disk := &writeErrors{w: tmp}
+	size, err := io.Copy(disk, io.LimitReader(part, rule.MaxBytes+1))
 	tooLarge := httpx.Validation(httpx.Fields{formField: i18n.M("validation.file_too_large", "max", humanSize(rule.MaxBytes))})
 	var maxBytesErr *http.MaxBytesError
 	switch {
+	case disk.err != nil:
+		// The server's own failure (the disk of the temporary files is full): a 500 that is logged,
+		// not a 400 that blames the file.
+		return store.File{}, fmt.Errorf("write the upload to a temporary file: %w", disk.err)
 	case errors.As(err, &maxBytesErr), size > rule.MaxBytes:
 		return store.File{}, tooLarge
 	case err != nil:
@@ -216,30 +224,72 @@ func (s *Service) Receive(w http.ResponseWriter, r *http.Request, rule Rule) (st
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return store.File{}, fmt.Errorf("rewind the upload: %w", err)
 	}
-	if err := s.store.Put(ctx, key, tmp, size, contentType); err != nil {
-		// It stops counting for the quota now; the cleanup deletes the row and whatever arrived.
-		if relErr := s.q.ReleaseFiles(context.WithoutCancel(ctx), []int64{file.ID}); relErr != nil {
-			httpx.LoggerFrom(ctx).Error("could not release a file whose upload failed", "file_id", file.ID, "error", relErr)
-		}
+	// The store has its own limit: a bucket that stops answering must not hold the request, and its
+	// temporary file, for as long as the connection lasts.
+	putCtx, cancel := context.WithTimeout(ctx, transferTimeout)
+	defer cancel()
+	if err := s.store.Put(putCtx, key, tmp, size, contentType); err != nil {
+		s.releaseFailed(ctx, file.ID)
 		return store.File{}, fmt.Errorf("store file %d: %w", file.ID, err)
 	}
-	file, err = s.q.MarkFileUploaded(ctx, file.ID)
+	uploaded, err := s.q.MarkFileUploaded(ctx, file.ID)
 	if err != nil {
+		// The client left when the bytes had arrived, or the file was marked meanwhile (its account
+		// was deleted): nobody got its id, so it is not left counting for the quota for a day.
+		s.releaseFailed(ctx, file.ID)
 		return store.File{}, fmt.Errorf("record the upload of file %d: %w", file.ID, err)
 	}
-	return file, nil
+	return uploaded, nil
+}
+
+// releaseFailed marks a file whose upload failed: it stops counting for the quota now, and the
+// cleanup deletes the row and whatever reached the store. It does not depend on the request, which
+// may be the one that was cut.
+func (s *Service) releaseFailed(ctx context.Context, id int64) {
+	if err := s.q.ReleaseFiles(context.WithoutCancel(ctx), []int64{id}); err != nil {
+		httpx.LoggerFrom(ctx).Error("could not release a file whose upload failed", "file_id", id, "error", err)
+	}
+}
+
+// writeErrors remembers the error of a write, to tell a disk that fails from a body that does.
+type writeErrors struct {
+	w   io.Writer
+	err error
+}
+
+func (w *writeErrors) Write(p []byte) (int, error) {
+	n, err := w.w.Write(p)
+	if err != nil {
+		w.err = err
+	}
+	return n, err
 }
 
 // Attach marks the user's files as in use by a resource. Call it inside the transaction that links
 // them (q is its queries, h.q.WithTx(tx)), so a file is never in use without its link. A file is
 // taken only once: two resources do not share it, because each one releases it when it is done.
 // It returns ErrUnknownFile if one of them cannot be taken.
+//
+// The file is still its user's: when their account is deleted, it is deleted with it. That is right
+// for the data of each user (their avatar, the attachments of their notes). For a file of a resource
+// that outlives who uploaded it, AttachShared.
 func Attach(ctx context.Context, q *store.Queries, userID int64, ids ...int64) error {
+	return attach(ctx, q, userID, false, ids)
+}
+
+// AttachShared is Attach for a file that belongs to its resource and not to who uploaded it: the
+// image of a product, the logo of a company. It stays when that person's account is deleted, until
+// the resource releases it (Release). Only who uploaded it can attach it, like with Attach.
+func AttachShared(ctx context.Context, q *store.Queries, userID int64, ids ...int64) error {
+	return attach(ctx, q, userID, true, ids)
+}
+
+func attach(ctx context.Context, q *store.Queries, userID int64, shared bool, ids []int64) error {
 	ids = slices.Compact(slices.Sorted(slices.Values(ids)))
 	if len(ids) == 0 {
 		return nil
 	}
-	rows, err := q.AttachFiles(ctx, store.AttachFilesParams{Ids: ids, UserID: &userID})
+	rows, err := q.AttachFiles(ctx, store.AttachFilesParams{Ids: ids, UserID: &userID, Shared: shared})
 	if err != nil {
 		return fmt.Errorf("attach files: %w", err)
 	}
@@ -283,15 +333,7 @@ func (s *Service) Serve(w http.ResponseWriter, r *http.Request, id int64) error 
 func (s *Service) serve(w http.ResponseWriter, r *http.Request, file store.File) error {
 	// The key is new for each upload and its bytes never change, so it identifies the content.
 	etag := strconv.Quote(path.Base(file.Key))
-	disposition := "attachment"
-	if base, _, _ := mime.ParseMediaType(file.ContentType); slices.Contains(Images, base) && r.URL.Query().Get("download") == "" {
-		disposition = "inline"
-	}
-
 	h := w.Header()
-	h.Set("Content-Type", file.ContentType)
-	h.Set("Content-Disposition", contentDisposition(disposition, file.Name))
-	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	// The browser keeps it but asks every time: the permission is checked again, and the file only
 	// travels if it changed (never: the answer is 304).
 	h.Set("Cache-Control", "private, no-cache")
@@ -302,16 +344,25 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, file store.File)
 	}
 
 	body, err := s.store.Open(r.Context(), file.Key)
-	if errors.Is(err, storage.ErrNotFound) {
-		httpx.LoggerFrom(r.Context()).Error("a file has its row but not its bytes", "file_id", file.ID, "key", file.Key)
-		h.Set("Cache-Control", "no-store")
-		return errNotFound
-	}
 	if err != nil {
+		// The answer is an error in JSON, not the file: it does not go with the file's headers.
+		h.Del("ETag")
 		h.Set("Cache-Control", "no-store")
+		if errors.Is(err, storage.ErrNotFound) {
+			httpx.LoggerFrom(r.Context()).Error("a file has its row but not its bytes", "file_id", file.ID, "key", file.Key)
+			return errNotFound
+		}
 		return fmt.Errorf("open file %d: %w", file.ID, err)
 	}
 	defer body.Close()
+
+	disposition := "attachment"
+	if base, _, _ := mime.ParseMediaType(file.ContentType); slices.Contains(Images, base) && r.URL.Query().Get("download") == "" {
+		disposition = "inline"
+	}
+	h.Set("Content-Type", file.ContentType)
+	h.Set("Content-Disposition", contentDisposition(disposition, file.Name))
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 
 	extendDeadlines(w)
 	// A store on disk can jump inside the file: ServeContent answers a part of it (Range), which a
@@ -332,13 +383,21 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, file store.File)
 }
 
 // Purge deletes the files nobody needs, the bytes first and then the row: the ones released, those
-// of a deleted account, and the ones nothing took in a day (an upload that was cut, a form that was
-// never sent). The hourly cleanup calls it (internal/jobs). It returns how many it deleted.
+// of a deleted account (unless they are shared), and the ones nothing took in a day (an upload that
+// was cut, a form that was never sent). The hourly cleanup calls it (internal/jobs). It returns how
+// many it deleted.
+//
+// It marks them first, in one statement, and then deletes the marked ones: a file a resource takes
+// at that moment is either taken or marked, never deleted after being taken.
 func Purge(ctx context.Context, q *store.Queries, st storage.Store) (int64, error) {
+	now := time.Now()
+	if _, err := q.MarkUnusedFiles(ctx, now.Add(-unattachedTTL)); err != nil {
+		return 0, fmt.Errorf("mark the files nobody uses: %w", err)
+	}
 	var deleted int64
 	for {
 		rows, err := q.ListPurgeableFiles(ctx, store.ListPurgeableFilesParams{
-			UnattachedBefore: time.Now().Add(-unattachedTTL), Limit: purgeBatch,
+			UploadStartedBefore: now.Add(-uploadGrace), Limit: purgeBatch,
 		})
 		if err != nil {
 			return deleted, fmt.Errorf("list the files to delete: %w", err)

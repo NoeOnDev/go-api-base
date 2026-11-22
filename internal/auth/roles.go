@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -98,25 +99,29 @@ func (s *Service) writeRole(w http.ResponseWriter, r *http.Request, status int, 
 	return nil
 }
 
+// roleDefinition is what an administrator decides about a role: its name and its permissions.
 type roleDefinition struct {
-	Key         string   `json:"key"`
 	Name        string   `json:"name"`
 	Permissions []string `json:"permissions"`
-	// Password is the administrator's, when the permissions of an existing role change.
+}
+
+// newRoleInput is the body of POST /admin/roles.
+type newRoleInput struct {
+	Key string `json:"key"`
+	roleDefinition
+}
+
+// roleChangeInput is the body of PUT /admin/roles/{key}, with the administrator's password.
+type roleChangeInput struct {
+	roleDefinition
 	Password string `json:"password"`
 }
 
-// validate checks the name and the permissions, and the key when the role is new.
-func (s *Service) validateRole(in *roleDefinition, withKey bool) error {
-	fields := httpx.Fields{}
-	if withKey {
-		// The format of the column: lowercase letters, digits and "_", starting with a letter.
-		if msg := validate.Required(in.Key, maxRoleKeyLength); !msg.IsZero() {
-			fields["key"] = msg
-		} else if !roleKeyPattern.MatchString(in.Key) {
-			fields["key"] = i18n.M("validation.role_key")
-		}
-	}
+// validateRole checks the name and the permissions, and leaves them as they are stored: the name
+// without spaces around it, the permissions sorted and without repeats. fields has the errors the
+// caller already found.
+func (s *Service) validateRole(in *roleDefinition, fields httpx.Fields) error {
+	in.Name = strings.TrimSpace(in.Name)
 	if msg := validate.Required(in.Name, maxRoleNameLength); !msg.IsZero() {
 		fields["name"] = msg
 	}
@@ -134,14 +139,27 @@ func (s *Service) validateRole(in *roleDefinition, withKey bool) error {
 	return nil
 }
 
+// getRole answers GET /admin/roles/{key}.
+func (s *Service) getRole(w http.ResponseWriter, r *http.Request) error {
+	return s.writeRole(w, r, http.StatusOK, r.PathValue("key"))
+}
+
 // createRole answers POST /admin/roles with {key, name, permissions}. A new role has no users, so
-// it gives nothing to anyone yet: assigning it does (PUT /admin/users/{id}/role).
+// it gives nothing to anyone yet: assigning it does (PUT /admin/users/{id}/role, or an invitation
+// with it), and both ask for the administrator's password.
 func (s *Service) createRole(w http.ResponseWriter, r *http.Request) error {
-	var in roleDefinition
+	var in newRoleInput
 	if err := httpx.Decode(w, r, &in); err != nil {
 		return err
 	}
-	if err := s.validateRole(&in, true); err != nil {
+	fields := httpx.Fields{}
+	// The format of the column: lowercase letters, digits and "_", starting with a letter.
+	if msg := validate.Required(in.Key, maxRoleKeyLength); !msg.IsZero() {
+		fields["key"] = msg
+	} else if !roleKeyPattern.MatchString(in.Key) {
+		fields["key"] = i18n.M("validation.role_key")
+	}
+	if err := s.validateRole(&in.roleDefinition, fields); err != nil {
 		return err
 	}
 
@@ -173,11 +191,11 @@ func (s *Service) createRole(w http.ResponseWriter, r *http.Request) error {
 // it changes what every user of the role can do, from their next request.
 func (s *Service) updateRole(w http.ResponseWriter, r *http.Request) error {
 	key := r.PathValue("key")
-	var in roleDefinition
+	var in roleChangeInput
 	if err := httpx.Decode(w, r, &in); err != nil {
 		return err
 	}
-	if err := s.validateRole(&in, false); err != nil {
+	if err := s.validateRole(&in.roleDefinition, httpx.Fields{}); err != nil {
 		return err
 	}
 	if key == RoleAdmin || key == RoleUser {
@@ -198,7 +216,9 @@ func (s *Service) updateRole(w http.ResponseWriter, r *http.Request) error {
 		if rows == 0 {
 			return errRoleNotFound
 		}
-		if err := q.DeleteRolePermissions(r.Context(), key); err != nil {
+		// Only the ones the code defines are replaced: one it no longer defines is not in the form the
+		// administrator sent, and stays stored for when the code defines it again.
+		if err := q.DeleteRolePermissions(r.Context(), store.DeleteRolePermissionsParams{Role: key, Permissions: s.Permissions()}); err != nil {
 			return fmt.Errorf("permissions of role %s: %w", key, err)
 		}
 		if err := q.AddRolePermissions(r.Context(), store.AddRolePermissionsParams{Role: key, Permissions: in.Permissions}); err != nil {

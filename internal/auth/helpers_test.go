@@ -3,10 +3,8 @@ package auth_test
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,8 +13,6 @@ import (
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/config"
 	"github.com/NoeOnDev/go-api-base/internal/ratelimit"
-	"github.com/NoeOnDev/go-api-base/internal/secretbox"
-	"github.com/NoeOnDev/go-api-base/internal/server"
 	"github.com/NoeOnDev/go-api-base/internal/store"
 	"github.com/NoeOnDev/go-api-base/internal/testutil"
 )
@@ -32,32 +28,16 @@ type apiError struct {
 	} `json:"error"`
 }
 
+// newAPI returns the API with the default configuration and an empty database.
 func newAPI(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	t.Helper()
 	pool := testutil.NewDB(t)
-	box, err := secretbox.New(testutil.EncryptionKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	api := server.NewHandler(server.Deps{
-		Logger: slog.New(slog.DiscardHandler),
-		DB:     pool,
-		Config: config.Config{SessionTTL: time.Hour},
-		Box:    box,
-	})
-	return api, pool
+	return testutil.NewAPI(pool, testutil.WithConfig(func(c *config.Config) { c.SessionTTL = time.Hour })), pool
 }
 
 func do(t *testing.T, api http.Handler, method, path, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
-	r := httptest.NewRequest(method, path, strings.NewReader(body))
-	r.Header.Set("Content-Type", "application/json")
-	if cookie != nil {
-		r.AddCookie(cookie)
-	}
-	w := httptest.NewRecorder()
-	api.ServeHTTP(w, r)
-	return w
+	return testutil.Do(t, api, cookie, method, path, body)
 }
 
 func decode[T any](t *testing.T, w *httptest.ResponseRecorder, wantStatus int) T {

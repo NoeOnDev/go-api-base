@@ -34,9 +34,12 @@ const (
 
 func (CleanupArgs) Kind() string { return "cleanup" }
 
-// InsertOpts keeps two cleanups from running in the same hour, even if several are queued.
+// InsertOpts keeps two cleanups from running in the same hour, even if several are queued. A cleanup
+// that fails is tried twice more within a minute and then left: the one of the next hour does the
+// same work. With River's 25 attempts over three weeks, a store that keeps failing would pile up
+// hundreds of cleanups all retrying.
 func (CleanupArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: time.Hour}}
+	return river.InsertOpts{MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByPeriod: time.Hour}}
 }
 
 type cleanupWorker struct {
@@ -47,6 +50,10 @@ type cleanupWorker struct {
 	// storage is where the uploaded files are. If nil, they are not cleaned.
 	storage storage.Store
 }
+
+// Timeout gives the cleanup more than River's minute: deleting the files of an account with
+// thousands of them from a bucket goes one by one. Well under the hour between two cleanups.
+func (w *cleanupWorker) Timeout(*river.Job[CleanupArgs]) time.Duration { return 10 * time.Minute }
 
 // Work runs every deletion even if one fails, and returns the errors together (River retries the
 // job): that way a step that keeps failing does not leave the ones after it without running.

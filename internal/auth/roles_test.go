@@ -17,8 +17,13 @@ type roleList struct {
 	Data []auth.Role `json:"data"`
 }
 
-func roleDefinition(key, name, password string, permissions ...string) string {
-	return fmt.Sprintf(`{"key":%q,"name":%q,"password":%q,"permissions":["%s"]}`, key, name, password, strings.Join(permissions, `","`))
+// newRole is the body of POST /admin/roles, and roleChange the one of PUT /admin/roles/{key}.
+func newRole(key, name string, permissions ...string) string {
+	return fmt.Sprintf(`{"key":%q,"name":%q,"permissions":["%s"]}`, key, name, strings.Join(permissions, `","`))
+}
+
+func roleChange(name, password string, permissions ...string) string {
+	return fmt.Sprintf(`{"name":%q,"password":%q,"permissions":["%s"]}`, name, password, strings.Join(permissions, `","`))
 }
 
 // setRole gives the user a role, as PUT /admin/users/{id}/role does, without going through the user
@@ -51,21 +56,27 @@ func TestRoles(t *testing.T) {
 		t.Errorf("roles = %+v", roles)
 	}
 
-	// Creating one. A repeated permission counts once.
-	w := testutil.Do(t, api, admin, http.MethodPost, "/admin/roles", roleDefinition("auditor", "Auditor", "", permView, permView))
+	// Creating one. A repeated permission counts once, and the name is kept without spaces around it.
+	w := testutil.Do(t, api, admin, http.MethodPost, "/admin/roles", newRole("auditor", " Auditor ", permView, permView))
 	role := testutil.Decode[auth.Role](t, w, http.StatusCreated)
 	if role.Key != "auditor" || role.Name != "Auditor" || role.BuiltIn || !slices.Equal(role.Permissions, []string{permView}) || role.Users != 0 {
 		t.Errorf("role = %+v", role)
 	}
-	if w.Header().Get("Location") != "/admin/roles/auditor" {
-		t.Errorf("Location = %q", w.Header().Get("Location"))
+	// Location is where the new role is.
+	if got := testutil.Decode[auth.Role](t, testutil.Do(t, api, admin, http.MethodGet, w.Header().Get("Location"), ""), http.StatusOK); got.Key != "auditor" {
+		t.Errorf("GET %s = %+v", w.Header().Get("Location"), got)
+	}
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, admin, http.MethodGet, "/admin/roles/nobody", ""), http.StatusNotFound)
+	// The body of one is not the body of the other: the password belongs to the change.
+	if w := testutil.Do(t, api, admin, http.MethodPost, "/admin/roles", `{"key":"sales","name":"Sales","password":"x"}`); w.Code != http.StatusBadRequest {
+		t.Errorf("a new role with a password: status = %d, want 400", w.Code)
 	}
 
 	for name, tt := range map[string]struct{ body, field string }{
-		"a key with other characters": {roleDefinition("Sales Team", "Sales", "", permView), "key"},
-		"a key that is too short":     {roleDefinition("a", "A", "", permView), "key"},
-		"without a name":              {roleDefinition("sales", " ", "", permView), "name"},
-		"a permission nobody defined": {roleDefinition("sales", "Sales", "", "invoices.void"), "permissions"},
+		"a key with other characters": {newRole("Sales Team", "Sales", permView), "key"},
+		"a key that is too short":     {newRole("a", "A", permView), "key"},
+		"without a name":              {newRole("sales", " ", permView), "name"},
+		"a permission nobody defined": {newRole("sales", "Sales", "invoices.void"), "permissions"},
 	} {
 		w := testutil.Do(t, api, admin, http.MethodPost, "/admin/roles", tt.body)
 		if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields[tt.field] == "" {
@@ -73,7 +84,7 @@ func TestRoles(t *testing.T) {
 		}
 	}
 	for _, key := range []string{"auditor", auth.RoleAdmin} {
-		w := testutil.Do(t, api, admin, http.MethodPost, "/admin/roles", roleDefinition(key, "Again", "", permView))
+		w := testutil.Do(t, api, admin, http.MethodPost, "/admin/roles", newRole(key, "Again", permView))
 		if resp := testutil.Decode[testutil.APIError](t, w, http.StatusConflict); resp.Error.Code != "role_taken" {
 			t.Errorf("a second %s: code = %q, want role_taken", key, resp.Error.Code)
 		}
@@ -90,11 +101,16 @@ func TestRoles(t *testing.T) {
 		t.Errorf("with the role: GET /view = %d, want 204", w.Code)
 	}
 
-	// Changing its permissions asks for the administrator's password, and applies at once.
-	change := roleDefinition("", "Internal auditor", testutil.Password, permView, permExport)
+	// Changing its permissions asks for the administrator's password, and applies at once. A
+	// permission the role had from before, which this code does not define, is not in what the
+	// administrator sends: it stays stored.
+	if _, err := pool.Exec(t.Context(), "INSERT INTO role_permissions (role, permission) VALUES ('auditor', 'invoices.void')"); err != nil {
+		t.Fatal(err)
+	}
+	change := roleChange("Internal auditor", testutil.Password, permView, permExport)
 	for name, body := range map[string]string{
-		"without the password": roleDefinition("", "Internal auditor", "", permExport),
-		"with a wrong one":     roleDefinition("", "Internal auditor", "not-the-password", permExport),
+		"without the password": roleChange("Internal auditor", "", permExport),
+		"with a wrong one":     roleChange("Internal auditor", "not-the-password", permExport),
 	} {
 		w := testutil.Do(t, api, admin, http.MethodPut, "/admin/roles/auditor", body)
 		if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields["password"] == "" {
@@ -107,6 +123,10 @@ func TestRoles(t *testing.T) {
 	}
 	if got := testutil.Do(t, api, aliceCookie, http.MethodGet, "/can", "").Body.String(); got != "yes" {
 		t.Errorf("after the change, Can = %s, want yes", got)
+	}
+	var kept bool
+	if err := pool.QueryRow(t.Context(), "SELECT EXISTS (SELECT 1 FROM role_permissions WHERE role = 'auditor' AND permission = 'invoices.void')").Scan(&kept); err != nil || !kept {
+		t.Errorf("the change deleted a permission the code does not define (kept = %v, err = %v)", kept, err)
 	}
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, admin, http.MethodPut, "/admin/roles/nobody", change), http.StatusNotFound)
 
@@ -138,9 +158,9 @@ func TestRoles(t *testing.T) {
 	// Only the administrators manage the roles, whatever permissions another role has.
 	testutil.CreateRole(t, pool, "powerful", permView, permExport)
 	_, powerful := testutil.Login(t, pool, "powerful@example.com", "powerful")
-	for _, path := range []string{"/admin/roles", "/admin/permissions"} {
+	for _, path := range []string{"/admin/roles", "/admin/roles/powerful", "/admin/permissions"} {
 		testutil.Decode[testutil.APIError](t, testutil.Do(t, api, powerful, http.MethodGet, path, ""), http.StatusForbidden)
 		testutil.Decode[testutil.APIError](t, testutil.Do(t, api, nil, http.MethodGet, path, ""), http.StatusUnauthorized)
 	}
-	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, powerful, http.MethodPost, "/admin/roles", roleDefinition("mine", "Mine", "", permView)), http.StatusForbidden)
+	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, powerful, http.MethodPost, "/admin/roles", newRole("mine", "Mine", permView)), http.StatusForbidden)
 }

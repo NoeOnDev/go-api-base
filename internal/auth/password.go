@@ -18,7 +18,7 @@ import (
 // 2 iterations and 1 thread. Hashing a password takes a few dozen milliseconds: unnoticeable for
 // the user, but very expensive for a brute force attack.
 type argonParams struct {
-	memory  uint32 // en KiB
+	memory  uint32 // in KiB
 	time    uint32
 	threads uint8
 	saltLen uint32

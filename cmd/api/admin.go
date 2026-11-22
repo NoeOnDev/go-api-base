@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"sort"
 
 	"golang.org/x/term"
@@ -27,7 +28,7 @@ func runCreateAdmin(args []string) error {
 	fs := flag.NewFlagSet("create-admin", flag.ContinueOnError)
 	email := fs.String("email", "", "administrator's email (required)")
 	name := fs.String("name", "Administrator", "administrator's name")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if *email == "" {
@@ -35,14 +36,14 @@ func runCreateAdmin(args []string) error {
 		return errors.New("missing -email")
 	}
 
-	password, err := readPassword("ADMIN_PASSWORD")
-	if err != nil {
-		return err
-	}
-
+	// The configuration first: a mistake in it is said before asking for the password.
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("configuration: %w", err)
+	}
+	password, err := readPassword("ADMIN_PASSWORD")
+	if err != nil {
+		return err
 	}
 
 	ctx := context.Background()
@@ -73,13 +74,30 @@ func runCreateAdmin(args []string) error {
 // readPassword reads the password from the environment variable (ADMIN_PASSWORD, SEED_PASSWORD) or
 // asks for it twice in the terminal.
 func readPassword(variable string) (string, error) {
-	if p := os.Getenv(variable); p != "" {
+	// Without the quotes a .env may have around the value: make keeps them, and they would be part
+	// of the password.
+	if p := config.Env(variable); p != "" {
 		return p, nil
 	}
 
 	fd := int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {
 		return "", fmt.Errorf("set %s or run the command in an interactive terminal", variable)
+	}
+	// The terminal does not show what is typed. Ctrl+C in the middle must leave it as it was, or
+	// the shell would stay without showing what the person types afterwards.
+	if state, err := term.GetState(fd); err == nil {
+		interrupted := make(chan os.Signal, 1)
+		signal.Notify(interrupted, os.Interrupt)
+		defer signal.Stop(interrupted)
+		go func() {
+			if _, ok := <-interrupted; ok {
+				_ = term.Restore(fd, state)
+				fmt.Println()
+				os.Exit(130)
+			}
+		}()
+		defer close(interrupted)
 	}
 
 	fmt.Print("Password: ")

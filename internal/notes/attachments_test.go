@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
 	"github.com/NoeOnDev/go-api-base/internal/files"
@@ -114,5 +116,93 @@ func TestDeleteSomeoneElsesNoteKeepsItsAttachments(t *testing.T) {
 	testutil.Decode[testutil.APIError](t, testutil.Do(t, api, bob, http.MethodDelete, fmt.Sprintf("/notes/%d", n.ID), ""), http.StatusNotFound)
 	if w := testutil.Do(t, api, alice, http.MethodGet, a.URL, ""); w.Code != http.StatusOK {
 		t.Errorf("the attachment after someone else tried to delete the note: status = %d", w.Code)
+	}
+}
+
+// A note deleted while a file for it is uploading: the upload answers 404, and the file is released
+// instead of staying in use by a note that no longer exists. Here the note is deleted in a
+// transaction that commits once the bytes have arrived, so the link waits for it and then fails.
+func TestAttachToANoteDeletedMeanwhile(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	_, alice := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	n := testutil.Decode[note](t, testutil.Do(t, api, alice, http.MethodPost, "/notes", `{"title":"Trip"}`), http.StatusCreated)
+	ctx := t.Context()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "DELETE FROM notes WHERE id = $1", n.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- testutil.Upload(t, api, alice, fmt.Sprintf("/notes/%d/attachments", n.ID), "ticket.pdf", testutil.PDF)
+	}()
+	// The file is stored before it is linked: wait for it, then let the deletion through.
+	for uploaded := 0; uploaded == 0; time.Sleep(10 * time.Millisecond) {
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM files WHERE uploaded_at IS NOT NULL").Scan(&uploaded); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if resp := testutil.Decode[testutil.APIError](t, <-done, http.StatusNotFound); resp.Error.Code != "note_not_found" {
+		t.Errorf("code = %q, want note_not_found", resp.Error.Code)
+	}
+	var inUse, released int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FILTER (WHERE attached_at IS NOT NULL), count(*) FILTER (WHERE deleted_at IS NOT NULL) FROM files").Scan(&inUse, &released); err != nil {
+		t.Fatal(err)
+	}
+	if inUse != 0 || released != 1 {
+		t.Errorf("files in use = %d, released = %d; want 0 and 1", inUse, released)
+	}
+}
+
+// Deleting a note waits for a file that is being attached to it, and releases it too: reading the
+// attachments before locking the note, that file would stay in use forever.
+func TestDeleteANoteWhileAFileIsAttached(t *testing.T) {
+	pool := testutil.NewDB(t)
+	api := testutil.NewAPI(pool)
+	user, alice := testutil.Login(t, pool, "alice@example.com", auth.RoleUser)
+	n := testutil.Decode[note](t, testutil.Do(t, api, alice, http.MethodPost, "/notes", `{"title":"Trip"}`), http.StatusCreated)
+	up := testutil.Decode[attachment](t, testutil.Upload(t, api, alice, "/files", "ticket.pdf", testutil.PDF), http.StatusCreated)
+	ctx := t.Context()
+
+	// The attachment, as attach does it, in a transaction that has not committed yet.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := store.New(pool).WithTx(tx)
+	if err := files.Attach(ctx, q, user.ID, up.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CreateNoteAttachment(ctx, store.CreateNoteAttachmentParams{NoteID: n.ID, FileID: up.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- testutil.Do(t, api, alice, http.MethodDelete, fmt.Sprintf("/notes/%d", n.ID), "") }()
+	select {
+	case w := <-done:
+		t.Fatalf("the deletion did not wait for the attachment: status = %d", w.Code)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if w := <-done; w.Code != http.StatusNoContent {
+		t.Fatalf("delete: status = %d; body: %s", w.Code, w.Body)
+	}
+	var released bool
+	if err := pool.QueryRow(ctx, "SELECT deleted_at IS NOT NULL FROM files WHERE id = $1", up.ID).Scan(&released); err != nil || !released {
+		t.Errorf("the file attached meanwhile was not released (released = %v, err = %v)", released, err)
 	}
 }

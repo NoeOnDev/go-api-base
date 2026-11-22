@@ -3,13 +3,16 @@
 -- disk or S3, internal/storage) under key; this table says whose each file is and what it is.
 --
 -- A row lives longer than its bytes: it is created before uploading them and deleted after deleting
--- them, so nothing is left in the store that no row remembers. The hourly cleanup deletes the bytes
--- and then the row of the files nobody needs: see the files_purge_idx index.
+-- them, so nothing is left in the store that no row remembers. The hourly cleanup marks the files
+-- nobody needs, and deletes the bytes and then the row of the marked ones: see the two indexes.
 CREATE TABLE files (
     id           bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     -- Who uploaded it. SET NULL, not CASCADE: deleting the account must not delete the row before
-    -- its bytes. The cleanup deletes both.
+    -- its bytes. The cleanup deletes both, unless the file is shared.
     user_id      bigint      REFERENCES users (id) ON DELETE SET NULL,
+    -- Whether it belongs to its resource and not to who uploaded it (files.AttachShared): the image
+    -- of a product stays when the account of the person who uploaded it is deleted.
+    shared       boolean     NOT NULL DEFAULT false,
     -- Where the bytes are in the store. Random: never the name the user sent.
     key          text        NOT NULL UNIQUE,
     -- The name the user sent, cleaned, for the download. It is never a path.
@@ -29,11 +32,14 @@ CREATE TABLE files (
 
 -- The space a user takes (the quota), and the foreign key.
 CREATE INDEX files_user_id_idx ON files (user_id);
--- What the hourly cleanup looks at: the marked ones, those of a deleted account and the ones nothing
--- uses. ListPurgeableFiles repeats this condition to use the index, so it does not read the files
+-- What the hourly cleanup marks to be deleted: the ones nothing took in a day, and those of a deleted
+-- account. MarkUnusedFiles repeats this condition to use the index, so it does not read the files
 -- in use, which are almost all of them.
-CREATE INDEX files_purge_idx ON files (created_at)
-    WHERE deleted_at IS NOT NULL OR user_id IS NULL OR attached_at IS NULL;
+CREATE INDEX files_unused_idx ON files (created_at)
+    WHERE deleted_at IS NULL AND (attached_at IS NULL OR user_id IS NULL);
+-- What it deletes: the marked ones.
+CREATE INDEX files_deleted_idx ON files (id)
+    WHERE deleted_at IS NOT NULL;
 
 -- +goose Down
 DROP TABLE files;

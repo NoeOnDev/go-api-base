@@ -195,16 +195,20 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 	// none is left in use by a note that no longer exists.
 	err = pgx.BeginFunc(r.Context(), h.db, func(tx pgx.Tx) error {
 		q := h.q.WithTx(tx)
+		// The note is locked before reading its attachments: a file that is being attached right now
+		// waits for this transaction, and then finds the note gone (see attach). Reading them first,
+		// that file would be left in use by a note that no longer exists.
+		if _, err := q.LockNote(r.Context(), store.LockNoteParams{ID: id, UserID: user.ID}); errors.Is(err, pgx.ErrNoRows) {
+			return errNotFound // it does not exist, or it is someone else's
+		} else if err != nil {
+			return fmt.Errorf("lock note %d: %w", id, err)
+		}
 		attached, err := q.ListNoteAttachmentIDs(r.Context(), id)
 		if err != nil {
 			return fmt.Errorf("list the attachments of note %d: %w", id, err)
 		}
-		rows, err := q.DeleteNote(r.Context(), store.DeleteNoteParams{ID: id, UserID: user.ID})
-		if err != nil {
+		if _, err := q.DeleteNote(r.Context(), store.DeleteNoteParams{ID: id, UserID: user.ID}); err != nil {
 			return fmt.Errorf("delete note %d: %w", id, err)
-		}
-		if rows == 0 {
-			return errNotFound // someone else's: the rollback leaves its attachments alone
 		}
 		return files.Release(r.Context(), q, attached...)
 	})

@@ -134,6 +134,7 @@ type ClassSessionChange struct {
 type File struct {
 	ID          int64
 	UserID      *int64
+	Shared      bool
 	Key         string
 	Name        string
 	ContentType string

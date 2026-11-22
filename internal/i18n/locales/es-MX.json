@@ -29,7 +29,7 @@
   "errors.invalid_credentials": "Email o contraseña incorrectos.",
   "errors.invalid_path_id": "El {name} debe ser un número entero positivo.",
   "errors.invitation_accepted": "Este usuario ya aceptó la invitación.",
-  "errors.last_admin": "No puedes borrar la única cuenta de administrador; nombra a otro administrador antes.",
+  "errors.last_admin": "Es la única cuenta de administrador; nombra a otro administrador antes.",
   "errors.malformed_json": "El cuerpo de la petición no es un JSON válido.",
   "errors.malformed_upload": "No se pudo leer el archivo; envíalo como multipart/form-data en el campo \"file\".",
   "errors.method_not_allowed": "La ruta no acepta este método.",

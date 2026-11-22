@@ -76,8 +76,10 @@ The Caddyfile serves the frontend and the API under the same domain, which is wh
 Build the frontend with `/api` as the base of its requests, and copy the result:
 
 ```bash
-npm run build && rsync -a --delete dist/ server:app/deploy/site/
+npm run build && rsync -a --delete --exclude .gitignore dist/ server:app/deploy/site/
 ```
+
+(`deploy/site/.gitignore` keeps the directory in the repository and its contents out of it: without the `--exclude`, `--delete` would remove it and leave the server's copy of the repository with a change.)
 
 Caddy serves the new files at once: there is nothing to restart. A path that is not a file gets `index.html`, so the routes of the app work when the page is reloaded.
 
@@ -126,6 +128,12 @@ docker compose exec -T db pg_dump -U app app | gzip > backup-$(date +%F).sql.gz
 docker run --rm -v deploy_storage:/data:ro -v "$PWD":/out alpine tar czf /out/storage-$(date +%F).tar.gz -C /data .
 ```
 
+The files go back into the volume the same way, before starting the API, with their owner (`-p`, as root: the API runs as the user 65532):
+
+```bash
+docker run --rm -v deploy_storage:/data -v "$PWD":/in:ro alpine tar xzpf /in/storage-2026-11-21.tar.gz -C /data
+```
+
 To restore the database on an empty server, start only `db` and load the file before starting the API:
 
 ```bash
@@ -161,7 +169,7 @@ This deployment is one server. The API itself runs with several instances (see "
 
 ## Without Docker
 
-The API is a static binary with everything inside (migrations, texts, email templates, time zones). `make build` leaves it in `bin/api`; copy it to the server with its environment file, and run it with systemd:
+The API is a static binary with everything inside (migrations, texts, email templates, time zones). `make build` leaves it in `bin/api`; copy it to `/usr/local/bin/api` on the server, create its user (`useradd --system api`) and its environment file, and run it with systemd:
 
 ```ini
 # /etc/systemd/system/api.service
@@ -176,16 +184,19 @@ ExecStart=/usr/local/bin/api
 Restart=always
 # More than SHUTDOWN_TIMEOUT (10s), so the requests and the jobs in progress finish.
 TimeoutStopSec=30
-# The process cannot write outside the directory of the uploaded files.
+# The process cannot write outside the directory of the uploaded files, /var/lib/api, which systemd
+# creates for its user (StateDirectory), and a /tmp of its own: an upload goes through a temporary
+# file, and with ProtectSystem=strict the /tmp of the server is read-only.
 ProtectSystem=strict
-ReadWritePaths=/var/lib/api
+StateDirectory=api
+PrivateTmp=true
 NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-In `/etc/api/env`: `APP_ENV=production`, `HTTP_ADDR=127.0.0.1:8080` (only the proxy of the same server reaches it), `TRUST_PROXY=true`, `TRUSTED_PROXIES=127.0.0.1`, `STORAGE_DIR=/var/lib/api/storage`, `DATABASE_URL` and the rest. In front, Caddy installed on the server with the same Caddyfile, changing `api:8080` to `127.0.0.1:8080` and `/srv/site` to where the frontend is.
+In `/etc/api/env`: `APP_ENV=production`, `HTTP_ADDR=127.0.0.1:8080` (only the proxy of the same server reaches it), `TRUST_PROXY=true`, `TRUSTED_PROXIES=127.0.0.1`, `STORAGE_DIR=/var/lib/api/storage`, `DATABASE_URL` and the rest. In front, Caddy installed on the server with the same Caddyfile, changing `{$SITE_ADDRESS}` to the domain, `api:8080` to `127.0.0.1:8080` and `/srv/site` to where the frontend is.
 
 ## What it does not include
 

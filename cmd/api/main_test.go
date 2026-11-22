@@ -96,7 +96,7 @@ func TestHealthcheck(t *testing.T) {
 
 	// As the container runs it: with the port of HTTP_ADDR, on this same machine.
 	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
-	t.Setenv("HTTP_ADDR", ":"+port)
+	t.Setenv("HTTP_ADDR", `":`+port+`"`) // in quotes, as a .env read by make or Docker leaves it
 	if err := runHealthcheck(); err != nil {
 		t.Errorf("with the API answering 200: %v", err)
 	}
@@ -108,5 +108,24 @@ func TestHealthcheck(t *testing.T) {
 	srv.Close()
 	if err := runHealthcheck(); err == nil {
 		t.Error("with the API stopped, the health check should fail")
+	}
+}
+
+// The health check asks this machine, unless the server listens on one address only.
+func TestHealthURL(t *testing.T) {
+	for addr, want := range map[string]string{
+		"":              "http://127.0.0.1:8080/healthz",
+		":9000":         "http://127.0.0.1:9000/healthz",
+		"0.0.0.0:9000":  "http://127.0.0.1:9000/healthz",
+		"[::]:9000":     "http://127.0.0.1:9000/healthz",
+		"10.0.0.5:8080": "http://10.0.0.5:8080/healthz",
+		"[::1]:8080":    "http://[::1]:8080/healthz",
+	} {
+		if got, err := healthURL(addr); err != nil || got != want {
+			t.Errorf("healthURL(%q) = %q, %v; want %q", addr, got, err, want)
+		}
+	}
+	if _, err := healthURL("8080"); err == nil {
+		t.Error("an HTTP_ADDR without a port should fail")
 	}
 }

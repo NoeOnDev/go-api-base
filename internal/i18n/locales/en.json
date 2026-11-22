@@ -29,7 +29,7 @@
   "errors.invalid_credentials": "Incorrect email or password.",
   "errors.invalid_path_id": "The {name} must be a positive whole number.",
   "errors.invitation_accepted": "This user already accepted the invitation.",
-  "errors.last_admin": "You can't delete the only administrator account; make someone else an administrator first.",
+  "errors.last_admin": "This is the only administrator account; make someone else an administrator first.",
   "errors.malformed_json": "The request body is not valid JSON.",
   "errors.malformed_upload": "The file could not be read; send it as multipart/form-data in the \"file\" field.",
   "errors.method_not_allowed": "The route does not accept this method.",

@@ -174,6 +174,11 @@ func Load() (Config, error) {
 	return load(os.Getenv)
 }
 
+// Env reads a variable of the environment as Load does, without the quotes a .env may have around
+// its value. It is for the few variables read outside the configuration (the passwords of the
+// subcommands, TEST_DATABASE_URL).
+func Env(key string) string { return unquote(os.Getenv(key)) }
+
 // load takes the function that reads variables, so it can be tested without touching the real
 // environment.
 func load(rawGetenv func(string) string) (Config, error) {
@@ -334,7 +339,7 @@ func loadMail(getenv func(string) string) (Mail, error) {
 	return m, errors.Join(errs...)
 }
 
-// baseURL validates an http/https base URL and removes the trailing slash.
+// loadStorage reads where the uploaded files are kept, and checks what each driver needs.
 func loadStorage(getenv func(string) string) (Storage, error) {
 	s := Storage{
 		Driver:            valueOr(getenv("STORAGE_DRIVER"), StorageDriverLocal),
@@ -377,6 +382,7 @@ func loadStorage(getenv func(string) string) (Storage, error) {
 	return s, errors.Join(errs...)
 }
 
+// baseURL validates an http/https base URL and removes the trailing slash.
 func baseURL(value string) (string, error) {
 	value = strings.TrimSuffix(strings.TrimSpace(value), "/")
 	u, err := url.Parse(value)

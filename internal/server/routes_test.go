@@ -304,6 +304,8 @@ func TestRolesMatchTheDocument(t *testing.T) {
 		{http.MethodPost, "/admin/roles", `{"key":"auditor","name":"Auditor","permissions":[]}`, http.StatusCreated},
 		{http.MethodPost, "/admin/roles", `{"key":"auditor","name":"Again"}`, http.StatusConflict},
 		{http.MethodPost, "/admin/roles", `{"key":"Not a key","name":""}`, http.StatusUnprocessableEntity},
+		{http.MethodGet, "/admin/roles/auditor", "", http.StatusOK},
+		{http.MethodGet, "/admin/roles/nobody", "", http.StatusNotFound},
 		{http.MethodPut, "/admin/roles/auditor", `{"name":"Internal auditor","permissions":[],"password":"` + testutil.Password + `"}`, http.StatusOK},
 		{http.MethodPut, "/admin/roles/nobody", `{"name":"Nobody","password":"` + testutil.Password + `"}`, http.StatusNotFound},
 		{http.MethodDelete, "/admin/roles/admin", "", http.StatusConflict},

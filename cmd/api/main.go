@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -40,7 +41,7 @@ func main() {
 	case os.Args[1] == "create-admin":
 		err = runCreateAdmin(os.Args[2:])
 	case os.Args[1] == "seed":
-		err = runSeed()
+		err = runSeed(os.Args[2:])
 	case os.Args[1] == "fresh":
 		err = runFresh(os.Args[2:])
 	case os.Args[1] == "healthcheck":
@@ -53,10 +54,34 @@ func main() {
 		err = fmt.Errorf("unknown command %q (available: create-admin, seed, fresh, healthcheck, generate-key, rotate-keys)", os.Args[1])
 	}
 
-	if err != nil {
+	switch {
+	case err == nil, errors.Is(err, flag.ErrHelp): // -h already printed the usage
+	case errors.Is(err, errUsage):
+		os.Exit(2) // the flag package already said what is wrong
+	default:
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// errUsage is what a subcommand returns for arguments it does not take.
+var errUsage = errors.New("wrong arguments")
+
+// parseFlags reads the arguments of a subcommand, none of which takes values without a flag. With
+// -h it prints the usage and returns flag.ErrHelp; with a wrong argument it says so, with the usage.
+func parseFlags(fs *flag.FlagSet, args []string) error {
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return err
+		}
+		return errUsage
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(fs.Output(), "%s does not take the argument %q\n", fs.Name(), fs.Arg(0))
+		fs.Usage()
+		return errUsage
+	}
+	return nil
 }
 
 // run holds the real startup. Returning errors instead of calling os.Exit lets the defers run and
@@ -176,6 +201,9 @@ func run() error {
 		return fmt.Errorf("server: %w", err)
 	case <-ctx.Done():
 	}
+	// The signals go back to what they do by default: a second Ctrl+C while the shutdown waits stops
+	// the process at once, instead of being ignored.
+	stop()
 
 	// Graceful shutdown: stop accepting connections and wait for the running requests and the jobs
 	// being executed to finish.
@@ -231,8 +259,6 @@ func newMailSender(cfg config.Config, logger *slog.Logger) (mail.Sender, error) 
 	return mail.LogSender{Logger: logger}, nil
 }
 
-// newLogger returns a logger in readable text for development and in JSON for production,
-// which is the format that log processing tools expect.
 // newStorage returns where the uploaded files are kept: a directory, or a bucket of S3 (see
 // docs/files.md).
 func newStorage(ctx context.Context, c config.Storage) (storage.Store, error) {
@@ -245,6 +271,8 @@ func newStorage(ctx context.Context, c config.Storage) (storage.Store, error) {
 	return storage.NewLocal(c.Dir)
 }
 
+// newLogger returns a logger in readable text for development and in JSON for production,
+// which is the format that log processing tools expect.
 func newLogger(cfg config.Config) *slog.Logger {
 	opts := &slog.HandlerOptions{Level: cfg.LogLevel}
 	if cfg.IsProduction() {

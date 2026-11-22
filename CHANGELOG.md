@@ -9,7 +9,7 @@ migrations, because they represent the initial schema.
 
 ## [Unreleased]
 
-The contract of the API in OpenAPI, which the tests keep true.
+The contract of the API in OpenAPI, which the tests keep true, and what a review of the whole template found after the last four versions.
 
 ### Added
 
@@ -21,6 +21,35 @@ The contract of the API in OpenAPI, which the tests keep true.
 ### Changed
 
 - **"What it does not include" no longer lists an OpenAPI contract** (`docs/decisions.md`). Generating it from the code, and a page of documentation served by the API, are still left out.
+- **Inviting someone with a role of the project asks for the administrator's password** (`POST /admin/users`), as inviting another administrator already did: any role other than `user`. With a stolen session, creating a role with every permission and inviting an account with it left that account behind.
+- **`files.AttachShared`**, for a file that belongs to its resource and not to who uploaded it (the image of a product). With `Attach`, the file is deleted with its user's account, wherever it is attached; a shared one stays until the resource releases it. The `files` table has a `shared` column.
+- **`make fresh` seeds by itself and asks for `SEED_PASSWORD` first:** without it and without a terminal it stops before deleting anything, instead of leaving the database empty.
+- **`make fresh` and `make seed` only run against a database of this machine** (`localhost`, a loopback address or a socket), besides refusing in production: a `.env` that points to another database would have deleted it. `DEV_DATABASE_HOST` allows a development database in a container.
+- **`GET /admin/roles/{key}`**, which the `Location` of a new role already pointed to.
+- **The bodies of `POST /admin/roles` and `PUT /admin/roles/{key}` are their own:** the first one does not take `password` nor the second one `key`, which were ignored.
+- **The cleanup job is tried 3 times, not 25,** and has 10 minutes instead of one: the cleanup of the next hour does the same work, and with a store that kept failing the retries piled up for weeks.
+- **`testutil.DoWithHeaders`**, for a request with other headers (`Range`, `If-None-Match`) that is also checked against the contract.
+- **Updated:** `golang.org/x/crypto` 0.59.0, `golang.org/x/term` 0.48.0 and the AWS SDK's `config` and `credentials`.
+
+### Fixed
+
+- **Deleting an example left `make check` failing.** The test that compares the routes of the code with `openapi.yaml` read the text of the Go files, comments included, and three comments of the base name a route of an example (`"GET /notes/{id}"`). It reads the code now (`go/parser`).
+- **Editing a role deleted its permissions the code did not define at that moment** (after a deploy that went back, or with a resource removed for a while), against what `docs/auth.md` says. Only the ones the code defines are replaced.
+- **A note deleted while a file was being attached to it left the file in use forever:** it counted for the quota and could not be deleted. Deleting a note locks it before reading its attachments (`LockNote`), and an attachment to a note that is gone answers `404` and releases the file, instead of `500`.
+- **The cleanup could delete a file a resource had just taken.** It listed the files nobody used and then deleted them one by one; a form sent in between got its `201` and lost the file. It marks them first, in one statement, and a marked file cannot be taken.
+- **`openapi.yaml` against the code,** in what no test exercised: `name` is required in `PUT /auth/me`; `PUT /auth/password` asks for a verified email and can answer `403`; `DELETE /branches/{id}/exceptions/{date}` and `DELETE /classes/{id}/sessions/{date}` answer `422` for a date that is not one; a download answers `206` to a `Range`. Several operations now name their `409` codes, and the document says that a write from another origin answers `403 cross_origin_rejected`.
+- **The contract check missed what it could have caught:** the tests of `internal/auth` with their own helpers and the downloads with headers did not go through it, a query parameter the document did not have passed, and so did a `201` without its `Location`.
+- **A disk that fails while an upload is written to its temporary file answered `400 malformed_upload`,** without a line in the log. It is a `500`.
+- **An upload whose last step failed** (the client left when the bytes had arrived) counted for the quota for a day. It is released at once. The store also has its own time limit, so a bucket that stops answering does not hold the request.
+- **The error of a download carried the headers of the file** (`Content-Disposition`, `ETag`): a browser saved the JSON of a `404` as `photo.png`.
+- **The local store left its temporary files** when the process died in the middle of an upload. They go under `.tmp/` now, and the startup deletes the old ones.
+- **`SEED_PASSWORD` and `ADMIN_PASSWORD` in quotes kept the quotes** as part of the password, with `make` or an env file of Docker. So did `HTTP_ADDR` in the health check of the container, which also asked `127.0.0.1` when the server listened on one address only.
+- **`make seed` after a seed that was cut,** or with the categories deleted, failed on the role that was already there or said everything was there without its account.
+- **A reminder of an appointment that already started** was sent when its job ran late.
+- **The subcommands:** `-h` printed its usage and exited with an error; `api seed -h` seeded and `api fresh test` recreated the development database (an argument they do not take is now an error); `create-admin` asked for the password before finding a mistake in the configuration; Ctrl+C at the password prompt left the terminal without showing what is typed; a second Ctrl+C while the server shut down was ignored.
+- **`docs/deploy.md`:** the systemd unit of "Without Docker" left `/tmp` read-only, so every upload failed (`PrivateTmp`, `StateDirectory`); `docker compose up --build` stopped once `go.mod` asked for a newer Go than the server's copy of the image (the `Dockerfile` sets `GOTOOLCHAIN=auto`); the `rsync` of the frontend deleted `deploy/site/.gitignore`; and how to restore the uploaded files was missing. `deploy/.env.example` gains `S3_ENDPOINT`, `S3_PATH_STYLE`, `API_IMAGE` and `GOMEMLIMIT`.
+- **Guides that no longer matched the code:** step 5 of `docs/adding-a-resource.md` did not compile for a copy of `notes`; `docs/decisions.md` said a wrong method answers `404` (it is `405`) and that S3 is removed by deleting one file; the recipe to remove the queue deleted the test of the health check, and the ones to remove the roles, 2FA, the files and the OpenAPI contract left a test, a variable of the deployment or the instructions of `AGENTS.md` behind. `AGENTS.md` says what to do without `SEED_PASSWORD`, and that the database tests fail with `CI` set and no test database.
+- **The message of `last_admin`** said "you can't delete" also when demoting or suspending the only administrator.
 
 ## [v0.12.0] - 2026-11-21
 
@@ -56,7 +85,7 @@ File uploads: on the local disk or in S3, with the permission check on every dow
 
 - **File uploads** (`internal/files`, see `docs/files.md`): `POST /files` receives a `multipart/form-data` file, `GET /files/{id}` serves it to its owner or an administrator, and `DELETE /files/{id}` deletes one that nothing uses. A resource uses a file with three calls: `Receive` in its upload route, `files.Attach` in the transaction that links it and `files.Release` in the one that deletes it; `Serve` sends a file after the resource's own permission check.
 - **Where the files are kept** (`internal/storage`): `STORAGE_DRIVER=local` (the `STORAGE_DIR` directory, for development and a single server) or `s3`, for Amazon S3 and the compatible services (Cloudflare R2, MinIO), with the `S3_*` variables. On AWS, without keys: the SDK takes the role of the machine. The bucket stays private.
-- **A new dependency, the official AWS SDK** (`aws-sdk-go-v2`), only for the S3 store: signing the requests by hand would have been security code to maintain against a service that changes. A project that does not use S3 removes it by deleting one file (see "Removing file uploads" in `docs/files.md`).
+- **A new dependency, the official AWS SDK** (`aws-sdk-go-v2`), only for the S3 store: signing the requests by hand would have been security code to maintain against a service that changes. A project that does not use S3 removes it with a short recipe (see "Removing file uploads" in `docs/files.md`).
 - **The `files` table** records whose each file is, its name, its type and its state. Its row is created before the upload and deleted after the bytes, so a failure in the middle never leaves an object in the store that the database does not know about.
 - **The hourly cleanup deletes the files nobody needs** (`files.Purge`): the released ones, those of a deleted account, and the ones uploaded more than a day ago that no resource took.
 - **What keeps an uploaded file from being dangerous:** its type is the one found in its bytes, not the one the request says; only the images are shown in the browser and everything else is downloaded, with `Content-Security-Policy: sandbox`; the bytes are stored under a random key, never under the name sent; and each user has a limit of uploads in a row (30) and of total space (1 GB), in PostgreSQL.

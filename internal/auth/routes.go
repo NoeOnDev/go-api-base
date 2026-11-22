@@ -90,6 +90,7 @@ func Register(mux *http.ServeMux, s *Service, limits Limits) {
 	handle("GET /admin/permissions", s.RequireAdmin(httpx.Handle(s.listPermissions)))
 	handle("GET /admin/roles", s.RequireAdmin(httpx.Handle(s.listRoles)))
 	handle("POST /admin/roles", s.RequireAdmin(httpx.Handle(s.createRole)))
+	handle("GET /admin/roles/{key}", s.RequireAdmin(httpx.Handle(s.getRole)))
 	handle("PUT /admin/roles/{key}", s.RequireAdmin(account(httpx.Handle(s.updateRole))))
 	handle("DELETE /admin/roles/{key}", s.RequireAdmin(httpx.Handle(s.deleteRole)))
 

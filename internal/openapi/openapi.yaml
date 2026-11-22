@@ -13,7 +13,9 @@ info:
     A session is a cookie the login sets: send it with each request (`credentials: "include"` from another origin).
     Every error has the same shape (`Error`), with a `code` for the code of the frontend and a `message` for the person,
     in the language of `Accept-Language`. Any route can also answer `400` (a body that is not valid JSON), `429`
-    (too many requests; see `Retry-After`) and `500`: they are the `default` response of each one.
+    (too many requests; see `Retry-After`) and `500`: they are the `default` response of each one. A request that
+    changes something (`POST`, `PUT`, `DELETE`) and comes from the page of an origin that is not allowed answers
+    `403 cross_origin_rejected`, on any route.
 tags:
 - {name: Account}
 - {name: Sessions}
@@ -129,17 +131,18 @@ paths:
       operationId: updateMe
       tags: [Account]
       summary: Edit the profile
-      description: With a session, even without a verified email.
+      description: 'With a session, even without a verified email. It replaces the name; the language and the time zone change only if they are sent.'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [name]
               properties:
                 name: {type: string}
-                locale: {type: string, description: One of the languages of the API; an empty text goes back to the default., nullable: true}
-                time_zone: {type: string, description: An IANA name; an empty text goes back to the application's., nullable: true}
+                locale: {type: string, description: 'One of the languages of the API. An empty text goes back to the default; `null`, or leaving it out, keeps the one the user has.', nullable: true}
+                time_zone: {type: string, description: "An IANA name. An empty text goes back to the application's; `null`, or leaving it out, keeps the one the user has.", nullable: true}
               additionalProperties: false
       responses:
         '200':
@@ -176,7 +179,7 @@ paths:
       operationId: changePassword
       tags: [Account]
       summary: Change the password
-      description: With a session, even without a verified email. It closes the other sessions.
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). It closes the other sessions.'
       requestBody:
         required: true
         content:
@@ -191,6 +194,7 @@ paths:
       responses:
         '204': {description: 'Done, without a body.'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '422': {$ref: '#/components/responses/ValidationFailed'}
         default: {$ref: '#/components/responses/Error'}
   /auth/password/forgot:
@@ -250,7 +254,7 @@ paths:
       operationId: requestEmailChange
       tags: [Account]
       summary: Ask to change the email
-      description: 'With a session, even without a verified email. The change happens when the link sent to the new address is opened. Errors: `409 email_taken`.'
+      description: 'With a session, even without a verified email. The change happens when the link sent to the new address is opened. Errors: `409 email_taken`, `429 too_many_emails`.'
       requestBody:
         required: true
         content:
@@ -282,7 +286,7 @@ paths:
       operationId: confirmEmailChange
       tags: [Account]
       summary: Confirm the new email with the link
-      description: Public.
+      description: 'Public. Errors: `409 email_taken`.'
       security: []
       requestBody:
         required: true
@@ -432,7 +436,7 @@ paths:
       operationId: setupTwoFactor
       tags: [Two-factor]
       summary: Get the secret to add the account to an authenticator app
-      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). Errors: `409 two_factor_already_enabled`.'
       responses:
         '200':
           description: OK
@@ -454,7 +458,7 @@ paths:
       operationId: enableTwoFactor
       tags: [Two-factor]
       summary: Turn on 2FA with a code of the app
-      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). Errors: `409 two_factor_setup_required`, `409 two_factor_secret_changed`, `409 two_factor_already_enabled`.'
       requestBody:
         required: true
         content:
@@ -490,7 +494,7 @@ paths:
       operationId: disableTwoFactor
       tags: [Two-factor]
       summary: Turn off 2FA
-      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). With a code of the app or a recovery code.
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). With a code of the app or a recovery code. Errors: `409 two_factor_not_enabled`.'
       requestBody:
         required: true
         content:
@@ -515,7 +519,7 @@ paths:
       operationId: regenerateRecoveryCodes
       tags: [Two-factor]
       summary: Get new recovery codes
-      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). Errors: `409 two_factor_not_enabled`.'
       requestBody:
         required: true
         content:
@@ -550,7 +554,7 @@ paths:
       operationId: twoFactorChallenge
       tags: [Two-factor]
       summary: Second step of the login
-      description: 'Public. After a login that answered `202`. Errors: `401 two_factor_challenge_expired`, `401 two_factor_locked`.'
+      description: 'Public. After a login that answered `202`: that answer set the `two_factor_challenge` cookie, which the browser sends here by itself. Errors: `401 two_factor_challenge_expired`, `401 two_factor_locked`.'
       security: []
       requestBody:
         required: true
@@ -626,7 +630,7 @@ paths:
                 role: {type: string}
                 locale: {type: string, nullable: true}
                 time_zone: {type: string, description: An IANA name like America/Mexico_City., nullable: true}
-                password: {type: string, description: 'The administrator''s own, only to invite another administrator.'}
+                password: {type: string, description: 'The administrator''s own, to invite with any role other than `user`.'}
               additionalProperties: false
       responses:
         '201':
@@ -664,7 +668,7 @@ paths:
       operationId: deleteUser
       tags: [Users]
       summary: Delete a user
-      description: Administrators only.
+      description: 'Administrators only. Errors: `409 own_account`, `409 last_admin`, `409 account_has_data`.'
       parameters:
       - name: id
         in: path
@@ -727,7 +731,7 @@ paths:
       operationId: suspendUser
       tags: [Users]
       summary: Suspend a user
-      description: Administrators only.
+      description: 'Administrators only. Errors: `409 own_account`, `409 last_admin`.'
       parameters:
       - name: id
         in: path
@@ -749,7 +753,7 @@ paths:
       operationId: unsuspendUser
       tags: [Users]
       summary: Lift the suspension
-      description: Administrators only.
+      description: 'Administrators only. Errors: `409 own_account`.'
       parameters:
       - name: id
         in: path
@@ -846,7 +850,6 @@ paths:
                 permissions:
                   type: array
                   items: {type: string}
-                password: {type: string, description: 'The administrator''s own, to change an existing role.'}
               additionalProperties: false
       responses:
         '201':
@@ -864,11 +867,31 @@ paths:
         '422': {$ref: '#/components/responses/ValidationFailed'}
         default: {$ref: '#/components/responses/Error'}
   /admin/roles/{key}:
+    get:
+      operationId: getRole
+      tags: [Roles]
+      summary: See a role
+      description: Administrators only.
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema: {type: string}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Role'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        default: {$ref: '#/components/responses/Error'}
     put:
       operationId: updateRole
       tags: [Roles]
       summary: Change the name and the permissions of a role
-      description: 'Administrators only. It applies from the next request of its users. Errors: `409 built_in_role`.'
+      description: 'Administrators only. It applies from the next request of its users. A permission the role had and the code no longer defines stays stored. Errors: `409 built_in_role`.'
       parameters:
       - name: key
         in: path
@@ -882,7 +905,6 @@ paths:
               type: object
               required: [name, password]
               properties:
-                key: {type: string, description: 'Lowercase letters, numbers and `_`. It does not change.'}
                 name: {type: string}
                 permissions:
                   type: array
@@ -1056,6 +1078,11 @@ paths:
       responses:
         '200':
           description: OK
+          content:
+            '*/*':
+              schema: {type: string, format: binary}
+        '206':
+          description: A part of the file, for a request with `Range` (a video, a download that continues). Only with the files on the local disk; S3 sends the whole file.
           content:
             '*/*':
               schema: {type: string, format: binary}
@@ -1239,7 +1266,7 @@ paths:
       operationId: attachToNote
       tags: [Notes]
       summary: Upload a file and add it to the note
-      description: With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on).
+      description: 'With a session (and a verified email, if `REQUIRE_EMAIL_VERIFICATION` is on). Errors: `400 malformed_upload`, `404 note_not_found`, `409 storage_quota_exceeded`.'
       parameters:
       - name: id
         in: path
@@ -1368,7 +1395,7 @@ paths:
       operationId: updateCategory
       tags: [Catalog]
       summary: Replace a category
-      description: With the `categories.manage` permission (the administrators have every one).
+      description: 'With the `categories.manage` permission (the administrators have every one). Errors: `409 slug_taken`.'
       parameters:
       - name: id
         in: path
@@ -1459,7 +1486,7 @@ paths:
       operationId: createProduct
       tags: [Catalog]
       summary: Create a product
-      description: With the `products.manage` permission (the administrators have every one).
+      description: 'With the `products.manage` permission (the administrators have every one). Errors: `409 slug_taken`.'
       requestBody:
         required: true
         content:
@@ -1515,7 +1542,7 @@ paths:
       operationId: updateProduct
       tags: [Catalog]
       summary: Replace a product
-      description: With the `products.manage` permission (the administrators have every one).
+      description: 'With the `products.manage` permission (the administrators have every one). Errors: `409 slug_taken`.'
       parameters:
       - name: id
         in: path
@@ -1869,6 +1896,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
         default: {$ref: '#/components/responses/Error'}
   /branches/{id}/availability:
     get:
@@ -2153,7 +2181,7 @@ paths:
       operationId: updateShift
       tags: [Shifts]
       summary: Replace a shift
-      description: Administrators only.
+      description: 'Administrators only. Errors: `409 shift_overlap`.'
       parameters:
       - name: id
         in: path
@@ -2557,6 +2585,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationFailed'}
         default: {$ref: '#/components/responses/Error'}
   /healthz:
     get:
@@ -2622,7 +2651,7 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
     Forbidden:
-      description: 'The session is not allowed to: `forbidden`, `email_not_verified`, `admin_two_factor_required`.'
+      description: 'The session is not allowed to: `forbidden`, `email_not_verified`, `admin_two_factor_required`. Also a request from another origin: `cross_origin_rejected`.'
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}

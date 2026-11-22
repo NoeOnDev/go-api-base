@@ -31,9 +31,11 @@ UPDATE roles
 SET name = $2, updated_at = now()
 WHERE key = $1 AND NOT built_in;
 
+-- DeleteRolePermissions takes the given permissions off a role. They are the ones the code defines:
+-- one it no longer defines (a deploy that went back, a resource removed for a while) stays stored.
 -- name: DeleteRolePermissions :exec
 DELETE FROM role_permissions
-WHERE role = $1;
+WHERE role = sqlc.arg('role') AND permission = ANY(sqlc.arg('permissions')::text[]);
 
 -- name: AddRolePermissions :exec
 INSERT INTO role_permissions (role, permission)

@@ -94,7 +94,7 @@ func TestInviteValidation(t *testing.T) {
 	for name, tt := range map[string]struct{ body, field string }{
 		"without a name":   {inviteBody(" ", "bob@example.com", auth.RoleUser), "name"},
 		"invalid email":    {inviteBody("Bob", "not-an-email", auth.RoleUser), "email"},
-		"unknown role":     {inviteBody("Bob", "bob@example.com", "owner"), "role"},
+		"unknown role":     {`{"name":"Bob","email":"bob@example.com","role":"owner","password":"` + testutil.Password + `"}`, "role"},
 		"unknown language": {`{"name":"Bob","email":"bob@example.com","role":"user","locale":"fr"}`, "locale"},
 	} {
 		w := testutil.Do(t, api, admin, http.MethodPost, "/admin/users", tt.body)
@@ -272,7 +272,14 @@ func TestInviteWithARole(t *testing.T) {
 	_, admin := testutil.Login(t, pool, "admin@example.com", auth.RoleAdmin)
 	testutil.CreateRole(t, pool, "auditor", permView)
 
+	// Like another admin, it asks for the admin's password: with a stolen session, an account with
+	// the permissions of a role would outlast it.
 	w := testutil.Do(t, api, admin, http.MethodPost, "/admin/users", inviteBody("Bob", "bob@example.com", "auditor"))
+	if resp := testutil.Decode[testutil.APIError](t, w, http.StatusUnprocessableEntity); resp.Error.Fields["password"] == "" {
+		t.Errorf("without the password: want an error on password: %+v", resp.Error)
+	}
+	body := fmt.Sprintf(`{"name":"Bob","email":"bob@example.com","role":"auditor","password":%q}`, testutil.Password)
+	w = testutil.Do(t, api, admin, http.MethodPost, "/admin/users", body)
 	if got := testutil.Decode[auth.AdminUser](t, w, http.StatusCreated); got.Role != "auditor" || got.Status != auth.StatusInvited {
 		t.Errorf("invited user = %+v", got)
 	}

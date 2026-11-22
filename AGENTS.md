@@ -91,13 +91,13 @@ sections that exist (`docs/links_test.go`).
 |---|---|
 | `make run` | Starts the API (applies the migrations on startup) |
 | `make check` | **Always run it before committing**: gofmt, sqlc diff, go vet, staticcheck, go test and govulncheck |
-| `make test` | Tests (`go test -p 1`; the database ones use `TEST_DATABASE_URL`, and are skipped without it) |
+| `make test` | Tests (`go test -p 1`; the database ones use `TEST_DATABASE_URL`, and are skipped without it, or fail if `CI` is set: a pipeline must not pass without them) |
 | `make test-race` | The tests with the race detector (slower; CI runs it). Run it after touching goroutines or shared state |
 | `make sqlc` | Regenerate `internal/store` after changing migrations or queries |
 | `make migrate-new name=create_x` | Create a new migration |
 | `make migrate-up` / `migrate-down` / `migrate-status` | Manage migrations in development |
-| `make seed` | Fill the development database: an admin, a user and example data (password from `SEED_PASSWORD` or the terminal). Safe to run again; it refuses in production |
-| `make fresh` / `make fresh-test` | Recreate the development database from the migrations and seed it / the test one. **Run both after editing a migration**: goose does not apply again one it already applied, and the tests fail with "missing migrations". They refuse in production |
+| `make seed` | Fill the development database: an admin, a user and example data (password from `SEED_PASSWORD` or the terminal). Safe to run again; it refuses in production, and with a database that is not on this machine |
+| `make fresh` / `make fresh-test` | Recreate the development database from the migrations and seed it (it needs `SEED_PASSWORD`, like `make seed`, and stops before deleting anything without it) / the test one. **Run both after editing a migration**: goose does not apply again one it already applied, so the database keeps the old schema and the tests fail. They refuse in production, and with a database that is not on this machine (`DEV_DATABASE_HOST` allows one in a container) |
 | `make create-admin email=… name=…` | Create an administrator (password from `ADMIN_PASSWORD` or the terminal) |
 | `make key` / `make rotate-keys` | Generate an `ENCRYPTION_KEY` / finish a rotation (see `docs/encryption.md`) |
 | `make river-migration version=N` | SQL of a new River migration, when updating it (see `docs/jobs.md`) |
@@ -111,8 +111,8 @@ their own `go.mod`**: `gonew` does not copy them.
 ## Structure
 
 ```
-cmd/api/              startup (main.go) and the create-admin (admin.go), seed (seed.go), fresh (fresh.go), generate-key and
-                      rotate-keys (keys.go) subcommands
+cmd/api/              startup (main.go) and the create-admin (admin.go), seed (seed.go), fresh (fresh.go), healthcheck
+                      (health.go), generate-key and rotate-keys (keys.go) subcommands
 internal/config/      configuration from environment variables
 internal/httpx/       JSON, errors, pagination, middlewares, CORS, per-IP request limits, client IP
 internal/server/      http.Server with timeouts, routes, CSRF and middleware order (routes.go)
@@ -205,8 +205,10 @@ docs/                 guides and design decisions (see "Where to look"); links_t
   (`WHERE id = $1 AND user_id = $2`). Someone else's resource responds 404, not 403. See `internal/notes`.
 - Do not touch the CSRF or CORS protection of `internal/server/routes.go` without asking.
 - **Creating accounts** (see "Roles" in `docs/auth.md`): for development, `make seed`, whose throwaway accounts
-  (`admin@example.com`, `user@example.com`) take `SEED_PASSWORD` from `.env`; you may read and use that password. A real
-  administrator is `make create-admin email=…`, which asks the person for the password in their terminal: **do not ask
+  (`admin@example.com`, `user@example.com`) take `SEED_PASSWORD` from `.env`; you may read and use that password. If
+  `.env` does not have it, add it yourself with a value of your own (it is the password of example data on that
+  machine; the API rejects a short or common one): without it and without a terminal, `make seed` and `make fresh` stop
+  before doing anything. A real administrator is `make create-admin email=…`, which asks the person for the password in their terminal: **do not ask
   the user for that password, invent one or put `ADMIN_PASSWORD` in `.env`**. Give them the command to run themselves.
   `ADMIN_PASSWORD` is for a deploy script, from its secret store.
 - `RequireUser` also requires a verified email if `REQUIRE_EMAIL_VERIFICATION=true` (403 `email_not_verified`).
@@ -276,6 +278,11 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 - `files.Attach(ctx, q, userID, ids...)` in the transaction that links the file to the resource, and
   `files.Release(ctx, q, ids...)` in the one that deletes the resource or takes the file off it. Without the release, the
   file stays in the store forever. See `internal/notes/attachments.go`.
+- `Attach` is for the data of each user: the file goes when their account is deleted. A file of a resource that
+  outlives who uploaded it (a product image, a company logo) is taken with `files.AttachShared`, or it would disappear
+  with that person's account.
+- The transaction that deletes a resource locks its row (`SELECT … FOR UPDATE`) before reading its files, as `delete`
+  does in `internal/notes/handlers.go` with `LockNote`: a file attached at that same moment would stay in use forever.
 - A file others can see (a product image) is served from a route of the resource with `filesService.Serve(w, r, id)`,
   after its own permission check. `GET /files/{id}` only lets the owner and the administrators in.
 - Never write a file to the response by hand, nor show a type other than `files.Images` in the page: files are served
@@ -326,7 +333,8 @@ docs/                 guides and design decisions (see "Where to look"); links_t
 - If the test's API changes the cookie configuration (`WithConfig` with `CookieSecure`), pass the same options to
   `testutil.Login` so the cookie matches.
 - Uploads: `testutil.Upload(t, api, cookie, "/files", "photo.png", testutil.PNG)` sends the form as a browser does. The
-  files of the tests are kept in memory; to look at them, `testutil.WithStorage(storage.NewMemory())`.
+  files of the tests are kept in memory; to look at them, `testutil.WithStorage(storage.NewMemory())`. A request with
+  other headers (`Range`, `If-None-Match`): `testutil.DoWithHeaders(t, api, cookie, method, path, body, "Range: bytes=0-9")`.
 - Real-time events: `testutil.NewServer` (a real HTTP server) and `testutil.OpenEvents`, which returns a reader with
   `Next`, `NextComment` and `Nothing`. To publish from the test, `testutil.WithBroker`. See `internal/notes/events_test.go`.
 - Workers: `rivertest.NewWorker` and `rivertest.RequireInserted`. See `internal/jobs/email_test.go`. To check what a

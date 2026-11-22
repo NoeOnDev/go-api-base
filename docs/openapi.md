@@ -49,11 +49,13 @@ A document written by hand goes out of date, which is why the template did not h
 | Check | What fails |
 |---|---|
 | The routes (`internal/openapi/openapi_test.go`) | A route of the code that the document does not have, or one of the document that is not in the code. Also an operation without `operationId`, summary or `default` response |
-| The responses (`internal/testutil/contract.go`) | Every request a test sends with `testutil.Do` or `testutil.Upload` to the API of `testutil.NewAPI` is checked: the status must be one the operation lists, and the body must have the shape it says. If the API accepted the request (`2xx`), the request is checked too: its parameters and its body |
+| The responses (`internal/testutil/contract.go`) | Every request a test sends with `testutil.Do`, `testutil.Upload` and the others to the API of `testutil.NewAPI` is checked: the status must be one the operation lists, the body must have the shape it says, and a header it names (`Location`) must be there. If the API accepted the request (`2xx`), the request is checked too: its parameters and its body, and that it has no query parameter the document does not have |
 
 So the tests a resource already needs are what keeps its part of the document true. A handler that returns a new field fails with `property "x" is unsupported`; one that answers a new error, with `answered 409, which openapi.yaml does not list for it`; a test that sends a field the document does not have, with `the request is not what openapi.yaml describes`.
 
-What they do not check is a route no test calls: the document can say anything about it. A resource with the tests `AGENTS.md` asks for (the happy path, `422`, `404`, `401`) has its part covered.
+What they do not check is what no test does: a route no test calls, a status no test causes, or a field of a request that the document leaves optional and the handler requires (a test that sends it passes either way). A resource with the tests `AGENTS.md` asks for (the happy path, `422`, `404`, `401`) has its part covered; when you write the operation, look at what the handler validates for `required`.
+
+A test must send its requests with the functions of `testutil` to be checked: one that calls `api.ServeHTTP` by itself is not.
 
 ## Changing the API
 
@@ -78,5 +80,6 @@ Then run the tests of the resource: they say what the document still has wrong.
 2. In `internal/server/routes.go`, remove the `GET /openapi.yaml` route. In `internal/server/routes_test.go`, delete `TestOpenAPIDocument` (`TestRolesMatchTheDocument` can stay: it still checks the statuses).
 3. In `internal/testutil/http.go`, `NewAPI` returns `server.NewHandler(d)` as it is, and the two calls to `checkContract` go.
 4. `go mod tidy`, which removes `kin-openapi`, and `make check`.
+5. What tells the coding agents to keep the document: in `AGENTS.md`, the rule "Every route is in `internal/openapi/openapi.yaml`", the sentence about it in "Tests", its step in "Adding a resource", its rows in "Where to look" and its line in "Structure"; step 6 of [adding-a-resource.md](adding-a-resource.md); and the sentence "the routes left in `openapi.yaml`" in the recipes that remove something (the README, [auth.md](auth.md#removing-features), [files.md](files.md#removing-file-uploads), [realtime.md](realtime.md#removing-real-time), [time.md](time.md#removing-the-examples)).
 
 This recipe was tested on a copy of the project.

@@ -46,10 +46,11 @@ func contractRouter() (routers.Router, error) {
 }
 
 // checkContract checks a request the API answered against openapi.yaml: that the route is there,
-// that it documents the status it answered, and that the body has the shape it says. When the API
-// accepted the request (2xx), the request is checked too: its parameters and its body are what the
-// document describes. It is what keeps the document true: a handler that returns a new field, or a
-// new error, fails its own tests until the document says so.
+// that it documents the status it answered, and that the body has the shape it says, with the
+// headers it names (Location). When the API accepted the request (2xx), the request is checked too:
+// its parameters and its body are what the document describes, and it has no query parameter the
+// document does not have. It is what keeps the document true: a handler that returns a new field,
+// or a new error, fails its own tests until the document says so.
 //
 // A request to a route that does not exist, which some tests send on purpose, is left alone.
 func checkContract(t *testing.T, api http.Handler, method, target string, header http.Header, body []byte, w *httptest.ResponseRecorder) {
@@ -89,6 +90,21 @@ func checkContract(t *testing.T, api http.Handler, method, target string, header
 		if err := openapi3filter.ValidateRequest(ctx, input); err != nil {
 			t.Errorf("%s %s was accepted (%d), but the request is not what openapi.yaml describes:\n%v", method, route.Path, w.Code, contractError(err))
 		}
+		// The library only looks at the parameters the document has: one the handler reads and the
+		// document forgot would pass.
+		for name := range r.URL.Query() {
+			if !declaresQuery(route, name) {
+				t.Errorf("%s %s was accepted (%d) with the query parameter %q, which openapi.yaml does not have for it", method, route.Path, w.Code, name)
+			}
+		}
+	}
+	// A header the document names for this status (Location in a 201) must be there.
+	if documented := route.Operation.Responses.Status(w.Code); documented != nil && documented.Value != nil {
+		for name := range documented.Value.Headers {
+			if w.Header().Get(name) == "" {
+				t.Errorf("%s %s answered %d without the %s header, which openapi.yaml says it has", method, route.Path, w.Code, name)
+			}
+		}
 	}
 	response := &openapi3filter.ResponseValidationInput{
 		RequestValidationInput: input, Status: w.Code, Header: w.Header(),
@@ -98,6 +114,16 @@ func checkContract(t *testing.T, api http.Handler, method, target string, header
 	if err := openapi3filter.ValidateResponse(ctx, response); err != nil {
 		t.Errorf("%s %s answered %d, which is not what openapi.yaml describes:\n%v\nbody: %.300s", method, route.Path, w.Code, contractError(err), w.Body.String())
 	}
+}
+
+// declaresQuery reports whether the operation of the route, or its path, has the query parameter.
+func declaresQuery(route *routers.Route, name string) bool {
+	for _, params := range []openapi3.Parameters{route.Operation.Parameters, route.PathItem.Parameters} {
+		if params.GetByInAndName(openapi3.ParameterInQuery, name) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // listedByItself reports whether an operation must list the status by itself, instead of leaving

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -58,8 +59,12 @@ var seeders = []seeder{
 // accounts after the database is recreated.
 //
 // The password of the accounts is taken from SEED_PASSWORD or asked for in the terminal. It refuses
-// to run in production: its accounts have a password everyone on the project knows.
-func runSeed() error {
+// to run in production, and against a database that is not in this machine: its accounts have a
+// password everyone on the project knows.
+func runSeed(args []string) error {
+	if err := parseFlags(flag.NewFlagSet("seed", flag.ContinueOnError), args); err != nil {
+		return err
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("configuration: %w", err)
@@ -73,7 +78,7 @@ func runSeed() error {
 	}
 
 	ctx := context.Background()
-	pool, err := db.Open(ctx, cfg.DatabaseURL)
+	pool, err := openDevDatabase(ctx, "seed", cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
@@ -135,11 +140,9 @@ const (
 
 // seedCatalog creates a few categories with their products (the categories and products examples),
 // one of them inactive: only whoever manages the catalog sees it. It also creates a role with the
-// two permissions of the catalog and an account that has it.
+// two permissions of the catalog and an account that has it. Each of the three is created if it is
+// not there, so a seed that was cut in the middle is completed by the next one.
 func seedCatalog(ctx context.Context, s seedDeps) (string, error) {
-	if n, err := s.q.CountCategories(ctx); err != nil || n > 0 {
-		return "already there", err
-	}
 	type product struct {
 		name, slug string
 		priceCents int64
@@ -165,45 +168,75 @@ func seedCatalog(ctx context.Context, s seedDeps) (string, error) {
 			{name: "Seasonal cake", slug: "seasonal-cake", priceCents: 6900, stock: 0, inactive: true},
 		}},
 	}
-	created := 0
-	for _, c := range catalog {
-		category, err := s.q.CreateCategory(ctx, store.CreateCategoryParams{Name: c.name, Slug: c.slug})
-		if err != nil {
-			return "", fmt.Errorf("create category %s: %w", c.slug, err)
-		}
-		for _, p := range c.products {
-			_, err := s.q.CreateProduct(ctx, store.CreateProductParams{
-				CategoryID: category.ID, Name: p.name, Slug: p.slug, PriceCents: p.priceCents, Stock: p.stock, Active: !p.inactive,
-			})
-			if err != nil {
-				return "", fmt.Errorf("create product %s: %w", p.slug, err)
+	var done []string
+
+	// The categories and their products, all or none.
+	n, err := s.q.CountCategories(ctx)
+	if err != nil {
+		return "", err
+	}
+	if n == 0 {
+		created := 0
+		err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+			q := s.q.WithTx(tx)
+			for _, c := range catalog {
+				category, err := q.CreateCategory(ctx, store.CreateCategoryParams{Name: c.name, Slug: c.slug})
+				if err != nil {
+					return fmt.Errorf("create category %s: %w", c.slug, err)
+				}
+				for _, p := range c.products {
+					_, err := q.CreateProduct(ctx, store.CreateProductParams{
+						CategoryID: category.ID, Name: p.name, Slug: p.slug, PriceCents: p.priceCents, Stock: p.stock, Active: !p.inactive,
+					})
+					if err != nil {
+						return fmt.Errorf("create product %s: %w", p.slug, err)
+					}
+					created++
+				}
 			}
-			created++
+			return nil
+		})
+		if err != nil {
+			return "", err
 		}
+		done = append(done, fmt.Sprintf("%d categories and %d products", len(catalog), created))
 	}
 
 	// A role of the project and an account with it, to see what a permission does: this account
 	// manages the catalog, and nothing else of an administrator.
-	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		q := s.q.WithTx(tx)
-		if err := q.CreateRole(ctx, store.CreateRoleParams{Key: seedManagerRole, Name: "Catalog manager"}); err != nil {
-			return err
-		}
-		return q.AddRolePermissions(ctx, store.AddRolePermissionsParams{
-			Role: seedManagerRole, Permissions: []string{categories.PermManage, products.PermManage},
+	if _, err := s.q.GetRole(ctx, seedManagerRole); errors.Is(err, pgx.ErrNoRows) {
+		err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+			q := s.q.WithTx(tx)
+			if err := q.CreateRole(ctx, store.CreateRoleParams{Key: seedManagerRole, Name: "Catalog manager"}); err != nil {
+				return err
+			}
+			return q.AddRolePermissions(ctx, store.AddRolePermissionsParams{
+				Role: seedManagerRole, Permissions: []string{categories.PermManage, products.PermManage},
+			})
 		})
-	})
-	if err != nil {
-		return "", fmt.Errorf("create the role %s: %w", seedManagerRole, err)
+		if err != nil {
+			return "", fmt.Errorf("create the role %s: %w", seedManagerRole, err)
+		}
+		done = append(done, "the role "+seedManagerRole)
+	} else if err != nil {
+		return "", fmt.Errorf("find the role %s: %w", seedManagerRole, err)
 	}
 	manager, err := s.auth.CreateUser(ctx, auth.RegisterInput{Name: "Manager", Email: seedManagerEmail, Password: s.password}, seedManagerRole)
-	if err != nil {
+	var apiErr *httpx.Error
+	switch {
+	case errors.As(err, &apiErr) && apiErr.Code == "email_taken":
+	case err != nil:
 		return "", err
+	default:
+		if err := s.q.MarkEmailVerified(ctx, manager.ID); err != nil {
+			return "", fmt.Errorf("verify %s: %w", seedManagerEmail, err)
+		}
+		done = append(done, seedManagerEmail+" with that role")
 	}
-	if err := s.q.MarkEmailVerified(ctx, manager.ID); err != nil {
-		return "", fmt.Errorf("verify %s: %w", seedManagerEmail, err)
+	if len(done) == 0 {
+		return "already there", nil
 	}
-	return fmt.Sprintf("%d categories and %d products, and %s with the role %s", len(catalog), created, seedManagerEmail, seedManagerRole), nil
+	return strings.Join(done, ", "), nil
 }
 
 // seedNotes gives the user of the seed a few notes (the notes example).

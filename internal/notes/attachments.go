@@ -1,6 +1,7 @@
 package notes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/NoeOnDev/go-api-base/internal/auth"
+	"github.com/NoeOnDev/go-api-base/internal/db"
 	"github.com/NoeOnDev/go-api-base/internal/files"
 	"github.com/NoeOnDev/go-api-base/internal/httpx"
 	"github.com/NoeOnDev/go-api-base/internal/store"
@@ -83,13 +85,21 @@ func (h *Handler) attach(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		err := q.CreateNoteAttachment(r.Context(), store.CreateNoteAttachmentParams{NoteID: id, FileID: file.ID})
+		if _, ok := db.IsForeignKeyViolation(err); ok {
+			return errNotFound // the note was deleted while the file was uploading
+		}
 		if err != nil {
-			// The note was deleted meanwhile: the file stays without use, and the cleanup deletes it.
 			return fmt.Errorf("attach file %d to note %d: %w", file.ID, id, err)
 		}
 		return nil
 	})
 	if err != nil {
+		// The file stays without a note: it is released now, so it does not count for the quota
+		// until the cleanup finds it a day later. Not with the request's context, which may be why
+		// the transaction failed.
+		if relErr := files.Release(context.WithoutCancel(r.Context()), h.q, file.ID); relErr != nil {
+			httpx.LoggerFrom(r.Context()).Error("could not release a file that was not attached", "file_id", file.ID, "error", relErr)
+		}
 		return err
 	}
 

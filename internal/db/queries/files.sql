@@ -5,10 +5,12 @@ VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- MarkFileUploaded records that the bytes are in the store: from here on the file can be served.
+-- It finds nothing if the file was marked to be deleted while it was uploading (its account was
+-- deleted): the cleanup deletes what arrived.
 -- name: MarkFileUploaded :one
 UPDATE files
 SET uploaded_at = now()
-WHERE id = $1
+WHERE id = $1 AND deleted_at IS NULL
 RETURNING *;
 
 -- GetFile returns a file that can be served: uploaded and not marked to be deleted.
@@ -23,9 +25,10 @@ WHERE user_id = $1 AND deleted_at IS NULL;
 
 -- AttachFiles marks the user's files as in use, and returns how many it marked: fewer than asked
 -- means that one is not theirs, is not uploaded, is already in use or is marked to be deleted.
+-- shared is true for a file that belongs to its resource and not to who uploaded it.
 -- name: AttachFiles :execrows
 UPDATE files
-SET attached_at = now()
+SET attached_at = now(), shared = sqlc.arg('shared')
 WHERE id = ANY(sqlc.arg('ids')::bigint[]) AND user_id = sqlc.arg('user_id')
   AND uploaded_at IS NOT NULL AND attached_at IS NULL AND deleted_at IS NULL;
 
@@ -42,13 +45,25 @@ UPDATE files
 SET deleted_at = now()
 WHERE id = $1 AND user_id = $2 AND attached_at IS NULL AND deleted_at IS NULL;
 
--- ListPurgeableFiles returns the files the cleanup deletes: the marked ones, those of a deleted
--- account, and the ones that nothing took since before the date (an upload that was cut, or a form
--- that was never sent). The first condition is the one of the files_purge_idx index, to use it.
+-- MarkUnusedFiles marks to be deleted the files nobody needs, and returns how many: those of a
+-- deleted account that are not shared, and the ones that nothing took since before the date (an
+-- upload that was cut, or a form that was never sent). It is one statement, so a file a resource
+-- takes at the same time is either taken or marked, never both: AttachFiles does not take a marked
+-- one. The first condition is the one of the files_unused_idx index, to use it.
+-- name: MarkUnusedFiles :execrows
+UPDATE files
+SET deleted_at = now()
+WHERE deleted_at IS NULL AND (attached_at IS NULL OR user_id IS NULL)
+  AND ((user_id IS NULL AND NOT shared)
+       OR (attached_at IS NULL AND created_at < sqlc.arg('unattached_before')::timestamptz));
+
+-- ListPurgeableFiles returns the marked files, which the cleanup deletes. One whose upload did not
+-- finish waits until the date: its bytes can still be on their way to the store, and deleting the
+-- row first would leave them there without one.
 -- name: ListPurgeableFiles :many
 SELECT id, key FROM files
-WHERE (deleted_at IS NOT NULL OR user_id IS NULL OR attached_at IS NULL)
-  AND (deleted_at IS NOT NULL OR user_id IS NULL OR created_at < sqlc.arg('unattached_before')::timestamptz)
+WHERE deleted_at IS NOT NULL
+  AND (uploaded_at IS NOT NULL OR created_at < sqlc.arg('upload_started_before')::timestamptz)
 ORDER BY id
 LIMIT sqlc.arg('limit');
 

@@ -57,11 +57,18 @@ func (q *Queries) DeleteRole(ctx context.Context, key string) (int64, error) {
 
 const deleteRolePermissions = `-- name: DeleteRolePermissions :exec
 DELETE FROM role_permissions
-WHERE role = $1
+WHERE role = $1 AND permission = ANY($2::text[])
 `
 
-func (q *Queries) DeleteRolePermissions(ctx context.Context, role string) error {
-	_, err := q.db.Exec(ctx, deleteRolePermissions, role)
+type DeleteRolePermissionsParams struct {
+	Role        string
+	Permissions []string
+}
+
+// DeleteRolePermissions takes the given permissions off a role. They are the ones the code defines:
+// one it no longer defines (a deploy that went back, a resource removed for a while) stays stored.
+func (q *Queries) DeleteRolePermissions(ctx context.Context, arg DeleteRolePermissionsParams) error {
+	_, err := q.db.Exec(ctx, deleteRolePermissions, arg.Role, arg.Permissions)
 	return err
 }
 
